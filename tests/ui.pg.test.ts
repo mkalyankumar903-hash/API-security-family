@@ -20,7 +20,7 @@ test("React renders real PostgreSQL backed inventory and assessment report",asyn
   assert.equal((await app.inject({method:"POST",url:"/v1/targets/"+id+"/specifications",headers:auth,payload:{filename:"ui.json",content:text}})).statusCode,201);
   const dom=new JSDOM("<!DOCTYPE html><html><body><div id='root'></div></body></html>",{url:"http://localhost:5173"});
   const oldWindow=globalThis.window, oldDoc=globalThis.document, oldFetch=globalThis.fetch;
-  Object.assign(globalThis,{window:dom.window,document:dom.window.document,navigator:dom.window.navigator,HTMLElement:dom.window.HTMLElement,MutationObserver:dom.window.MutationObserver,IS_REACT_ACT_ENVIRONMENT:true});
+  Object.assign(globalThis,{window:dom.window,document:dom.window.document,HTMLElement:dom.window.HTMLElement,MutationObserver:dom.window.MutationObserver,IS_REACT_ACT_ENVIRONMENT:true});
   globalThis.fetch=async(url:RequestInfo|URL,options?:RequestInit):Promise<Response>=>{
     const u=new URL(String(url));
     const headers=options?.headers as Record<string,string> | undefined;

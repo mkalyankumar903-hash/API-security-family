@@ -122,7 +122,7 @@ export async function makeApp(): Promise<FastifyInstance> {
       if (!exists.rows[0]) throw new ApiError(404,"SPECIFICATION_NOT_FOUND");
       const r=await tx.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key) VALUES($1,$2,$3,$4,'QUEUED','SPEC_ONLY',$5) ON CONFLICT(tenant_id,idempotency_key) DO UPDATE SET id=api_assessments.id RETURNING id,target_id,specification_id,status,mode,created_at",[id,t,targetId,specId,key]);
       if (r.rows[0].specification_id !== specId || r.rows[0].target_id !== targetId) throw new ApiError(409,"IDEMPOTENCY_CONFLICT");
-      await tx.query("INSERT INTO api_assessment_queue(assessment_id,tenant_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[r.rows[0].id,t]);
+      if (r.rows[0].status === "QUEUED") await tx.query("INSERT INTO api_assessment_queue(assessment_id,tenant_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[r.rows[0].id,t]);
       return r.rows[0];
     });
     reply.code(result.id===id?201:200).send(result);
@@ -147,6 +147,7 @@ export async function makeApp(): Promise<FastifyInstance> {
   app.post("/v1/assessments/:id/cancel",async req=>{
     const id=paramsId(req);
     return withTenant(tenant(req),async tx=>{
+      await tx.query("SELECT assessment_id FROM api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[id]);
       const r=await tx.query("UPDATE api_assessments SET status='CANCELLED',completed_at=now() WHERE id=$1 AND status IN ('QUEUED','PROCESSING') RETURNING id,status",[id]);
       if (!r.rows[0]) throw new ApiError(409,"NOT_CANCELLABLE_OR_NOT_FOUND");
       await tx.query("DELETE FROM api_assessment_queue WHERE assessment_id=$1",[id]);
