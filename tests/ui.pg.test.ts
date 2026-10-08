@@ -27,7 +27,7 @@ test("React renders real PostgreSQL backed inventory and assessment report",asyn
     const response=await app.inject({method:(options?.method??"GET") as "GET"|"POST",url:u.pathname+u.search,headers, payload:options?.body?.toString()});
     return new Response(response.body,{status:response.statusCode,headers:{"content-type":"application/json"}});
   };
-  const {render,screen,fireEvent,waitFor,cleanup}=await import("@testing-library/react");
+  const {render,screen,fireEvent,waitFor,cleanup,act}=await import("@testing-library/react");
   const {AssessmentApp}=await import("../packages/ui/src/AssessmentApp.js");
   try{
     render(React.createElement(AssessmentApp,{initialToken:token}),{container:dom.window.document.getElementById("root")!});
@@ -36,7 +36,7 @@ test("React renders real PostgreSQL backed inventory and assessment report",asyn
     await screen.findByText("/admin/accounts");
     fireEvent.click(screen.getByText("Start SPEC_ONLY assessment"));
     await screen.findByText(/Assessment status:/);
-    await drainQueue();
+    await act(async()=>{await drainQueue();});
     await screen.findByText("4. Evidence-backed report",{}, {timeout:8000});
     assert.ok(screen.getByText(/Runtime validation: false/));
     assert.ok(screen.getAllByText("SPEC_OBSERVATION · SPEC_ONLY · Review required").length>0);

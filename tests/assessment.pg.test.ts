@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { migrate,withTenant,pool } from "../packages/database/src/index.js";
 import { makeApp } from "../packages/service/src/app.js";
-import { drainQueue } from "../packages/worker/src/index.js";
+import { drainQueue, processOneJob } from "../packages/worker/src/index.js";
 
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TOKEN_A="local-test-token-alpha", TOKEN_B="local-test-token-beta";
@@ -48,7 +49,9 @@ test("full real PostgreSQL customer workflow, isolation, restart and cancellatio
     assert.equal(retried.json().id,assessmentId);
     assert.equal((await app.inject({method:"GET",url:"/v1/assessments/"+assessmentId,headers:headers(TOKEN_B)})).statusCode,404);
     assert.equal((await app.inject({method:"GET",url:"/v1/assessments/"+assessmentId+"/report",headers:headers(TOKEN_B)})).statusCode,404);
-    assert.equal(await drainQueue(),1);
+    const restartedWorkerOutput=execFileSync(process.execPath,["--import","tsx","packages/worker/src/once.ts"],{cwd:process.cwd(),env:process.env,encoding:"utf8"});
+    assert.match(restartedWorkerOutput,/processed=true/);
+    assert.equal(await drainQueue(),0);
     const status=await app.inject({method:"GET",url:"/v1/assessments/"+assessmentId,headers:headers()});
     assert.equal(status.json().status,"COMPLETED");
     const report=await app.inject({method:"GET",url:"/v1/assessments/"+assessmentId+"/report",headers:headers()});
@@ -73,7 +76,8 @@ test("full real PostgreSQL customer workflow, isolation, restart and cancellatio
     assert.equal(second.statusCode,201);
     const start2=await app.inject({method:"POST",url:"/v1/targets/"+targetId+"/assessments",headers:{...headers(),"idempotency-key":"clean-"+crypto.randomUUID()},payload:{specificationId:second.json().id,mode:"SPEC_ONLY"}});
     assert.equal(start2.statusCode,201);
-    await drainQueue();
+    const parallel=await Promise.all([processOneJob(),processOneJob()]);
+    assert.equal(parallel.filter(Boolean).length,1,"Only one worker may claim each queue item");
     const report2=await app.inject({method:"GET",url:"/v1/assessments/"+start2.json().id+"/report",headers:headers()});
     assert.equal(report2.json().observationCount,0);
     const start3=await app.inject({method:"POST",url:"/v1/targets/"+targetId+"/assessments",headers:{...headers(),"idempotency-key":"cancel-"+crypto.randomUUID()},payload:{specificationId:specId,mode:"SPEC_ONLY"}});

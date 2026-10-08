@@ -1,6 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import { validatePlan, validatePermit, nextOrdinal, MAX_ORDINAL } from "../packages/contracts/src/policy.js";
+import { makeApp } from "../packages/service/src/app.js";
 test("SCHEMA-01 READ_ONLY_PROBE denies mutation at JSON Schema and runtime gates",()=>{
   assert.throws(()=>validatePlan({mode:"READ_ONLY_PROBE",methods:["GET","POST"],maxRequests:10}));
   assert.throws(()=>validatePlan({mode:"READ_ONLY_PROBE",methods:["GET"],maxRequests:10}),/LIVE_PROBE_NOT_ENABLED/);
@@ -25,4 +26,11 @@ test("SCHEMA-04 enforce inclusive 1..budget ordinals and safe integer bounds",()
   for(const [used,budget] of ([[1,1],[-1,5],[1.5,5],[0,MAX_ORDINAL+1],[MAX_ORDINAL,MAX_ORDINAL]] as [number,number][]))assert.throws(()=>nextOrdinal(used,budget));
   assert.throws(()=>validatePermit({...allowed,requestOrdinal:11},{...context,ordinal:11}));
   assert.throws(()=>validatePermit({...allowed,remainingRequests:10},context));
+});
+
+test("production startup rejects synthetic identity even when enabled",async()=>{
+  const old=process.env.NODE_ENV,oldFlag=process.env.SYNTHETIC_AUTH_ENABLED;
+  process.env.NODE_ENV="production";process.env.SYNTHETIC_AUTH_ENABLED="true";
+  try{await assert.rejects(()=>makeApp(),/HOST_AUTHORITY_NOT_CONFIGURED_PRODUCTION_FAIL_CLOSED/);}
+  finally{if(old===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=old;if(oldFlag===undefined)delete process.env.SYNTHETIC_AUTH_ENABLED;else process.env.SYNTHETIC_AUTH_ENABLED=oldFlag;}
 });
