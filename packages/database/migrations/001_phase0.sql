@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS api_rule_results (
 );
 CREATE TABLE IF NOT EXISTS api_evidence (
   id uuid PRIMARY KEY, tenant_id uuid NOT NULL, assessment_id uuid NOT NULL,
-  fingerprint char(64) NOT NULL, pointer text NOT NULL, content_json jsonb NOT NULL,
+  fingerprint char(64) NOT NULL, pointer text NOT NULL, content_json jsonb NOT NULL, UNIQUE(tenant_id,id),
   FOREIGN KEY (tenant_id,assessment_id) REFERENCES api_assessments(tenant_id,id)
 );
 CREATE TABLE IF NOT EXISTS api_findings (
