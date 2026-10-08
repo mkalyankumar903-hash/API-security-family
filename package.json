@@ -3,12 +3,14 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts",
-    "test:pg": "node --import tsx --test tests/*.pg.test.ts",
+    "test": "node --import tsx --test tests/engine.test.ts tests/policy.test.ts",
+    "test:pg": "node --import tsx --test tests/assessment.pg.test.ts tests/ui.pg.test.ts",
     "api": "node --env-file-if-exists=.env --import tsx packages/service/src/server.ts",
     "worker": "node --env-file-if-exists=.env --import tsx packages/worker/src/main.ts",
     "dev": "vite --host 127.0.0.1",
@@ -32,6 +34,9 @@
     "@vitejs/plugin-react": "5.0.4",
     "tsx": "4.20.6",
     "typescript": "5.9.3",
-    "vite": "7.1.9"
+    "vite": "7.1.9",
+    "jsdom": "27.0.0",
+    "@types/jsdom": "21.1.7",
+    "@testing-library/react": "16.3.0"
   }
 }
