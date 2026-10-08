@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.lumicsec.local/api-family/phase0-v032/host-delegated-invocation.schema.json",
+  "title": "host-delegated-invocation PROPOSED NOT FROZEN",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "host_delegation_attestation",
+    "service_call_id",
+    "job_id",
+    "service_audience",
+    "delegation_id",
+    "request_body_sha256",
+    "delegation_expires_at"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "0.3.1-candidate"
+    },
+    "host_delegation_attestation": {
+      "type": "string",
+      "minLength": 32,
+      "maxLength": 8192
+    },
+    "service_call_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "service_audience": {
+      "const": "lumicsec.api-security"
+    },
+    "delegation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "request_body_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "delegation_expires_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

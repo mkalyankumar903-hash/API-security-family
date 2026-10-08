@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.lumicsec.local/api-family/phase0-v032/trusted-lease-proof.schema.json",
+  "title": "trusted-lease-proof PROPOSAL NOT FROZEN",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "local_job_id",
+    "lease_generation",
+    "host_execution_lease_reference",
+    "opaque_trusted_attestation",
+    "expires_at",
+    "host_registry_id",
+    "host_job_registration_id",
+    "worker_identity",
+    "permit_audience"
+  ],
+  "properties": {
+    "local_job_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "lease_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "host_execution_lease_reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "opaque_trusted_attestation": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 4096
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "host_registry_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "host_job_registration_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "worker_identity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "permit_audience": {
+      "const": "lumicsec.api-security-egress"
+    }
+  }
+}

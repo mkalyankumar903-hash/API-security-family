@@ -1,0 +1,116 @@
+openapi: 3.1.0
+info:
+  title: LumicSec API Family isolated SPEC_ONLY preview
+  version: 0.0.1
+  description: Synthetic local-authority test adapter only; not a production Host integration.
+servers:
+  - url: http://127.0.0.1:3001
+components:
+  securitySchemes:
+    syntheticDevBearer:
+      type: http
+      scheme: bearer
+      description: Explicit development token only, rejected in production.
+  schemas:
+    Error:
+      type: object
+      required: [error,requestId]
+      properties:
+        error: {type: string}
+        requestId: {type: string}
+security:
+  - syntheticDevBearer: []
+paths:
+  /health/live:
+    get:
+      security: []
+      responses:
+        '200': {description: Liveness of application process}
+  /v1/targets:
+    get:
+      parameters:
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 100}}
+        - {in: query, name: offset, schema: {type: integer, minimum: 0}}
+      responses:
+        '200': {description: Tenant-scoped targets}
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name,baseUrl,environment]
+              properties:
+                name: {type: string, maxLength: 120}
+                baseUrl: {type: string, format: uri}
+                environment: {enum: [SYNTHETIC,STAGING,PRODUCTION]}
+      responses:
+        '201': {description: Created target}
+  /v1/targets/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    get:
+      responses:
+        '200': {description: Target details}
+  /v1/targets/{id}/specifications:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    get:
+      responses: {'200': {description: Uploaded specifications}}
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename,content]
+              properties:
+                filename: {type: string}
+                content: {type: string, maxLength: 1048576}
+      responses: {'201': {description: Persisted normalized specification}}
+  /v1/specifications/{id}/operations:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    get:
+      responses: {'200': {description: Normalized operation inventory}}
+  /v1/targets/{id}/assessments:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    post:
+      parameters:
+        - {in: header, name: idempotency-key, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [specificationId,mode]
+              properties:
+                specificationId: {type: string, format: uuid}
+                mode: {const: SPEC_ONLY}
+      responses:
+        '201': {description: Queued assessment}
+        '200': {description: Idempotently existing assessment}
+  /v1/assessments/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    get:
+      responses: {'200': {description: Assessment state}}
+  /v1/assessments/{id}/findings:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    get:
+      responses: {'200': {description: Source-evidence-backed observations requiring review}}
+  /v1/assessments/{id}/report:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    get:
+      responses: {'200': {description: Deterministic SPEC_ONLY report}}
+  /v1/assessments/{id}/cancel:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, format: uuid}}
+    post:
+      responses: {'200': {description: Job cancelled at safe boundary}}

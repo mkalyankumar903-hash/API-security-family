@@ -1,0 +1,25 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "External",
+    "version": "1.0"
+  },
+  "paths": {
+    "/a": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "https://untrusted.invalid/spec"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

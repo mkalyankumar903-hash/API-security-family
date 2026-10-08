@@ -1,0 +1,550 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.lumicsec.local/api-family/phase0-v032/job-plan.schema.json",
+  "title": "immutable-job-plan PROPOSAL NOT FROZEN",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "job_id",
+    "organization_id",
+    "agency_client_id",
+    "actor_user_id",
+    "host_asset_id",
+    "target_id",
+    "authorization_id",
+    "scope_id",
+    "scope_hash",
+    "spec_fingerprint",
+    "policy_revision",
+    "source_version",
+    "operation_type",
+    "execution_mode",
+    "environment_class",
+    "allowed_origins",
+    "allowed_paths",
+    "allowed_methods",
+    "allowed_test_categories",
+    "credential_profile_reference",
+    "max_requests",
+    "max_request_bytes",
+    "max_response_bytes",
+    "max_concurrency",
+    "max_redirects",
+    "connect_timeout_ms",
+    "per_request_timeout_ms",
+    "deadline_at",
+    "plan_digest",
+    "side_effects_classified",
+    "mutation_approval_reference",
+    "fixture_set_reference",
+    "cleanup_verification_required",
+    "max_total_request_bytes",
+    "max_total_response_bytes",
+    "approved_operations"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "0.3.1-candidate"
+    },
+    "job_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "organization_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "agency_client_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "actor_user_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "host_asset_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 160
+    },
+    "target_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "authorization_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "scope_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "scope_hash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "spec_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "policy_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "operation_type": {
+      "type": "string",
+      "enum": [
+        "API_SECURITY_ASSESSMENT",
+        "API_PENETRATION_TEST",
+        "AUTONOMOUS_API_VAPT"
+      ]
+    },
+    "execution_mode": {
+      "type": "string",
+      "enum": [
+        "SPEC_ONLY",
+        "READ_ONLY_PROBE",
+        "CONTROLLED_ACTIVE",
+        "MUTATING_STAGING",
+        "HUMAN_REVIEW_PT"
+      ]
+    },
+    "environment_class": {
+      "type": "string",
+      "enum": [
+        "development",
+        "staging",
+        "production"
+      ]
+    },
+    "allowed_origins": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^https://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?(?::(?:8443|9443))?$",
+        "maxLength": 253
+      },
+      "minItems": 0,
+      "maxItems": 64,
+      "uniqueItems": true
+    },
+    "allowed_paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^/",
+        "maxLength": 1024
+      },
+      "minItems": 0,
+      "maxItems": 512,
+      "uniqueItems": true
+    },
+    "allowed_methods": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "GET",
+          "HEAD",
+          "OPTIONS",
+          "POST",
+          "PUT",
+          "PATCH",
+          "DELETE"
+        ]
+      },
+      "minItems": 0,
+      "maxItems": 7,
+      "uniqueItems": true
+    },
+    "allowed_test_categories": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160
+      },
+      "minItems": 0,
+      "maxItems": 100,
+      "uniqueItems": true
+    },
+    "credential_profile_reference": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 160
+    },
+    "max_requests": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100000
+    },
+    "max_request_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10485760
+    },
+    "max_response_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10485760
+    },
+    "max_concurrency": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "max_redirects": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5
+    },
+    "connect_timeout_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 30000
+    },
+    "per_request_timeout_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 120000
+    },
+    "deadline_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "plan_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "side_effects_classified": {
+      "type": "boolean"
+    },
+    "mutation_approval_reference": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 160
+    },
+    "fixture_set_reference": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 160
+    },
+    "cleanup_verification_required": {
+      "type": "boolean"
+    },
+    "max_total_request_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1073741824
+    },
+    "max_total_response_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1073741824
+    },
+    "approved_operations": {
+      "type": "array",
+      "items": {
+        "$ref": "./approved-operation.schema.json"
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "execution_mode": {
+            "enum": [
+              "SPEC_ONLY",
+              "HUMAN_REVIEW_PT"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "max_requests": {
+            "const": 0
+          },
+          "max_concurrency": {
+            "const": 0
+          },
+          "allowed_methods": {
+            "maxItems": 0
+          },
+          "allowed_origins": {
+            "maxItems": 0
+          },
+          "allowed_paths": {
+            "maxItems": 0
+          },
+          "max_request_bytes": {
+            "const": 0
+          },
+          "max_response_bytes": {
+            "const": 0
+          },
+          "max_redirects": {
+            "const": 0
+          },
+          "connect_timeout_ms": {
+            "const": 0
+          },
+          "per_request_timeout_ms": {
+            "const": 0
+          },
+          "max_total_request_bytes": {
+            "const": 0
+          },
+          "max_total_response_bytes": {
+            "const": 0
+          },
+          "approved_operations": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution_mode": {
+            "enum": [
+              "READ_ONLY_PROBE",
+              "CONTROLLED_ACTIVE",
+              "MUTATING_STAGING"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "max_requests": {
+            "minimum": 1
+          },
+          "max_concurrency": {
+            "minimum": 1
+          },
+          "allowed_origins": {
+            "minItems": 1
+          },
+          "allowed_paths": {
+            "minItems": 1
+          },
+          "allowed_methods": {
+            "minItems": 1
+          },
+          "per_request_timeout_ms": {
+            "minimum": 1
+          },
+          "connect_timeout_ms": {
+            "minimum": 1
+          },
+          "max_response_bytes": {
+            "minimum": 1
+          },
+          "max_request_bytes": {
+            "minimum": 1
+          },
+          "max_total_request_bytes": {
+            "minimum": 1
+          },
+          "max_total_response_bytes": {
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution_mode": {
+            "const": "MUTATING_STAGING"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "environment_class": {
+            "const": "staging"
+          },
+          "approved_operations": {
+            "minItems": 1
+          },
+          "cleanup_verification_required": {
+            "const": true
+          },
+          "side_effects_classified": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution_mode": {
+            "enum": [
+              "READ_ONLY_PROBE",
+              "CONTROLLED_ACTIVE",
+              "MUTATING_STAGING"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "side_effects_classified": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution_mode": {
+            "const": "MUTATING_STAGING"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "environment_class": {
+            "const": "staging"
+          },
+          "mutation_approval_reference": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fixture_set_reference": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cleanup_verification_required": {
+            "const": true
+          },
+          "approved_operations": {
+            "minItems": 1
+          },
+          "side_effects_classified": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution_mode": {
+            "enum": [
+              "SPEC_ONLY",
+              "HUMAN_REVIEW_PT"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "mutation_approval_reference": {
+            "type": "null"
+          },
+          "fixture_set_reference": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution_mode": {
+            "enum": [
+              "READ_ONLY_PROBE",
+              "CONTROLLED_ACTIVE"
+            ]
+          }
+        },
+        "required": [
+          "execution_mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "allowed_methods": {
+            "items": {
+              "enum": [
+                "GET",
+                "HEAD"
+              ]
+            }
+          },
+          "approved_operations": {
+            "maxItems": 0
+          },
+          "mutation_approval_reference": {
+            "type": "null"
+          },
+          "fixture_set_reference": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "execution_mode": {
+            "const": "MUTATING_STAGING"
+          }
+        },
+        "required": [
+          "execution_mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "environment_class": {
+            "const": "staging"
+          },
+          "mutation_approval_reference": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fixture_set_reference": {
+            "type": "string",
+            "minLength": 1
+          },
+          "approved_operations": {
+            "minItems": 1
+          },
+          "cleanup_verification_required": {
+            "const": true
+          }
+        }
+      }
+    }
+  ]
+}

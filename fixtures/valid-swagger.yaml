@@ -1,0 +1,12 @@
+swagger: "2.0"
+info:
+  title: Synthetic Swagger Fixture
+  version: "1.0"
+host: api.fixture.invalid
+schemes: [https]
+paths:
+  /ping:
+    get:
+      responses:
+        "200":
+          description: ok
