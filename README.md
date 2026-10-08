@@ -37,6 +37,8 @@ npm run test:pg
 npm run build
 ```
 
+The application connects as a dedicated **non-superuser** PostgreSQL role; an admin role only provisions the database at first initialization. Reusing a pre-role-separation Docker volume requires an intentional isolated test-volume reset. Never point these instructions at customer data.
+
 Run scripts only against an isolated disposable PostgreSQL instance: test suites apply migrations, insert test tenant records and depend on the isolated synthetic authority.
 
 ## Safety and integration

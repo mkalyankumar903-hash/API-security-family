@@ -14,12 +14,12 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: api_family
-          POSTGRES_PASSWORD: api_family_dev
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
           POSTGRES_DB: api_family
         ports: ["55432:5432"]
         options: >-
-          --health-cmd "pg_isready -U api_family -d api_family"
+          --health-cmd "pg_isready -U postgres -d api_family"
           --health-interval 5s --health-timeout 5s --health-retries 15
     env:
       NODE_ENV: test
@@ -33,6 +33,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Provision non-superuser application role (no BYPASSRLS)
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
       - name: Generate bootstrap lockfile if absent
         if: hashFiles('package-lock.json') == ''
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund

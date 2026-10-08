@@ -14,6 +14,9 @@ test("full real PostgreSQL customer workflow, isolation, restart and cancellatio
   process.env.SYNTHETIC_AUTH_ENABLED="true";
   process.env.DEV_TOKENS_JSON=JSON.stringify({[TOKEN_A]:A,[TOKEN_B]:B});
   await migrate();
+  const privileges = await pool.query("SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user");
+  assert.equal(privileges.rows[0].rolsuper,false,"App DB role must NOT be superuser; RLS would be bypassed");
+  assert.equal(privileges.rows[0].rolbypassrls,false,"App DB role must NOT have BYPASSRLS");
   const app=await makeApp();
   try {
     const unauth=await app.inject({method:"GET",url:"/v1/targets"});
