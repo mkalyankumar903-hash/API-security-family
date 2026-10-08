@@ -1,0 +1,58 @@
+name: Phase 0 isolated qualification
+on:
+  push:
+    branches: ["work/phase0-spec-only-assessment"]
+  pull_request:
+    branches: ["main"]
+permissions:
+  contents: write
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: api_family
+          POSTGRES_PASSWORD: api_family_dev
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U api_family -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generate bootstrap lockfile if absent
+        if: hashFiles('package-lock.json') == ''
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Frozen reproducible dependency installation
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript strict typecheck
+        run: npm run typecheck
+      - name: Deterministic rule and contract tests
+        run: npm test
+      - name: Real PostgreSQL + UI E2E regression
+        run: npm run test:pg
+      - name: Frontend build
+        run: npm run build
+      - name: Commit generated lockfile once after qualification
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/work/phase0-spec-only-assessment'
+        run: |
+          if ! git ls-files --error-unmatch package-lock.json >/dev/null 2>&1; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "build: commit reproducible phase0 npm dependency lockfile"
+            git push origin HEAD:work/phase0-spec-only-assessment
+          fi
