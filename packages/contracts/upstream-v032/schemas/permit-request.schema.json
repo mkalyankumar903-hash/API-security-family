@@ -283,8 +283,7 @@
           "method": {
             "enum": [
               "GET",
-              "HEAD",
-              "OPTIONS"
+              "HEAD"
             ]
           },
           "mutation_approval_reference": {
@@ -309,8 +308,7 @@
           "method": {
             "enum": [
               "GET",
-              "HEAD",
-              "OPTIONS"
+              "HEAD"
             ]
           },
           "mutation_approval_reference": {

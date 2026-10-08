@@ -2,6 +2,7 @@
  * Provisional wire semantics from the v0.3.1 candidate + v0.3.2 formal review.
  * Never used as an independent Host permit authority. Runtime remains SPEC_ONLY.
  */
+export const MAX_WIRE_REQUESTS = 100000;
 export type WirePlan = {
   execution_mode:string;
   environment_class:string;
@@ -24,11 +25,17 @@ export type WirePermitRequest = {
   request_body_digest:string|null;
 };
 export function verifyWirePlanPermit(plan:WirePlan,permit:WirePermitRequest):void {
-  if (!Number.isSafeInteger(plan.max_requests) || plan.max_requests < 0 || plan.max_requests > 100000 ||
+  // Phase 0 SPEC_ONLY is never a network mode, including ordinals 0 and 1.
+  if(plan.execution_mode==="SPEC_ONLY" || plan.execution_mode==="HUMAN_REVIEW_PT" ||
+    permit.execution_mode==="SPEC_ONLY" || permit.execution_mode==="HUMAN_REVIEW_PT")
+    throw new Error("WIRE_NON_EXECUTABLE_MODE_HAS_NO_PERMITS");
+  if (!Number.isSafeInteger(plan.max_requests) || plan.max_requests < 0 || plan.max_requests > MAX_WIRE_REQUESTS ||
       !Number.isSafeInteger(permit.request_ordinal) || permit.request_ordinal < 1 ||
       permit.request_ordinal > plan.max_requests) throw new Error("WIRE_BUDGET_MISMATCH");
   if (plan.execution_mode!==permit.execution_mode || plan.plan_digest!==permit.plan_digest ||
       plan.scope_hash!==permit.scope_hash) throw new Error("WIRE_PLAN_BINDING_MISMATCH");
+  // A forged plan allowlist cannot widen the provisional GET/HEAD-only profile.
+  if ((plan.execution_mode === "READ_ONLY_PROBE" || plan.execution_mode === "CONTROLLED_ACTIVE") && !["GET","HEAD"].includes(permit.method)) throw new Error("WIRE_READ_ONLY_POLICY");
   if (!plan.allowed_methods.includes(permit.method)) throw new Error("WIRE_METHOD_NOT_APPROVED");
   if (plan.credential_profile_reference!==permit.credential_profile_reference) throw new Error("WIRE_CREDENTIAL_MISMATCH");
   let url:URL;
@@ -38,7 +45,7 @@ export function verifyWirePlanPermit(plan:WirePlan,permit:WirePermitRequest):voi
       url.pathname!==permit.normalized_path) throw new Error("WIRE_SCOPE_MISMATCH");
   const mutation=["POST","PUT","PATCH","DELETE"].includes(permit.method);
   if(plan.execution_mode==="READ_ONLY_PROBE" || plan.execution_mode==="CONTROLLED_ACTIVE"){
-    if(mutation || permit.mutation_approval_reference!==null) throw new Error("WIRE_READ_ONLY_POLICY");
+    if(!["GET","HEAD"].includes(permit.method) || mutation || permit.mutation_approval_reference!==null) throw new Error("WIRE_READ_ONLY_POLICY");
   }
   if(mutation) {
     if(plan.execution_mode!=="MUTATING_STAGING" || plan.environment_class!=="staging" ||

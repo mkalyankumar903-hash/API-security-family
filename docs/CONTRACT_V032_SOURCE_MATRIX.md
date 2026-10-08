@@ -5,7 +5,10 @@ Final Contract Resolution / One-Shot Authorization: NOT LOCATED; final Host comp
 Decision: ACCEPTED IN PRINCIPLE WITH CHANGES / NOT FROZEN. C8 remains deferred.
 
 Derived schemas (7) are provisional, non-frozen, and are NOT an independent authority to execute live traffic.
-SCHEMA-01 job-plan: READ_ONLY_PROBE restricted to GET/HEAD/OPTIONS.
+SCHEMA-01 (local derived provisional profile): READ_ONLY_PROBE and CONTROLLED_ACTIVE allow only GET/HEAD; OPTIONS is explicitly rejected until Main Platform authorizes it.
+Upstream distinction: the untouched v0.3.1 candidate and v0.3.2 review discuss GET/HEAD/OPTIONS. This local stricter rule is NOT a modification to or freeze of the authoritative upstream contract.
+SPEC_ONLY has exactly zero authorized network requests: maxRequests/max_requests=0, methods/allowed_methods=[], no permit request, no network ordinals. Queue jobs and offline spec operations remain enabled.
+Wire-facing max_requests and request_ordinal are capped at 100000, including their upper boundary. Generic local safe-integer counters are distinct and grant no network authority.
 SCHEMA-02 job-plan + permit-request: CONTROLLED_ACTIVE read-only; mutations only MUTATING_STAGING with Host approval, staging fixture and cleanup.
 SCHEMA-03 permit-decision: denial cannot claim ALLOWED.
 SCHEMA-04 permit-request ordinal now max 100000, with runtime ordinal<=authorized plan budget required.

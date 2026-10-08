@@ -497,8 +497,7 @@
             "items": {
               "enum": [
                 "GET",
-                "HEAD",
-                "OPTIONS"
+                "HEAD"
               ]
             }
           },

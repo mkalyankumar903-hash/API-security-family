@@ -111,7 +111,7 @@ export async function makeApp(): Promise<FastifyInstance> {
   app.post("/v1/targets/:id/assessments", async (req,reply)=>{
     const targetId=paramsId(req), data=bodyObject(req.body);
     const specId=validId(data.specificationId);
-    try { validatePlan({mode:data.mode,methods:[],maxRequests:1}); } catch { throw new ApiError(400,"ONLY_SPEC_ONLY_SUPPORTED"); }
+    try { validatePlan({mode:data.mode,methods:[],maxRequests:0}); } catch { throw new ApiError(400,"ONLY_SPEC_ONLY_SUPPORTED"); }
     const key=req.headers["idempotency-key"];
     if (typeof key !== "string" || !/^[a-zA-Z0-9:_-]{8,128}$/.test(key)) throw new ApiError(400,"IDEMPOTENCY_KEY_REQUIRED");
     const t=tenant(req), id=uuid();

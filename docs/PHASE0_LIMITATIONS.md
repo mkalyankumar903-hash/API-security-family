@@ -17,3 +17,10 @@ No Evidence != Safe. Unknown != Safe. Fix Applied != VERIFIED_FIXED.
 - api_queue is a private schema owned by a dedicated non-superuser worker role. Tenant-facing PostgreSQL role cannot SELECT, UPDATE, DELETE or claim queue state. Narrow tenant-scoped SECURITY DEFINER functions provide enqueue/cancel; admin migration DSN is never a runtime credential.
 - GitHub Actions is read-only, never self-commits a lockfile, runs true ESLint, TypeScript, unit, PostgreSQL, React and real Chromium E2E.
 - Contract freeze/Host integration remain BLOCKED pending final resolution and real Host-issued authority.
+
+
+## Final consistency closeout (provisional policy; upstream unchanged)
+- READ_ONLY_PROBE and CONTROLLED_ACTIVE: **GET/HEAD only**, not OPTIONS, until Main Platform separately signs off. Locally derived schemas are stricter than the original v0.3.2 review proposal; original v0.3.1 candidate bytes and historical vectors remain untouched.
+- SPEC_ONLY: maxRequests=0, methods=[], zero network permits, no request ordinals. Offline OpenAPI parsing, PostgreSQL queue jobs, assessment and report production still operate.
+- Active/network modes still throw LIVE_PROBE_NOT_ENABLED_IN_PHASE_0 / MUTATING_STAGING_NOT_ENABLED. The local PostgreSQL queue is an offline work queue, not a request permit ledger.
+- Wire-facing request budgets and ordinals use an explicit inclusive max of 100000. MAX_ORDINAL is solely a generic non-network safe integer counter.
