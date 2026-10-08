@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import YAML, { isAlias, visit } from "yaml";
+import { Validator } from "@platformatic/openapi-schema-validator";
 
 export type SecurityRequirement = Record<string, string[]>;
 export type Operation = { key: string; method: string; path: string; operationId: string | null; security: SecurityRequirement[] | null; pointer: string };
@@ -11,7 +12,7 @@ const cap = 1024 * 1024;
 export function parseSpec(sourceText: string): NormalizedSpec {
   if (typeof sourceText !== "string" || Buffer.byteLength(sourceText, "utf8") > cap || sourceText.length === 0) throw new Error("INVALID_SPEC_SIZE");
   let parsed: unknown;
-  if (/^\s*[\[{]/.test(sourceText)) parsed = JSON.parse(sourceText);
+  if (/^\s*[[{]/.test(sourceText)) parsed = JSON.parse(sourceText);
   else {
     const doc = YAML.parseDocument(sourceText, { uniqueKeys: true, strict: true });
     if (doc.errors.length) throw new Error("INVALID_YAML: " + doc.errors[0]?.message);
@@ -90,4 +91,51 @@ export function assess(spec: NormalizedSpec): Observation[] {
   if (secured > 0 && secured < spec.operations.length) add("SPEC_INCONSISTENT_AUTH", null, "AUTH_CONSISTENCY", "Operations have mixed declared protection levels; review whether intentional.", "/paths", "Review and document per-operation security policy.");
   for (const [idx, url] of spec.servers.entries()) if (/^http:\/\//i.test(url)) add("SPEC_HTTP_SERVER", null, "TRANSPORT", "Specification declares an HTTP server; TLS configuration needs human review.", "/servers/" + idx, "Prefer HTTPS and verify TLS enforcement at runtime.");
   return observations.sort((a,b)=> (a.ruleId + (a.operationKey ?? "")).localeCompare(b.ruleId + (b.operationKey ?? "")));
+}
+
+/**
+ * Complete offline structural schema validation of the supported OAS 3.1 and
+ * Swagger 2.0 profiles. No network/file reference resolution is performed.
+ */
+export async function parseAndValidateSpec(sourceText:string):Promise<NormalizedSpec> {
+  const normalized=parseSpec(sourceText);
+  const validator=new Validator();
+  const result=await validator.validate(normalized.source as object);
+  if(!result.valid) throw new Error("OPENAPI_SCHEMA_INVALID: "+JSON.stringify(result.errors??[]).slice(0,1200));
+  const root=normalized.source as Record<string,unknown>;
+  for(const op of normalized.operations) {
+    const node=(root.paths as Record<string,Record<string,unknown>>)[op.path]?.[op.method.toLowerCase()];
+    const responses=(node as Record<string,unknown> | undefined)?.responses;
+    if(!responses || typeof responses!=="object" || Array.isArray(responses) || Object.keys(responses).length===0) throw new Error("INVALID_REQUIRED_OPERATION_RESPONSES");
+  }
+  const resolveLocal=(ref:string):boolean=>{
+    if(!ref.startsWith("#/"))return false;
+    let current:unknown=root;
+    for(const segment of ref.slice(2).split("/")){
+      if(!current || typeof current!=="object") return false;
+      const key=segment.replace(/~1/g,"/").replace(/~0/g,"~");
+      if(!Object.prototype.hasOwnProperty.call(current,key)) return false;
+      current=(current as Record<string,unknown>)[key];
+    }
+    return current!==undefined;
+  };
+  let count=0;
+  function checkRefs(value:unknown):void {
+    if(++count>30000) throw new Error("SPEC_COMPLEXITY_LIMIT");
+    if(!value || typeof value!=="object") return;
+    if(Array.isArray(value)){for(const item of value)checkRefs(item);return;}
+    for(const [key,item] of Object.entries(value)){
+      if(key==="$ref" && (typeof item!=="string" || !resolveLocal(item))) throw new Error("BROKEN_OR_EXTERNAL_REFERENCE");
+      checkRefs(item);
+    }
+  }
+  checkRefs(root);
+  const unsupported:string[]=[];
+  if(root.webhooks!==undefined)unsupported.push("webhooks: execution analysis not implemented");
+  if(normalized.operations.some(op=>{
+    const path=(root.paths as Record<string,Record<string,unknown>>)[op.path];
+    const operation=path?.[op.method.toLowerCase()];
+    return !!operation && typeof operation==="object" && "callbacks" in operation;
+  })) unsupported.push("callbacks: execution analysis not implemented");
+  return {...normalized,warnings:[...normalized.warnings,...unsupported,"SPEC_ONLY does not verify request/response schema enforcement, auth scope, runtime behavior or authorization."]};
 }
