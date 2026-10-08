@@ -20,8 +20,12 @@ test("real Chromium registration → scope → signed test challenge → invalid
  await page.getByLabel("Path exclusions").fill("/admin");
  await page.getByLabel("Proposed methods").fill("GET,HEAD");
  await page.getByLabel("Proposed request budget").fill("0");
+ await page.getByLabel("API operation restrictions (proposed only)").fill("GET /v1/users");
+ await page.getByLabel("Scope window start (UTC ISO)").fill("2026-11-01T00:00:00Z");
+ await page.getByLabel("Scope window end (UTC ISO)").fill("2026-11-02T00:00:00Z");
  await page.getByRole("button",{name:"Save scope proposal"}).click();
  await expect(page.getByText("Scope history: 1 revision(s).")).toBeVisible();
+ await expect(page.getByText("CUSTOMER_PROPOSED")).toBeVisible();
  await page.getByRole("button",{name:"Issue verification challenge"}).click();
  await expect(page.getByLabel("Issued challenge")).not.toHaveValue("");
  await page.getByRole("button",{name:"Generate synthetic TEST proof"}).click();

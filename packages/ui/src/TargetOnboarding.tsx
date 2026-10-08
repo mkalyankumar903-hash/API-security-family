@@ -1,9 +1,10 @@
 import React,{useEffect,useState} from "react";
 type Target={id:string;name:string;base_url:string;environment:string;revision:number;verification_version:number;scope_revision:number;lifecycle:string;ownership_status:string};
-type Scope={id:string;revision:number;proposal:{origins:string[];paths:string[];exclusions:string[];methods:string[];maxRequests:number};authorityStatus:string};
+type Scope={id:string;revision:number;proposal:{origins:string[];paths:string[];exclusions:string[];methods:string[];maxRequests:number;operations:string[];windowStart:string|null;windowEnd:string|null};authorityStatus:string};
 type Challenge={id:string;status:string;expiresAt:string};
 type Credential={id:string;reference:string;status:string};
 type History={id:string;action:string;revision:number;occurredAt:string};
+type VerificationDecision={id:string;decision:string;authority:string;decidedAt:string;verificationVersion:number};
 const BASE=(typeof import.meta.env==="object"&&import.meta.env.VITE_API_BASE)||"http://127.0.0.1:3001";
 async function api<T>(token:string,path:string,method="GET",body?:unknown):Promise<T>{
  const r=await fetch(BASE+path,{method,headers:{authorization:"Bearer "+token,"content-type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});
@@ -16,6 +17,7 @@ export function TargetOnboarding({token,targetId,onChanged}:{token:string;target
  const [scopes,setScopes]=useState<Scope[]>([]);
  const [challenges,setChallenges]=useState<Challenge[]>([]);
  const [history,setHistory]=useState<History[]>([]);
+ const [decisions,setDecisions]=useState<VerificationDecision[]>([]);
  const [credentials,setCredentials]=useState<Credential[]>([]);
  const [name,setName]=useState("");
  const [url,setUrl]=useState("");
@@ -23,6 +25,9 @@ export function TargetOnboarding({token,targetId,onChanged}:{token:string;target
  const [paths,setPaths]=useState("/");
  const [exclusions,setExclusions]=useState("/admin");
  const [methods,setMethods]=useState("GET,HEAD");
+ const [operations,setOperations]=useState("");
+ const [windowStart,setWindowStart]=useState("");
+ const [windowEnd,setWindowEnd]=useState("");
  const [maxRequests,setMaxRequests]=useState("0");
  const [credential,setCredential]=useState("");
  const [attestation,setAttestation]=useState("");
@@ -34,16 +39,17 @@ export function TargetOnboarding({token,targetId,onChanged}:{token:string;target
  const [showHistory,setShowHistory]=useState(false);
  async function refresh() {
   if(!targetId)return;
-  const [t,s,c,h,refs]=await Promise.all([
+  const [t,s,c,h,refs,v]=await Promise.all([
     api<Target>(token,"/v1/targets/"+targetId),
     api<Scope[]>(token,"/v1/targets/"+targetId+"/scopes"),
     api<Challenge[]>(token,"/v1/targets/"+targetId+"/verification/challenges"),
     api<History[]>(token,"/v1/targets/"+targetId+"/history"),
-    api<Credential[]>(token,"/v1/targets/"+targetId+"/credentials")
+    api<Credential[]>(token,"/v1/targets/"+targetId+"/credentials"),
+    api<VerificationDecision[]>(token,"/v1/targets/"+targetId+"/verification/decisions")
   ]);
   setTarget(t);setName(t.name);setUrl(t.base_url);setEnvironment(t.environment);
-  setScopes(s);setChallenges(c);setHistory(h);setCredentials(refs);
-  if(s[0]){setPaths(s[0].proposal.paths.join("\n"));setExclusions(s[0].proposal.exclusions.join("\n"));setMethods(s[0].proposal.methods.join(","));setMaxRequests(String(s[0].proposal.maxRequests));}
+  setScopes(s);setChallenges(c);setHistory(h);setCredentials(refs);setDecisions(v);
+  if(s[0]){setPaths(s[0].proposal.paths.join("\n"));setExclusions(s[0].proposal.exclusions.join("\n"));setMethods(s[0].proposal.methods.join(","));setMaxRequests(String(s[0].proposal.maxRequests));setOperations((s[0].proposal.operations??[]).join("\n"));setWindowStart(s[0].proposal.windowStart??"");setWindowEnd(s[0].proposal.windowEnd??"");}
  }
  useEffect(()=>{setTarget(null);setErr("");setStatus("");setAttestation("");setSelectedChallenge("");void refresh().catch(e=>setErr(String(e)));},[token,targetId]);
  async function run(fn:()=>Promise<unknown>){setBusy(true);setErr("");setStatus("");try{await fn();await refresh();await onChanged();}catch(e){setErr(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
@@ -56,7 +62,7 @@ export function TargetOnboarding({token,targetId,onChanged}:{token:string;target
   const origin=new URL(target.base_url).origin;
   const r=await api<{scopeRevision:number}>(token,"/v1/targets/"+targetId+"/scopes","POST",
    {revision:target.revision,proposal:{origins:[origin],paths:split(paths),exclusions:split(exclusions),
-   methods:split(methods),operations:[],maxRequests:Number(maxRequests),windowStart:null,windowEnd:null}});
+   methods:split(methods),operations:split(operations),maxRequests:Number(maxRequests),windowStart:windowStart||null,windowEnd:windowEnd||null}});
   setStatus("Scope proposal revision "+r.scopeRevision+" persisted. Host approval NOT granted.");
  });}
  async function issue(){if(!target)return;await run(async()=>{
@@ -114,13 +120,21 @@ export function TargetOnboarding({token,targetId,onChanged}:{token:string;target
     <label>Path exclusions<textarea value={exclusions} onChange={e=>setExclusions(e.target.value)} rows={3} disabled={!active}/></label>
     <label>Proposed methods<input value={methods} onChange={e=>setMethods(e.target.value)} disabled={!active}/></label>
     <label>Proposed request budget<input type="number" value={maxRequests} onChange={e=>setMaxRequests(e.target.value)} min={0} max={100000} disabled={!active}/></label>
+    <label>API operation restrictions (proposed only)<textarea value={operations} onChange={e=>setOperations(e.target.value)} rows={2} placeholder="GET /v1/users" disabled={!active}/></label>
+    <label>Scope window start (UTC ISO)<input value={windowStart} onChange={e=>setWindowStart(e.target.value)} placeholder="2026-11-01T00:00:00Z" disabled={!active}/></label>
+    <label>Scope window end (UTC ISO)<input value={windowEnd} onChange={e=>setWindowEnd(e.target.value)} placeholder="2026-11-02T00:00:00Z" disabled={!active}/></label>
    </div><button disabled={!active||busy} type="submit">Save scope proposal</button></form>
   <p>Scope history: {scopes.length} revision(s). <strong>Host-approved scope: NONE.</strong></p>
+  {scopes.length>0&&<table><thead><tr><th>Scope revision</th><th>Paths / methods</th><th>Authority</th></tr></thead><tbody>
+    {scopes.map(x=><tr key={x.id}><td>{x.revision}</td><td>{x.proposal.paths.join(", ")} · {x.proposal.methods.join(", ")}</td><td>{x.authorityStatus}</td></tr>)}
+  </tbody></table>}
   <div><h3>Ownership challenge</h3><p>Challenge nonce and customer claims cannot approve ownership. Only a test-only signed fixture is independently verified here.</p>
     <button disabled={!active||busy} onClick={()=>void issue()}>Issue verification challenge</button>
     <label>Issued challenge<select value={selectedChallenge} onChange={e=>{setSelectedChallenge(e.target.value);setAttestation("");}}>
       <option value="">Select issued challenge</option>{challenges.filter(c=>c.status==="ISSUED").map(c=><option key={c.id} value={c.id}>{c.id.slice(0,12)} · expires {new Date(c.expiresAt).toLocaleTimeString()}</option>)}
     </select></label>
+    <p>Challenge history: {challenges.map(c=>c.status+" ("+c.id.slice(0,8)+")").join(" · ")||"None"}</p>
+    <p>Recorded decisions: {decisions.map(v=>v.decision+" / "+v.authority).join(" · ")||"No Host verification decisions"}</p>
     <button className="secondary" disabled={!active||busy||!selectedChallenge} onClick={()=>void synthetic()}>Generate synthetic TEST proof</button>
     <form onSubmit={e=>void submit(e)}><label>Signed test attestation<textarea value={attestation} onChange={e=>setAttestation(e.target.value)} rows={2} placeholder="Test-only proof" autoComplete="off"/></label>
      <button disabled={!active||busy||!attestation||!selectedChallenge}>Submit signed test verification</button></form>

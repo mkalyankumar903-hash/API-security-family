@@ -32,6 +32,19 @@ test("Phase 1 real Fastify + PostgreSQL target lifecycle, ownership proof, revis
  const filtered=await send("GET","/v1/targets?search=payment&environment=SYNTHETIC&lifecycle=ACTIVE");
  assert.ok(filtered.json().some((r:{id:string})=>r.id===tid));
  assert.equal((await send("GET","/v1/targets/"+tid,undefined,"local-test-token-beta")).statusCode,404);
+ // Real API mutation attempts by tenant B must never cross RLS (including archival and verification).
+ for(const [route,body] of [
+  ["/v1/targets/"+tid,{revision:1,name:"Forged tenant rename"}]
+ ] as [string,object][]){
+  assert.equal((await send("PATCH",route,body,"local-test-token-beta")).statusCode,404);
+ }
+ for(const [route,body] of [
+  ["/v1/targets/"+tid+"/lifecycle",{revision:1,action:"ARCHIVE"}],
+  ["/v1/targets/"+tid+"/lifecycle",{revision:1,action:"REVOKE"}],
+  ["/v1/targets/"+tid+"/verification/challenges",{revision:1}],
+  ["/v1/targets/"+tid+"/scopes",{revision:1,proposal:{origins:["https://api.fixture.invalid"],paths:["/"],exclusions:[],methods:["GET"],operations:[],maxRequests:0,windowStart:null,windowEnd:null}}],
+  ["/v1/targets/"+tid+"/credentials",{revision:1,reference:"credref:otherfixture01"}]
+ ] as [string,object][])assert.equal((await send("POST",route,body,"local-test-token-beta")).statusCode,404,route);
  for(const path of ["","/scopes","/credentials","/verification/challenges","/verification/decisions","/history"]){
   assert.equal((await send("GET","/v1/targets/"+tid+path,undefined,"local-test-token-beta")).statusCode,404,path);
  }
