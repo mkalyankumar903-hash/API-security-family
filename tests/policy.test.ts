@@ -10,7 +10,7 @@ test("SCHEMA-02 CONTROLLED_ACTIVE and MUTATING_STAGING never authorize unsafe mu
   assert.throws(()=>validatePlan({mode:"CONTROLLED_ACTIVE",methods:["PATCH"],maxRequests:10}));
   assert.throws(()=>validatePlan({mode:"MUTATING_STAGING",methods:["POST"],maxRequests:10,environment:"PRODUCTION"}));
   assert.throws(()=>validatePlan({mode:"MUTATING_STAGING",methods:["POST"],maxRequests:10,environment:"STAGING",approvedOperations:["POST /test"],fixtureBoundary:"synthetic-only",cleanupVerification:true}),/NOT_ENABLED/);
-  assert.doesNotThrow(()=>validatePlan({mode:"SPEC_ONLY",methods:[],maxRequests:1}));
+  assert.doesNotThrow(()=>validatePlan({mode:"SPEC_ONLY",methods:[],maxRequests:0}));
 });
 const digest="a".repeat(64);
 const context={budget:10,ordinal:1,requestDigest:digest,now:new Date("2026-10-09T00:00:00Z")};

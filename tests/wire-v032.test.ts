@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import {readFileSync} from "node:fs";
-import {verifyWirePlanPermit, type WirePlan, type WirePermitRequest} from "../packages/contracts/src/wire-v032.js";
+import {verifyWirePlanPermit, MAX_WIRE_REQUESTS, type WirePlan, type WirePermitRequest} from "../packages/contracts/src/wire-v032.js";
 const folder="../packages/contracts/upstream-v032/schemas/";
 const names=["approved-operation","host-delegated-invocation","job-plan","permit-binding-fields","permit-decision","permit-request","trusted-lease-proof"];
 const ajv=new Ajv2020({strict:false,allErrors:true,unicodeRegExp:false});
@@ -32,6 +32,7 @@ test("SCHEMA-04 wire ordinal schema max matches original job max_requests=100000
   const job=JSON.parse(readFileSync(new URL(folder+"job-plan.schema.json",import.meta.url),"utf8"));
   assert.equal(job.properties.max_requests.maximum,100000);
   assert.equal(permit.properties.request_ordinal.maximum,100000);
+  assert.equal(MAX_WIRE_REQUESTS,100000);
 });
 test("wire cross-object budget/method/scope/credential/operation semantics deny mismatches",()=>{
   const plan:WirePlan={execution_mode:"READ_ONLY_PROBE",environment_class:"staging",
@@ -55,4 +56,10 @@ test("wire cross-object budget/method/scope/credential/operation semantics deny 
   assert.doesNotThrow(()=>verifyWirePlanPermit(mutating,write));
   assert.throws(()=>verifyWirePlanPermit({...mutating,environment_class:"production"},write));
   assert.throws(()=>verifyWirePlanPermit(mutating,{...write,request_body_digest:"sha256:wrong"}));
+  assert.throws(()=>verifyWirePlanPermit(plan,{...req,method:"OPTIONS"}),/WIRE_READ_ONLY_POLICY/);
+  assert.throws(()=>verifyWirePlanPermit({...plan,execution_mode:"CONTROLLED_ACTIVE",allowed_methods:["OPTIONS"]},{...req,execution_mode:"CONTROLLED_ACTIVE",method:"OPTIONS"}),/WIRE_READ_ONLY_POLICY/);
+  assert.throws(()=>verifyWirePlanPermit({...plan,execution_mode:"SPEC_ONLY",max_requests:0,allowed_methods:[]},{...req,execution_mode:"SPEC_ONLY",request_ordinal:1}),/WIRE_NON_EXECUTABLE_MODE/);
+  assert.throws(()=>verifyWirePlanPermit({...plan,execution_mode:"SPEC_ONLY",max_requests:0,allowed_methods:[]},{...req,execution_mode:"SPEC_ONLY",request_ordinal:0}),/WIRE_NON_EXECUTABLE_MODE/);
+  assert.throws(()=>verifyWirePlanPermit({...plan,max_requests:100001},req),/WIRE_BUDGET_MISMATCH/);
+  assert.throws(()=>verifyWirePlanPermit(plan,{...req,request_ordinal:0}),/WIRE_BUDGET_MISMATCH/);
 });
