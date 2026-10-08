@@ -34,6 +34,7 @@ export async function migrate(): Promise<void> {
   if (!process.env.MIGRATION_DATABASE_URL) throw new Error("MIGRATION_DATABASE_URL_REQUIRED");
   const baseline = resolve(fileURLToPath(new URL("../migrations/001_phase0.sql", import.meta.url)));
   const isolation = resolve(fileURLToPath(new URL("../migrations/002_queue_isolation.sql", import.meta.url)));
+  const onboarding = resolve(fileURLToPath(new URL("../migrations/003_phase1_target_onboarding.sql", import.meta.url)));
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -54,6 +55,11 @@ export async function migrate(): Promise<void> {
     if (!already.rowCount) {
       await owner.query(readFileSync(isolation,"utf8"));
       await owner.query("INSERT INTO api_schema_migrations(version) VALUES('002')");
+    }
+    const phase1=await owner.query("SELECT version FROM api_schema_migrations WHERE version='003'");
+    if(!phase1.rowCount){
+      await owner.query(readFileSync(onboarding,"utf8"));
+      await owner.query("INSERT INTO api_schema_migrations(version) VALUES('003')");
     }
     await owner.query("COMMIT");
   } catch(error) {await owner.query("ROLLBACK"); throw error;}
