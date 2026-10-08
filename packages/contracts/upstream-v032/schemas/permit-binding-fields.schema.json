@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.lumicsec.local/api-family/phase0-v032/permit-binding-fields.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "organization_id",
+    "agency_client_id",
+    "actor_user_id",
+    "target_id",
+    "authorization_id",
+    "job_id",
+    "plan_digest",
+    "scope_id",
+    "scope_hash",
+    "lease_generation",
+    "host_registry_id",
+    "request_ordinal",
+    "method",
+    "canonical_request_url",
+    "request_body_digest",
+    "credential_profile_reference",
+    "test_category",
+    "max_request_bytes",
+    "max_response_bytes",
+    "expires_at",
+    "policy_revision",
+    "policy_generation",
+    "authority_revision"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "0.3.1-candidate"
+    },
+    "organization_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "agency_client_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "actor_user_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "target_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "authorization_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "job_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "plan_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "scope_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "lease_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "host_registry_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "request_ordinal": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "method": {
+      "enum": [
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    "canonical_request_url": {
+      "type": "string",
+      "pattern": "^https://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?(?::(?:8443|9443))?/[A-Za-z0-9._~!$&\\'()*+,;=:@%/?-]*$",
+      "maxLength": 2048
+    },
+    "request_body_digest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "credential_profile_reference": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 160
+    },
+    "test_category": {
+      "type": "string",
+      "minLength": 1
+    },
+    "max_request_bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "max_response_bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "policy_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "authority_revision": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
