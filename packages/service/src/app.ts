@@ -1,12 +1,10 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import { isIP } from "node:net";
-import { parseSpec } from "../../assessment-engine/src/index.js";
+import { parseAndValidateSpec } from "../../assessment-engine/src/index.js";
 import { withTenant, uuid } from "../../database/src/index.js";
 import { validatePlan } from "../../contracts/src/policy.js";
 
-type TargetInput = { name: string; baseUrl: string; environment: string };
-type UploadInput = { filename: string; content: string };
 class ApiError extends Error { constructor(public statusCode: number, public code: string) { super(code); } }
 const sessions = new WeakMap<FastifyRequest,string>();
 const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -91,7 +89,7 @@ export async function makeApp(): Promise<FastifyInstance> {
     const filename=data.filename, content=data.content;
     if (typeof filename !== "string" || !/^[a-zA-Z0-9_.-]{1,120}\.(json|ya?ml)$/i.test(filename) || typeof content !== "string") throw new ApiError(400,"INVALID_SPEC_UPLOAD");
     let spec;
-    try { spec=parseSpec(content); } catch (e) { throw new ApiError(422,"INVALID_SPEC_" + String(e instanceof Error ? e.message : "DOCUMENT").slice(0,60).replace(/[^A-Z0-9_]/gi,"_")); }
+    try { spec=await parseAndValidateSpec(content); } catch (e) { throw new ApiError(422,"INVALID_SPEC_" + String(e instanceof Error ? e.message : "DOCUMENT").slice(0,60).replace(/[^A-Z0-9_]/gi,"_")); }
     const t=tenant(req), specId=uuid();
     await withTenant(t,async tx=>{
       const target=await tx.query("SELECT id FROM api_targets WHERE id=$1",[id]);
@@ -122,7 +120,7 @@ export async function makeApp(): Promise<FastifyInstance> {
       if (!exists.rows[0]) throw new ApiError(404,"SPECIFICATION_NOT_FOUND");
       const r=await tx.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key) VALUES($1,$2,$3,$4,'QUEUED','SPEC_ONLY',$5) ON CONFLICT(tenant_id,idempotency_key) DO UPDATE SET id=api_assessments.id RETURNING id,target_id,specification_id,status,mode,created_at",[id,t,targetId,specId,key]);
       if (r.rows[0].specification_id !== specId || r.rows[0].target_id !== targetId) throw new ApiError(409,"IDEMPOTENCY_CONFLICT");
-      if (r.rows[0].status === "QUEUED") await tx.query("INSERT INTO api_assessment_queue(assessment_id,tenant_id) VALUES($1,$2) ON CONFLICT DO NOTHING",[r.rows[0].id,t]);
+      if (r.rows[0].status === "QUEUED") await tx.query("SELECT public.api_enqueue_assessment($1)",[r.rows[0].id]);
       return r.rows[0];
     });
     reply.code(result.id===id?201:200).send(result);
@@ -147,10 +145,9 @@ export async function makeApp(): Promise<FastifyInstance> {
   app.post("/v1/assessments/:id/cancel",async req=>{
     const id=paramsId(req);
     return withTenant(tenant(req),async tx=>{
-      await tx.query("SELECT assessment_id FROM api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[id]);
-      const r=await tx.query("UPDATE api_assessments SET status='CANCELLED',completed_at=now() WHERE id=$1 AND status IN ('QUEUED','PROCESSING') RETURNING id,status",[id]);
-      if (!r.rows[0]) throw new ApiError(409,"NOT_CANCELLABLE_OR_NOT_FOUND");
-      await tx.query("DELETE FROM api_assessment_queue WHERE assessment_id=$1",[id]);
+      const authorized = await tx.query("SELECT public.api_cancel_assessment($1) AS cancelled",[id]);
+      if (!authorized.rows[0]?.cancelled) throw new ApiError(409,"NOT_CANCELLABLE_OR_NOT_FOUND");
+      const r=await tx.query("SELECT id,status FROM api_assessments WHERE id=$1",[id]);
       await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,'ASSESSMENT_CANCELLED',$3)",[uuid(),tenant(req),id]);
       return r.rows[0];
     });

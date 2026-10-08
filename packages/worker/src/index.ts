@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { assess, parseSpec } from "../../assessment-engine/src/index.js";
-import { claimJob, uuid, withTenant } from "../../database/src/index.js";
+import { assess, parseAndValidateSpec } from "../../assessment-engine/src/index.js";
+import { claimJob, uuid, withWorkerTenant } from "../../database/src/index.js";
 
 const RULES = ["SPEC_AUTH_UNDECLARED", "SPEC_SENSITIVE_UNDECLARED", "SPEC_UNKNOWN_SCHEME", "SPEC_INCONSISTENT_AUTH", "SPEC_HTTP_SERVER"];
 export async function processOneJob(): Promise<boolean> {
@@ -8,24 +8,24 @@ export async function processOneJob(): Promise<boolean> {
   if (!lease) return false;
   const { tenant_id: tenant, assessment_id: jobId, claim_token: token } = lease;
   try {
-    const job = await withTenant(tenant, async tx => {
+    const job = await withWorkerTenant(tenant, async tx => {
       const result = await tx.query("SELECT a.id,a.status,a.target_id,a.specification_id,s.raw_spec,s.fingerprint FROM api_assessments a JOIN api_specifications s ON s.id=a.specification_id AND s.tenant_id=a.tenant_id WHERE a.id=$1", [jobId]);
       if (!result.rows[0] || !["QUEUED","PROCESSING"].includes(result.rows[0].status)) return null;
       await tx.query("UPDATE api_assessments SET status='PROCESSING' WHERE id=$1 AND status='QUEUED'",[jobId]);
       return result.rows[0] as { id:string;target_id:string;specification_id:string;raw_spec:string;fingerprint:string };
     });
     if (!job) {
-      await withTenant(tenant, async tx => { await tx.query("DELETE FROM api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId, token]); });
+      await withWorkerTenant(tenant, async tx => { await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId, token]); });
       return true;
     }
-    const spec = parseSpec(job.raw_spec);
+    const spec = await parseAndValidateSpec(job.raw_spec);
     const observations = assess(spec);
-    await withTenant(tenant, async tx => {
-      const leaseCheck = await tx.query("SELECT claim_token FROM api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
+    await withWorkerTenant(tenant, async tx => {
+      const leaseCheck = await tx.query("SELECT claim_token FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
       if (leaseCheck.rows[0]?.claim_token !== token) return;
       const state = await tx.query("SELECT status FROM api_assessments WHERE id=$1 FOR UPDATE",[jobId]);
       if (!state.rows[0] || state.rows[0].status !== "PROCESSING") {
-        await tx.query("DELETE FROM api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]); return;
+        await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]); return;
       }
       for (const rule of RULES) {
         await tx.query("INSERT INTO api_rule_results(id,tenant_id,assessment_id,rule_id,rule_version,coverage) VALUES ($1,$2,$3,$4,$5,$6)",[uuid(),tenant,jobId,rule,"1.0.0","SPEC_ONLY"]);
@@ -52,16 +52,16 @@ export async function processOneJob(): Promise<boolean> {
       await tx.query("INSERT INTO api_reports(id,tenant_id,assessment_id,projection) VALUES($1,$2,$3,$4::jsonb)",[uuid(),tenant,jobId,JSON.stringify(report)]);
       await tx.query("UPDATE api_assessments SET status='COMPLETED',completed_at=now() WHERE id=$1",[jobId]);
       await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,$3,$4)",[uuid(),tenant,"ASSESSMENT_COMPLETED",jobId]);
-      await tx.query("DELETE FROM api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]);
+      await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]);
     });
   } catch {
     // Failed work is auditable; never mark a failed assessment as successful.
-    await withTenant(tenant, async tx => {
-      const leaseCheck = await tx.query("SELECT claim_token FROM api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
+    await withWorkerTenant(tenant, async tx => {
+      const leaseCheck = await tx.query("SELECT claim_token FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
       if (leaseCheck.rows[0]?.claim_token !== token) return;
       await tx.query("UPDATE api_assessments SET status='FAILED',error_code='ASSESSMENT_ENGINE_FAILURE',completed_at=now() WHERE id=$1 AND status='PROCESSING'",[jobId]);
       await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,$3,$4)",[uuid(),tenant,"ASSESSMENT_FAILED",jobId]);
-      await tx.query("DELETE FROM api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]);
+      await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]);
     });
   }
   return true;

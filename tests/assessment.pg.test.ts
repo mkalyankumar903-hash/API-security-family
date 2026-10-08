@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { migrate,withTenant,pool } from "../packages/database/src/index.js";
+import { migrate,withTenant,pool,workerPool } from "../packages/database/src/index.js";
 import { makeApp } from "../packages/service/src/app.js";
 import { drainQueue, processOneJob } from "../packages/worker/src/index.js";
 
@@ -18,6 +18,12 @@ test("full real PostgreSQL customer workflow, isolation, restart and cancellatio
   const privileges = await pool.query("SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user");
   assert.equal(privileges.rows[0].rolsuper,false,"App DB role must NOT be superuser; RLS would be bypassed");
   assert.equal(privileges.rows[0].rolbypassrls,false,"App DB role must NOT have BYPASSRLS");
+  await assert.rejects(()=>pool.query("SELECT * FROM api_queue.api_assessment_queue"),/permission denied/);
+  await assert.rejects(()=>pool.query("DELETE FROM api_queue.api_assessment_queue"),/permission denied/);
+  await assert.rejects(()=>pool.query("UPDATE api_queue.api_assessment_queue SET locked_until=now()"),/permission denied/);
+  const workerPermissions=await workerPool.query("SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user");
+  assert.equal(workerPermissions.rows[0].rolsuper,false);
+  assert.equal(workerPermissions.rows[0].rolbypassrls,false);
   const app=await makeApp();
   try {
     const unauth=await app.inject({method:"GET",url:"/v1/targets"});
@@ -85,5 +91,5 @@ test("full real PostgreSQL customer workflow, isolation, restart and cancellatio
     assert.equal(cancelled.statusCode,200);
     assert.equal(await drainQueue(),0);
     assert.equal((await app.inject({method:"GET",url:"/v1/assessments/"+start3.json().id,headers:headers()})).json().status,"CANCELLED");
-  } finally {await app.close();await pool.end();}
+  } finally {await app.close();await pool.end();await workerPool.end();}
 });
