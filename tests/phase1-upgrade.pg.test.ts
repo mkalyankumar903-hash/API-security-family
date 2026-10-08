@@ -59,6 +59,6 @@ test("upgrade real populated Phase 0 PostgreSQL 16 schema to Phase 1 forward-onl
   assert.equal((await admin.query("SELECT count(*)::int AS n FROM api_schema_migrations WHERE version='003'")).rows[0].n,1);
  }finally{
   if(service)await service.end();if(admin)await admin.end();
-  try{await adminBase.query("DROP DATABASE IF EXISTS "+name+" WITH (FORCE)");}finally{await adminBase.end();}
+  try{await adminBase.query("DROP DATABASE IF EXISTS "+name);}finally{await adminBase.end();}
  }
 });
