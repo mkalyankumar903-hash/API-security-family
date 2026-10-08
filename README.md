@@ -43,7 +43,7 @@ Run scripts only against an isolated disposable PostgreSQL instance: test suites
 
 ## Safety and integration
 
-Local auth is a static test-token→tenant map, explicitly guarded by `SYNTHETIC_AUTH_ENABLED=true`. The production server refuses to start without a real Host adapter; this phase does not implement that adapter and does not accept browser-supplied tenant IDs. No active API request is sent. The target URL is inventory metadata, not permission for scanning. SCHEMA-01...04 validators are preliminary because original Main Platform v0.3.2 contract files are not available in this repository.
+Local auth is a static test-token→tenant map, explicitly guarded by `SYNTHETIC_AUTH_ENABLED=true`. The production server refuses to start without a real Host adapter; this phase does not implement that adapter and does not accept browser-supplied tenant IDs. No active API request is sent. The target URL is inventory metadata, not permission for scanning. The exact v0.3.1 candidate ZIP and v0.3.2 review/decision register were inspected and derived corrections are recorded; final Host resolution remains unavailable and the contract is NOT FROZEN.
 
 The preview is not a global platform login. Main Platform owns identity, tenant, billing and canonical findings. Only Main Platform RetestVerificationAuthority can mark VERIFIED_FIXED. See `docs/PHASE0_LIMITATIONS.md`.
 
@@ -60,3 +60,6 @@ The preview is not a global platform login. Main Platform owns identity, tenant,
 - `docs/api.openapi.yaml`: current implemented route contract
 
 No production deployment, Phase 1 progression or penetration-testing functionality is authorized.
+
+## Review remediation status
+Offline OpenAPI structural validation, private worker queue principal, tested tenant denial, actual Playwright Chromium E2E, separate migration-admin credentials, read-only GitHub Actions and ESLint are included. Use npm run lint / typecheck / test / test:pg / build / test:browser. Browser tests start Fastify and Vite and use isolated PostgreSQL. Production remains disabled.
