@@ -63,3 +63,10 @@ No production deployment, Phase 1 progression or penetration-testing functionali
 
 ## Review remediation status
 Offline OpenAPI structural validation, private worker queue principal, tested tenant denial, actual Playwright Chromium E2E, separate migration-admin credentials, read-only GitHub Actions and ESLint are included. Use npm run lint / typecheck / test / test:pg / build / test:browser. Browser tests start Fastify and Vite and use isolated PostgreSQL. Production remains disabled.
+
+## Phase 1 — Secure API target onboarding (stacked draft PR)
+API targets now have revisioned metadata, canonical HTTPS URL validation, lifecycle states, tenant-isolated scope proposals, challenge issuance/replacement/expiration/revocation, immutable audit history, test-only signed verification decisions and opaque credential references. Full React controls operate against Fastify and PostgreSQL. The historical Phase 0 assessment data and SPEC_ONLY offline pipeline are retained.
+**No real Host verification, identity delegation, credential retrieval, DNS/HTTP scanning, network permits or production login is implemented.** Ownership states are PENDING_HOST_VERIFICATION or SYNTHETIC_VERIFIED_TEST_ONLY; never Host verified. Scope proposals are not Host approval.
+Synthetic attestation issuer is disabled unless NODE_ENV is non-production and SYNTHETIC_VERIFICATION_ENABLED=true with an explicit **test-only** signing root. All authorized customer target network calls remain disabled.
+To test on a disposable database, set NODE_ENV=test, SYNTHETIC_AUTH_ENABLED=true, SYNTHETIC_VERIFICATION_ENABLED=true, PHASE1_SYNTHETIC_SIGNING_KEY to a development-only value at least 32 bytes, and configure both PostgreSQL roles and the admin-only migration DSN. No production use of these values is authorized.
+Run npm run typecheck, npm run lint, npm test, npm run test:pg, npm run build and npm run test:browser. The PostgreSQL tests include a separate actual populated Phase 0 upgrade database and preserve its historical target/spec. The Chromium suite exercises onboarding and Phase 0 assessment together.

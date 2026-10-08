@@ -1,0 +1,302 @@
+openapi: 3.1.0
+info:
+  title: LumicSec Independent API Family — Secure Target Onboarding (Phase 1)
+  version: 0.1.0-provisional
+  description: >
+    Isolated SPEC_ONLY customer metadata and synthetic-test verification contracts.
+    Not a frozen Main Platform adapter. No live network permits or Host authority.
+servers:
+  - url: http://127.0.0.1:3001
+    description: Isolated test-only Fastify instance; synthetic tokens never production authentication
+security:
+  - syntheticTestBearer: []
+components:
+  securitySchemes:
+    syntheticTestBearer:
+      type: http
+      scheme: bearer
+      description: Development-only synthetic session mapping; replaced by Host delegated authentication later.
+  parameters:
+    targetId:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    revision:
+      name: revision
+      in: query
+      required: false
+      schema: {type: integer, minimum: 1}
+  schemas:
+    Registration:
+      type: object
+      additionalProperties: false
+      required: [name, baseUrl, environment]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        baseUrl: {type: string, format: uri}
+        environment: {type: string, enum: [SYNTHETIC, STAGING, PRODUCTION]}
+    Target:
+      type: object
+      required: [id, name, base_url, environment, revision, verification_version, scope_revision, lifecycle, ownership_status]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        base_url: {type: string, format: uri}
+        environment: {type: string, enum: [SYNTHETIC, STAGING, PRODUCTION]}
+        revision: {type: integer, minimum: 1}
+        verification_version: {type: integer, minimum: 1}
+        scope_revision: {type: integer, minimum: 0}
+        lifecycle: {type: string, enum: [ACTIVE, SUSPENDED, REVOKED, ARCHIVED]}
+        ownership_status: {type: string, enum: [PENDING_HOST_VERIFICATION, SYNTHETIC_VERIFIED_TEST_ONLY]}
+    ScopeProposal:
+      type: object
+      additionalProperties: false
+      required: [origins, paths, exclusions, methods, operations, maxRequests]
+      properties:
+        origins: {type: array, maxItems: 4, items: {type: string, format: uri}}
+        paths: {type: array, maxItems: 32, items: {type: string}}
+        exclusions: {type: array, maxItems: 32, items: {type: string}}
+        methods: {type: array, items: {type: string, enum: [GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE]}}
+        operations: {type: array, maxItems: 50, items: {type: string}}
+        maxRequests: {type: integer, minimum: 0, maximum: 100000}
+        windowStart: {type: [string, "null"], format: date-time}
+        windowEnd: {type: [string, "null"], format: date-time}
+    Challenge:
+      type: object
+      required: [id, targetId, status, expiresAt, authority]
+      properties:
+        id: {type: string, format: uuid}
+        targetId: {type: string, format: uuid}
+        challengeNonce: {type: string, description: Random challenge shown only on issuance, not proof of ownership}
+        status: {type: string, enum: [ISSUED, CONSUMED, REVOKED, EXPIRED]}
+        expiresAt: {type: string, format: date-time}
+        authority: {type: string, enum: [PENDING_HOST_VERIFICATION]}
+    EvidenceSubmission:
+      type: object
+      additionalProperties: false
+      required: [challengeId, evidenceType, attestation]
+      properties:
+        challengeId: {type: string, format: uuid}
+        evidenceType: {type: string, enum: [CUSTOMER_CLAIM, SIGNED_SYNTHETIC_ATTESTATION, HOST_ATTESTATION]}
+        attestation: {type: string, maxLength: 4096, description: Never persisted raw; SHA256 digest only}
+    Error:
+      type: object
+      required: [error, requestId]
+      properties:
+        error: {type: string}
+        requestId: {type: string, format: uuid}
+paths:
+  /v1/targets:
+    get:
+      summary: Tenant-scoped filtered, paginated target inventory
+      parameters:
+        - {name: search, in: query, schema: {type: string, maxLength: 120}}
+        - {name: lifecycle, in: query, schema: {type: string, enum: [ACTIVE, SUSPENDED, REVOKED, ARCHIVED]}}
+        - {name: environment, in: query, schema: {type: string, enum: [SYNTHETIC, STAGING, PRODUCTION]}}
+        - {name: ownershipStatus, in: query, schema: {type: string, enum: [PENDING_HOST_VERIFICATION, SYNTHETIC_VERIFIED_TEST_ONLY]}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0, maximum: 1000000}}
+      responses:
+        "200":
+          description: RLS-filtered targets (including explicitly unverified Phase 0 records)
+          content:
+            application/json:
+              schema: {type: array, items: {$ref: "#/components/schemas/Target"}}
+    post:
+      summary: Register unverified target with optional idempotency-key header
+      parameters:
+        - {name: idempotency-key, in: header, schema: {type: string, minLength: 8, maxLength: 128}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Registration"}
+      responses:
+        "201": {description: Created unverified target}
+        "200": {description: Idempotent retry with identical normalized target}
+        "409": {description: Idempotency key reused with different body}
+  /v1/targets/{id}:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    get:
+      summary: Exact tenant-bound target details
+      responses:
+        "200":
+          description: Target metadata, lifecycle and verification revisions
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Target"}
+        "404": {description: Not visible for requesting tenant}
+    patch:
+      summary: Compare-and-swap target update with verification invalidation on origin/environment change
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: {type: integer, minimum: 1}
+                name: {type: string}
+                baseUrl: {type: string, format: uri}
+                environment: {type: string, enum: [SYNTHETIC, STAGING, PRODUCTION]}
+      responses:
+        "200": {description: Updated target with incremented revision}
+        "409": {description: Stale edit or inactive target}
+  /v1/targets/{id}/lifecycle:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    post:
+      summary: Enforced suspend/revoke/archive/restore transitions, never re-enable revoked target
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, action]
+              properties:
+                revision: {type: integer, minimum: 1}
+                action: {type: string, enum: [SUSPEND, REVOKE, ARCHIVE, RESTORE]}
+      responses:
+        "200": {description: Persisted transition and invalidated verification}
+        "409": {description: Invalid or stale lifecycle transition}
+  /v1/targets/{id}/scopes:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    get:
+      summary: Historical customer scope proposals (never Host approvals)
+      responses:
+        "200": {description: Revisioned scope proposals}
+    post:
+      summary: Append-only customer scope proposal with invalidation of stale ownership verification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, proposal]
+              properties:
+                revision: {type: integer, minimum: 1}
+                proposal: {$ref: "#/components/schemas/ScopeProposal"}
+      responses:
+        "200": {description: Stored CUSTOMER_PROPOSED scope only}
+        "409": {description: Stale target revision}
+  /v1/targets/{id}/verification/challenges:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    get:
+      summary: Redacted challenge history without raw nonce
+      responses:
+        "200": {description: Challenge lifecycle records}
+    post:
+      summary: Issue expiring nonce hash bound to exact tenant,target,origin,environment,revision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: {type: integer, minimum: 1}
+      responses:
+        "200":
+          description: New pending-host challenge; older outstanding challenges revoked
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Challenge"}
+  /v1/test-authority/attest:
+    post:
+      summary: Test-only HMAC issuer gated by explicit non-production environment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetId, challengeId]
+              properties:
+                targetId: {type: string, format: uuid}
+                challengeId: {type: string, format: uuid}
+      responses:
+        "200": {description: "Signed synthetic test attestation; NEVER real ownership authority"}
+        "503": {description: Test-only issuer disabled by default and in production}
+  /v1/targets/{id}/verification/evidence:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    post:
+      summary: Reject claims as verified; verify only synthetic test signatures; Host mode unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/EvidenceSubmission"}
+      responses:
+        "200": {description: SYNTHETIC_VERIFIED_TEST_ONLY; no live execution authorization}
+        "202": {description: Claim recorded as PENDING_HOST_VERIFICATION or challenge expired}
+        "403": {description: Forged or context-mismatched attestation}
+        "409": {description: Replay/revoked/stale challenge}
+        "503": {description: Real Host verifier absent}
+  /v1/targets/{id}/verification/revoke:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    post:
+      summary: Invalidate verification version and outstanding challenges
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: {type: integer, minimum: 1}
+      responses:
+        "200": {description: Verification invalidated}
+  /v1/targets/{id}/verification/decisions:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    get:
+      summary: Immutable synthetic decision history
+      responses:
+        "200": {description: Decision records; no real Host approvals}
+  /v1/targets/{id}/credentials:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    get:
+      summary: List opaque metadata references only
+      responses:
+        "200": {description: Unverified references; never raw credentials}
+    post:
+      summary: Add format-restricted opaque credential profile reference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, reference]
+              properties:
+                revision: {type: integer, minimum: 1}
+                reference: {type: string, pattern: "^credref:[A-Za-z0-9_-]{8,128}$"}
+      responses:
+        "201": {description: Unverified reference only; Host access NOT granted}
+  /v1/targets/{id}/credentials/{refId}:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+      - {name: refId, in: path, required: true, schema: {type: string, format: uuid}}
+    delete:
+      summary: Remove owned reference without exposing stored secrets
+      responses:
+        "200": {description: Deleted reference}
+  /v1/targets/{id}/history:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    get:
+      summary: Append-only authorization-relevant target audit history
+      responses:
+        "200": {description: Target audit entries (RLS protected)}

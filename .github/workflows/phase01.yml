@@ -1,0 +1,61 @@
+name: Phase 1 Secure Target Onboarding Qualification
+on:
+  push:
+    branches: ["work/phase01-secure-target-onboarding"]
+  pull_request:
+    branches: ["work/phase0-spec-only-assessment"]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      SYNTHETIC_VERIFICATION_ENABLED: "true"
+      PHASE1_SYNTHETIC_SIGNING_KEY: "LUMICSEC_TEST_ONLY_NEVER_PRODUCTION_phase01_test_fixture_key_2026"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+      WORKER_DATABASE_URL: postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family
+      MIGRATION_DATABASE_URL: postgres://postgres:local_admin_only@127.0.0.1:55432/api_family
+      VITE_API_BASE: http://127.0.0.1:3001
+      VITE_DEV_TOKEN: local-test-token-alpha
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Provision non-superuser application role (no BYPASSRLS)
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Frozen reproducible dependency installation
+        run: npm ci --no-audit --no-fund
+      - name: Real ESLint analysis
+        run: npm run lint
+      - name: TypeScript strict typecheck
+        run: npm run typecheck
+      - name: Deterministic rule and contract tests
+        run: npm test
+      - name: Real PostgreSQL + Phase 0/1 UI E2E and populated upgrade
+        run: npm run test:pg
+      - name: Frontend build
+        run: npm run build
+      - name: Install Chromium for real browser E2E
+        run: npx playwright install --with-deps chromium
+      - name: Real Chromium customer/browser security E2E
+        run: npm run test:browser

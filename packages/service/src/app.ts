@@ -1,9 +1,10 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
-import { isIP } from "node:net";
 import { parseAndValidateSpec } from "../../assessment-engine/src/index.js";
 import { withTenant, uuid } from "../../database/src/index.js";
 import { validatePlan } from "../../contracts/src/policy.js";
+import {canonicalTargetUrl,checkName,checkEnvironment,TargetInputError} from "../../targets/src/contracts.js";
+import {registerOnboardingRoutes,OnboardingError} from "./onboarding.js";
 
 class ApiError extends Error { constructor(public statusCode: number, public code: string) { super(code); } }
 const sessions = new WeakMap<FastifyRequest,string>();
@@ -15,17 +16,7 @@ function bodyObject(value: unknown): Record<string,unknown> {
   if (!value || Array.isArray(value) || typeof value !== "object") throw new ApiError(400,"INVALID_BODY");
   return value as Record<string,unknown>;
 }
-function validUrl(value: unknown): string {
-  if (typeof value !== "string" || value.length > 2048) throw new ApiError(400,"INVALID_TARGET_URL");
-  let url: URL;
-  try { url = new URL(value); } catch { throw new ApiError(400,"INVALID_TARGET_URL"); }
-  const host = url.hostname.toLowerCase().replace(/\.$/,"");
-  if (url.protocol !== "https:" || url.username || url.password || url.hash || url.search ||
-      isIP(host) !== 0 || !host.includes(".") || /(^|\.)(localhost|local|internal|test)$/.test(host) ||
-      /(^|\.)(localhost|local|internal)$/.test(host) || url.port && url.port !== "443")
-    throw new ApiError(400,"UNSAFE_TARGET_URL");
-  return url.origin + url.pathname.replace(/\/$/,"");
-}
+function validUrl(value:unknown):string{return canonicalTargetUrl(value).canonicalUrl;}
 function positiveLimit(req: FastifyRequest) {
   const obj = req.query as Record<string,unknown>;
   const n = obj.limit === undefined ? 50 : Number(obj.limit);
@@ -48,7 +39,7 @@ function setupSyntheticAuthority(): Map<string,string> {
 export async function makeApp(): Promise<FastifyInstance> {
   const identities = setupSyntheticAuthority();
   const app = Fastify({ logger: false, bodyLimit: 1100000, genReqId: () => uuid() });
-  await app.register(cors, { origin:["http://127.0.0.1:5173","http://localhost:5173"], allowedHeaders: ["authorization","content-type","idempotency-key"], methods: ["GET","POST","DELETE","OPTIONS"] });
+  await app.register(cors, { origin:["http://127.0.0.1:5173","http://localhost:5173"], allowedHeaders: ["authorization","content-type","idempotency-key"], methods: ["GET","POST","PATCH","DELETE","OPTIONS"] });
   app.addHook("preHandler", async (req) => {
     if (req.url === "/health/live") return;
     const authorization = req.headers.authorization;
@@ -59,29 +50,50 @@ export async function makeApp(): Promise<FastifyInstance> {
   });
   app.setErrorHandler((error,req,reply) => {
     const e = error as Error & { statusCode?:number; code?:string };
-    const status = e instanceof ApiError ? e.statusCode : e.statusCode === 413 ? 413 : e.code === "23505" ? 409 : 500;
+    const known=e instanceof ApiError||e instanceof OnboardingError||e instanceof TargetInputError;
+    const status = known ? (e instanceof TargetInputError?400:(e as ApiError|OnboardingError).statusCode) : e.statusCode === 413 ? 413 : e.code === "23505" ? 409 : 500;
     req.log.error({requestId:req.id,code:status},"request failed");
-    reply.code(status).send({ error: e instanceof ApiError ? e.code : status === 413 ? "BODY_TOO_LARGE" : status === 409 ? "CONFLICT" : "INTERNAL_ERROR", requestId:req.id });
+    reply.code(status).send({ error: known ? (e instanceof TargetInputError?e.reason:(e as ApiError|OnboardingError).code) : status === 413 ? "BODY_TOO_LARGE" : status === 409 ? "CONFLICT" : "INTERNAL_ERROR", requestId:req.id });
   });
   app.get("/health/live",async()=> ({ok:true,service:"api-family",scope:"SPEC_ONLY"}));
-  app.post("/v1/targets", async (req, reply) => {
-    const data = bodyObject(req.body), name=data.name, environment=data.environment;
-    if (typeof name !== "string" || name.trim().length < 1 || name.length > 120 || !["SYNTHETIC","STAGING","PRODUCTION"].includes(String(environment))) throw new ApiError(400,"INVALID_TARGET");
-    const url=validUrl(data.baseUrl), id=uuid(), t=tenant(req);
-    const record=await withTenant(t,async tx=>{
-      const r=await tx.query("INSERT INTO api_targets(id,tenant_id,name,base_url,environment) VALUES($1,$2,$3,$4,$5) RETURNING id,name,base_url,environment,created_at",[id,t,name.trim(),url,environment]);
-      await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,'TARGET_CREATED',$3)",[uuid(),t,id]);
-      return r.rows[0];
+  app.post("/v1/targets", async (req,reply) => {
+    const b=bodyObject(req.body),name=checkName(b.name),environment=checkEnvironment(b.environment),baseUrl=validUrl(b.baseUrl),t=tenant(req);
+    const rawKey=req.headers["idempotency-key"];
+    const key=rawKey===undefined?null:(typeof rawKey==="string"&&/^[a-zA-Z0-9:_-]{8,128}$/.test(rawKey)?rawKey:(()=>{throw new ApiError(400,"INVALID_IDEMPOTENCY_KEY");})());
+    const result=await withTenant(t,async tx=>{
+      if(key){
+        const previous=await tx.query("SELECT * FROM api_targets WHERE registration_key=$1 FOR UPDATE",[key]);
+        if(previous.rowCount){
+          if(previous.rows[0].name!==name||previous.rows[0].base_url!==baseUrl||previous.rows[0].environment!==environment)throw new ApiError(409,"IDEMPOTENCY_CONFLICT");
+          return {row:previous.rows[0],created:false};
+        }
+      }
+      const created=await tx.query("INSERT INTO api_targets(id,tenant_id,name,base_url,environment,registration_key) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,registration_key) WHERE registration_key IS NOT NULL DO NOTHING RETURNING *",[uuid(),t,name,baseUrl,environment,key]);
+      if(!created.rowCount){
+        const existing=await tx.query("SELECT * FROM api_targets WHERE registration_key=$1",[key]);
+        const row=existing.rows[0];
+        if(!row||row.name!==name||row.base_url!==baseUrl||row.environment!==environment)throw new ApiError(409,"IDEMPOTENCY_CONFLICT");
+        return {row,created:false};
+      }
+      await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,'TARGET_CREATED',$3)",[uuid(),t,created.rows[0].id]);
+      await tx.query("INSERT INTO api_target_events(id,tenant_id,target_id,action,revision,details) VALUES($1,$2,$3,'TARGET_CREATED',1,'{}'::jsonb)",[uuid(),t,created.rows[0].id]);
+      return {row:created.rows[0],created:true};
     });
-    reply.code(201).send(record);
+    reply.code(result.created?201:200).send(result.row);
   });
   app.get("/v1/targets",async req => {
-    const p=positiveLimit(req);
-    return withTenant(tenant(req), async tx => (await tx.query("SELECT id,name,base_url,environment,created_at FROM api_targets ORDER BY created_at,id LIMIT $1 OFFSET $2",[p.limit,p.offset])).rows);
+    const pagination=positiveLimit(req),q=(req.query||{}) as Record<string,unknown>;
+    const search=q.search===undefined?"":q.search;
+    if(typeof search!=="string"||search.length>120)throw new ApiError(400,"INVALID_SEARCH");
+    const lifecycle=q.lifecycle,environment=q.environment,status=q.ownershipStatus;
+    if(lifecycle!==undefined&&!["ACTIVE","SUSPENDED","REVOKED","ARCHIVED"].includes(String(lifecycle)))throw new ApiError(400,"INVALID_FILTER");
+    if(environment!==undefined&&!["SYNTHETIC","STAGING","PRODUCTION"].includes(String(environment)))throw new ApiError(400,"INVALID_FILTER");
+    if(status!==undefined&&!["PENDING_HOST_VERIFICATION","SYNTHETIC_VERIFIED_TEST_ONLY"].includes(String(status)))throw new ApiError(400,"INVALID_FILTER");
+    return withTenant(tenant(req),async tx=>(await tx.query("SELECT id,name,base_url,environment,revision,verification_version,scope_revision,lifecycle,ownership_status,created_at,updated_at,archived_at FROM api_targets WHERE ($1='' OR strpos(lower(name),lower($1))>0 OR strpos(lower(base_url),lower($1))>0) AND ($2::text IS NULL OR lifecycle=$2) AND ($3::text IS NULL OR environment=$3) AND ($4::text IS NULL OR ownership_status=$4) ORDER BY created_at DESC,id LIMIT $5 OFFSET $6",[search,lifecycle??null,environment??null,status??null,pagination.limit,pagination.offset])).rows);
   });
   app.get("/v1/targets/:id",async req => {
-    const r=await withTenant(tenant(req),async tx=>tx.query("SELECT id,name,base_url,environment,created_at FROM api_targets WHERE id=$1",[paramsId(req)]));
-    if (!r.rows[0]) throw new ApiError(404,"NOT_FOUND");
+    const r=await withTenant(tenant(req),async tx=>tx.query("SELECT id,name,base_url,environment,revision,verification_version,scope_revision,lifecycle,ownership_status,created_at,updated_at,archived_at FROM api_targets WHERE id=$1",[paramsId(req)]));
+    if(!r.rowCount)throw new ApiError(404,"NOT_FOUND");
     return r.rows[0];
   });
   app.post("/v1/targets/:id/specifications", async (req,reply) => {
@@ -92,8 +104,9 @@ export async function makeApp(): Promise<FastifyInstance> {
     try { spec=await parseAndValidateSpec(content); } catch (e) { throw new ApiError(422,"INVALID_SPEC_" + String(e instanceof Error ? e.message : "DOCUMENT").slice(0,60).replace(/[^A-Z0-9_]/gi,"_")); }
     const t=tenant(req), specId=uuid();
     await withTenant(t,async tx=>{
-      const target=await tx.query("SELECT id FROM api_targets WHERE id=$1",[id]);
+      const target=await tx.query("SELECT id,lifecycle FROM api_targets WHERE id=$1 FOR UPDATE",[id]);
       if (!target.rows[0]) throw new ApiError(404,"TARGET_NOT_FOUND");
+      if(target.rows[0].lifecycle!=="ACTIVE")throw new ApiError(409,"TARGET_NOT_ACTIVE");
       await tx.query("INSERT INTO api_specifications(id,tenant_id,target_id,filename,format,fingerprint,raw_spec) VALUES($1,$2,$3,$4,$5,$6,$7)",[specId,t,id,filename,spec.format,spec.fingerprint,content]);
       for (const op of spec.operations) await tx.query("INSERT INTO api_operations(id,tenant_id,specification_id,operation_key,method,path,operation_id,pointer,security_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)",[uuid(),t,specId,op.key,op.method,op.path,op.operationId,op.pointer,JSON.stringify(op.security)]);
       await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,'SPEC_UPLOADED',$3)",[uuid(),t,specId]);
@@ -116,6 +129,9 @@ export async function makeApp(): Promise<FastifyInstance> {
     if (typeof key !== "string" || !/^[a-zA-Z0-9:_-]{8,128}$/.test(key)) throw new ApiError(400,"IDEMPOTENCY_KEY_REQUIRED");
     const t=tenant(req), id=uuid();
     const result=await withTenant(t,async tx=>{
+      const target=await tx.query("SELECT lifecycle FROM api_targets WHERE id=$1 FOR UPDATE",[targetId]);
+      if(!target.rowCount)throw new ApiError(404,"TARGET_NOT_FOUND");
+      if(target.rows[0].lifecycle!=="ACTIVE")throw new ApiError(409,"TARGET_NOT_ACTIVE");
       const exists=await tx.query("SELECT id FROM api_specifications WHERE id=$1 AND target_id=$2",[specId,targetId]);
       if (!exists.rows[0]) throw new ApiError(404,"SPECIFICATION_NOT_FOUND");
       const r=await tx.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key) VALUES($1,$2,$3,$4,'QUEUED','SPEC_ONLY',$5) ON CONFLICT(tenant_id,idempotency_key) DO UPDATE SET id=api_assessments.id RETURNING id,target_id,specification_id,status,mode,created_at",[id,t,targetId,specId,key]);
@@ -152,5 +168,6 @@ export async function makeApp(): Promise<FastifyInstance> {
       return r.rows[0];
     });
   });
+  await registerOnboardingRoutes(app,tenant);
   return app;
 }
