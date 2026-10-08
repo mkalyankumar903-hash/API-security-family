@@ -22,7 +22,7 @@ test("SCHEMA-03 reject contradictory decisions, expiry and request binding misma
 test("SCHEMA-04 enforce inclusive 1..budget ordinals and safe integer bounds",()=>{
   assert.equal(nextOrdinal(0,1),1);
   assert.equal(nextOrdinal(MAX_ORDINAL-1,MAX_ORDINAL),MAX_ORDINAL);
-  for(const [used,budget] of [[1,1],[-1,5],[1.5,5],[0,MAX_ORDINAL+1],[MAX_ORDINAL,MAX_ORDINAL]])assert.throws(()=>nextOrdinal(used,budget));
+  for(const [used,budget] of ([[1,1],[-1,5],[1.5,5],[0,MAX_ORDINAL+1],[MAX_ORDINAL,MAX_ORDINAL]] as [number,number][]))assert.throws(()=>nextOrdinal(used,budget));
   assert.throws(()=>validatePermit({...allowed,requestOrdinal:11},{...context,ordinal:11}));
   assert.throws(()=>validatePermit({...allowed,remainingRequests:10},context));
 });
