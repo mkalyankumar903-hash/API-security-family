@@ -1,4 +1,5 @@
 import {test} from "node:test";
+import {blockedMainHostPtAdapterV1,HOST_PT_CONTRACT_VERSION,PT_ENGINE_CONTRACT_VERSION} from "../packages/pt/src/contracts-v1.js";
 import assert from "node:assert/strict";
 import {createHmac} from "node:crypto";
 import {digest,enforcePermit,issueTestPermit,verifyTestPermit,validateTestAuthority,PT_ISSUER,PT_AUDIENCE,PT_PROFILE,type PtClaims} from "../packages/pt/src/permit.js";
@@ -101,4 +102,12 @@ test("Phase06 in-process fixture executes real GET/HEAD and never accepts unsafe
  const head=await evaluateFixture({operationKey:"HEAD /status",method:"HEAD",path:"/status"});
  assert.equal(head.httpStatus,200);assert.equal(head.responseBytes,0);
  await assert.rejects(()=>evaluateFixture({operationKey:"BAD",method:"POST" as "GET",path:"/status"}));
+});
+
+test("Phase06 real Main Platform Host remains deliberately unavailable and fail-closed",async()=>{
+ assert.equal(blockedMainHostPtAdapterV1.contractVersion,HOST_PT_CONTRACT_VERSION);
+ assert.equal(PT_ENGINE_CONTRACT_VERSION,"synthetic-pt-governor-v1");
+ await assert.rejects(()=>blockedMainHostPtAdapterV1.requestAuthorization({targetId:claimInput.targetId,specificationId:claimInput.specificationId,scopeFingerprint:claimInput.specFingerprint}),{code:"REAL_MAIN_HOST_CONTRACT_NOT_FROZEN"});
+ await assert.rejects(()=>blockedMainHostPtAdapterV1.verifyAtOperation("test-permit","GET /status","GET"),{code:"REAL_MAIN_HOST_CONTRACT_NOT_FROZEN"});
+ await assert.rejects(()=>blockedMainHostPtAdapterV1.revokePermit("test-permit","revoked"),{code:"REAL_MAIN_HOST_CONTRACT_NOT_FROZEN"});
 });
