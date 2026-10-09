@@ -98,3 +98,29 @@ $$;
 ALTER FUNCTION public.api_worker_safe_queue_status(uuid) OWNER TO api_family_queue;
 REVOKE ALL ON FUNCTION public.api_worker_safe_queue_status(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.api_worker_safe_queue_status(uuid) TO api_family;
+
+-- Preserve the historical tenant-validated SECURITY DEFINER enqueue API while
+-- bounding queue depth. The per-tenant transaction advisory gate makes the
+-- count+insert atomic under parallel customer submissions.
+CREATE OR REPLACE FUNCTION public.api_enqueue_assessment(p_job uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,api_queue AS $$
+DECLARE t uuid := nullif(current_setting('api.tenant_id',true),'')::uuid;
+DECLARE queued integer;
+BEGIN
+ IF t IS NULL THEN RAISE EXCEPTION 'NO_TENANT_CONTEXT' USING ERRCODE='42501'; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended(t::text,424242));
+ -- Existing idempotent queued jobs are never denied or reinserted.
+ IF EXISTS(SELECT 1 FROM api_queue.api_assessment_queue q WHERE q.assessment_id=p_job AND q.tenant_id=t) THEN RETURN; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.api_assessments a WHERE a.id=p_job AND a.tenant_id=t AND a.status='QUEUED') THEN RETURN; END IF;
+ SELECT count(*)::int INTO queued FROM api_queue.api_assessment_queue WHERE tenant_id=t;
+ IF queued>=64 THEN
+   RAISE EXCEPTION 'QUEUE_TENANT_CAPACITY_EXCEEDED' USING ERRCODE='PT001';
+ END IF;
+ INSERT INTO api_queue.api_assessment_queue(assessment_id,tenant_id)
+  SELECT id,tenant_id FROM public.api_assessments
+  WHERE id=p_job AND tenant_id=t AND status='QUEUED'
+  ON CONFLICT(assessment_id) DO NOTHING;
+END $$;
+ALTER FUNCTION public.api_enqueue_assessment(uuid) OWNER TO api_family_queue;
+REVOKE ALL ON FUNCTION public.api_enqueue_assessment(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.api_enqueue_assessment(uuid) TO api_family;
