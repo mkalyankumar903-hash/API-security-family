@@ -74,7 +74,7 @@ test("Phase06 populated Phase05 -> migration009 upgrade preserves targets, inven
   assert.equal((await clone.query("SELECT count(*)::int AS n FROM api_schema_migrations")).rows[0].n,9);
  }finally{
   await clone.end();
-  if(created)await admin.query("DROP DATABASE "+name+" WITH (FORCE)");
+  if(created)await admin.query("DROP DATABASE "+name);
   await admin.end();
  }
 });
