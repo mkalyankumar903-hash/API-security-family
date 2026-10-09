@@ -7,6 +7,7 @@ import {processAuthFixtureJob} from "./auth.js";
 import {processPtJob} from "./pt.js";
 import {processPtDetectionJob} from "./pt-detection.js";
 import {processPtOrchestrationJob} from "./pt-orchestrator.js";
+import {scheduleConservativeRetry} from "./safety-retry.js";
 import type {Inventory} from "../../discovery/src/index.js";
 import { claimJob,renewWorkerClaim,finishWorkerAttempt, uuid, withWorkerTenant } from "../../database/src/index.js";
 
@@ -124,7 +125,9 @@ export async function processOneJob(): Promise<boolean> {
       await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,$3,$4)",[uuid(),tenant,"ASSESSMENT_COMPLETED",jobId]);
       await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]);
     });
-  } catch {
+  } catch (error) {
+    const disposition=await scheduleConservativeRetry(lease,error).catch(()=>"NOT_RETRYABLE" as const);
+    if(disposition==="RETRY_SCHEDULED"||disposition==="RETRY_EXHAUSTED")return true;
     // Failed work is auditable; never mark a failed assessment as successful.
     await withWorkerTenant(tenant, async tx => {
       const leaseCheck = await tx.query("SELECT claim_token FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
