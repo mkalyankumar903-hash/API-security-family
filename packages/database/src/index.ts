@@ -246,15 +246,30 @@ export async function releaseUnstartedWorkerClaim(claim:WorkerClaim):Promise<boo
 /** Final state comes from committed PostgreSQL status, never a worker's success flag. */
 export async function finishWorkerAttempt(claim:WorkerClaim):Promise<void>{
  await withWorkerTenant(claim.tenant_id,async tx=>{
-  const state=await tx.query("SELECT status FROM public.api_assessments WHERE id=$1",[claim.assessment_id]);
+  const state=await tx.query("SELECT status,error_code FROM public.api_assessments WHERE id=$1",[claim.assessment_id]);
   const q=await tx.query("SELECT claim_token,claim_generation FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[claim.assessment_id]);
   const current=!q.rowCount||(q.rows[0].claim_token===claim.claim_token&&Number(q.rows[0].claim_generation)===claim.claim_generation);
   const s=state.rows[0]?.status;
   const outcome=current&&s==="COMPLETED"?"COMPLETED":current&&s==="CANCELLED"?"CANCELLED":current&&s==="FAILED"?"FAILED":"LOST";
   const changed=await tx.query("UPDATE public.api_worker_attempts SET state=$2,finished_at=clock_timestamp(),failure_code=CASE WHEN $2='LOST' THEN 'AUTHORITY_OR_TERMINAL_NOT_CONFIRMED' ELSE NULL END WHERE id=$1 AND claim_token=$3 AND state='ACTIVE' RETURNING id",
    [claim.attempt_id,outcome,claim.claim_token]);
-  if(changed.rowCount)await tx.query("INSERT INTO public.api_worker_events(id,tenant_id,assessment_id,attempt_id,kind,code) VALUES($1,$2,$3,$4,$5,$6)",
-   [uuid(),claim.tenant_id,claim.assessment_id,claim.attempt_id,outcome==="LOST"?"LEASE_LOST":outcome,outcome==="LOST"?"AUTHORITY_NOT_CONFIRMED":"PERSISTED_ASSESSMENT_STATE"]);
+  if(changed.rowCount){
+   await tx.query("INSERT INTO public.api_worker_events(id,tenant_id,assessment_id,attempt_id,kind,code) VALUES($1,$2,$3,$4,$5,$6)",
+    [uuid(),claim.tenant_id,claim.assessment_id,claim.attempt_id,outcome==="LOST"?"LEASE_LOST":outcome,outcome==="LOST"?"AUTHORITY_NOT_CONFIRMED":"PERSISTED_ASSESSMENT_STATE"]);
+   const reason=state.rows[0]?.error_code as string|undefined;
+   // Integrity errors are terminal poison, never infrastructure-retry candidates.
+   // Retain the accepted Phase07/09 terminal report and ledger; add diagnostics only.
+   const poison=outcome==="FAILED"&&typeof reason==="string"&&
+    /^(PT9_(PLAN_OR_ENGINE_MISSING|AUTHORITY_BINDING_MISMATCH|NONDETERMINISTIC_OR_STALE_PLAN|STAGE_COUNT_MISMATCH|.*TAMPERED)|UNSUPPORTED_WORKER_ENGINE|INVENTORY_SNAPSHOT_MISMATCH|RICH_INVENTORY_MISSING_OR_TAMPERED)$/.test(reason);
+   if(poison){
+    const inserted=await tx.query(
+     "INSERT INTO public.api_worker_quarantine(assessment_id,tenant_id,reason_code,attempts) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING assessment_id",
+     [claim.assessment_id,claim.tenant_id,reason,Math.min(5,claim.claim_generation)]);
+    if(inserted.rowCount)await tx.query(
+     "INSERT INTO public.api_worker_events(id,tenant_id,assessment_id,attempt_id,kind,code) VALUES($1,$2,$3,$4,'QUARANTINED',$5)",
+     [uuid(),claim.tenant_id,claim.assessment_id,claim.attempt_id,reason]);
+   }
+  }
  });
 }
 export async function closeDatabase(): Promise<void> { await pool.end(); await workerPool.end(); }
