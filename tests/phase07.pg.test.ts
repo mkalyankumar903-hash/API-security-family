@@ -152,6 +152,46 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
    assert.equal((await call("GET","/v7/pt/jobs/"+jid+"/report")).statusCode,409);
    assert.equal((await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1",[jid]))).rows[0].n,0);
   });
+  await t.test("every one of eight PT7 rules executes a real governed vulnerable fixture and publishes exactly one observation",async()=>{
+   const positives:Record<string,string>={
+    "PT-AUTH-ANONYMOUS":"MISSING_AUTH_ENFORCEMENT",
+    "PT-AUTH-INVALID":"MISSING_AUTH_ENFORCEMENT",
+    "PT-AUTH-EXPIRED":"MISSING_AUTH_ENFORCEMENT",
+    "PT-AUTH-REVOKED":"MISSING_AUTH_ENFORCEMENT",
+    "PT-BOLA-CROSS-USER":"CROSS_USER_ACCESS_WEAKNESS",
+    "PT-FUNCTION-ROLE":"ROLE_RESTRICTION_WEAKNESS",
+    "PT-SENSITIVE-FIELD":"SENSITIVE_RESPONSE_EXPOSURE",
+    "PT-CONFIDENTIAL-CACHE":"INSECURE_CACHE_POLICY"
+   };
+   for(const rule of RULES){
+    const sid=await scope(s,[rule.id]);await permit(sid);
+    const admitted=await start(sid,positives[rule.id]!,[rule.id]);
+    assert.equal(admitted.statusCode,201,rule.id+": "+admitted.body);
+    const id=admitted.json().id as string;
+    assert.equal(await processOneJob(),true,rule.id+" must be claimed by the private queue");
+    const state=await call("GET","/v7/pt/jobs/"+id);
+    assert.equal(state.json().status,"COMPLETED",rule.id);
+    const result=await call("GET","/v7/pt/jobs/"+id+"/report");
+    assert.equal(result.statusCode,200,rule.id+": "+result.body);
+    const report=result.json() as {observations:{ruleId:string;status:string;confidence:string;fingerprint:string}[];
+     coverage:{actualEvaluations:number};syntheticOnly:boolean;verifiedFixed:boolean;customerNetworkRequests:number};
+    assert.equal(report.observations.length,1,rule.id);
+    assert.equal(report.observations[0]!.ruleId,rule.id);
+    assert.equal(report.observations[0]!.status,"OBSERVED");
+    assert.equal(report.observations[0]!.confidence,"HIGH");
+    assert.match(report.observations[0]!.fingerprint,/^[0-9a-f]{64}$/);
+    assert.equal(report.coverage.actualEvaluations,rule.cases.length);
+    assert.equal(report.syntheticOnly,true);
+    assert.equal(report.verifiedFixed,false);
+    assert.equal(report.customerNetworkRequests,0);
+    const evaluations=await call("GET","/v7/pt/jobs/"+id+"/evaluations");
+    assert.equal(evaluations.statusCode,200);
+    const receipts=evaluations.json() as unknown as {state:string;evidence:{responseHash:string}|null}[];
+    assert.equal(receipts.length,rule.cases.length);
+    assert.ok(receipts.every(x=>x.state==="CONSUMED"&&x.evidence?.responseHash?.length===64));
+    assert.equal(evaluations.body.includes("SYNTHETIC_PLACEHOLDER_NOT_A_SECRET"),false);
+   }
+  });
   await t.test("parallel idempotent PT7 admission owns exactly one queue item and enforces per-permit concurrency",async()=>{
    const fresh=await scope(s,[RULES[4]!.id]);await permit(fresh);
    const idem="pt7-parallel-"+randomUUID();
