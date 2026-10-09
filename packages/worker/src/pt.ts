@@ -178,8 +178,18 @@ export async function processPtJob(tenant:string,id:string,token:string):Promise
   await withWorkerTenant(tenant,async tx=>{
    const q=await tx.query("SELECT claim_token FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[id]);
    if(q.rows[0]?.claim_token!==token)return;
+   // Any reservation surviving a publication exception is a potential fixture
+   // evaluation. Conservatively consume it, never refund or replay it.
+   // Settlement and FAILED state publish in a single transaction.
+   const abandoned=await tx.query(
+    "SELECT l.permit_id,l.operation_key FROM api_pt_ledger l WHERE l.assessment_id=$1 AND l.state='RESERVED' FOR UPDATE",[id]);
+   for(const row of abandoned.rows){
+    await tx.query("UPDATE api_pt_ledger SET state='UNCERTAIN',settled_at=now() WHERE assessment_id=$1 AND operation_key=$2 AND state='RESERVED'",[id,row.operation_key]);
+    await tx.query("UPDATE api_pt_permits SET reserved=reserved-1,consumed=consumed+1 WHERE id=$1 AND reserved>0",[row.permit_id]);
+   }
    await tx.query("UPDATE api_assessments SET status='FAILED',error_code='PT_WORKER_FAILURE',completed_at=now() WHERE id=$1 AND status='PROCESSING'",[id]);
    await audit(tx,tenant,id,"PT_WORKER_FAILURE","PT_WORKER_FAILURE");
+   if(abandoned.rowCount)await audit(tx,tenant,id,"PT_UNCERTAIN_RESERVATIONS_SETTLED",String(abandoned.rowCount));
    await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[id,token]);
   });
  }
