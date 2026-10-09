@@ -3,6 +3,7 @@ import {createHash} from "node:crypto";
 import {withTenant,uuid} from "../../database/src/index.js";
 import {compareInventory,DiscoveryError,type Inventory} from "../../discovery/src/index.js";
 import {importOfflineIsolated} from "../../discovery/src/isolated.js";
+import {buildRichInventory} from "../../discovery/src/rich.js";
 export class ImportError extends Error {constructor(public statusCode:number,public code:string){super(code);}}
 const fail=(n:number,code:string):never=>{throw new ImportError(n,code);};
 const guid=(value:unknown):string=>typeof value==="string"&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value)?value:fail(400,"INVALID_IDENTIFIER");
@@ -79,6 +80,14 @@ export async function registerDiscoveryRoutes(app:FastifyInstance,tenant:(req:Fa
    }
    await tx.query("INSERT INTO api_spec_inventories(specification_id,tenant_id,target_id,version_number,original_format,raw_fingerprint,normalized_fingerprint,normalization_version,snapshot,assessment_source,coverage,selected) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12)",
      [specificationId,t,targetId,version,inventory.format,inventory.rawFingerprint,inventory.normalizedFingerprint,inventory.normalizationVersion,JSON.stringify({...inventory,assessmentSource:undefined}),inventory.assessmentSource,inventory.metadata.coverage,version===1&&inventory.assessmentSource!==null]);
+   // Phase05 metadata is separate, new-import-only and immutable. The historical
+   // phase02-v1 row above is never updated or backfilled.
+   let rich=null;
+   try{rich=buildRichInventory(content as string,inventory);}catch{ /* unsupported source projection: v1 remains authoritative */ }
+   if(rich&&Buffer.byteLength(JSON.stringify(rich),"utf8")<524288){
+    await tx.query("INSERT INTO api_rich_inventories(specification_id,tenant_id,target_id,raw_fingerprint,phase02_fingerprint,rich_fingerprint,snapshot) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)",
+       [specificationId,t,targetId,rich.rawFingerprint,rich.phase02Fingerprint,rich.richFingerprint,JSON.stringify(rich)]);
+   }
    for(const op of inventory.operations){
     await tx.query("INSERT INTO api_inventory_operations(id,tenant_id,specification_id,operation_key,method,path,auth_state,tags,pointer,projection) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)",
       [uuid(),t,specificationId,op.key,op.method,op.path,op.auth.state,op.tags,op.pointer,JSON.stringify(op)]);
