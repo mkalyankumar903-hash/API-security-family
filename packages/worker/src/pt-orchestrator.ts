@@ -130,7 +130,7 @@ async function publish(tenant:string,id:string,token:string,plan:OrchestrationPl
    confidence:"HIGH",verifiedFixed:false}));
   const finishedFingerprint=planFingerprint({planFingerprint:orchestrationFingerprint(plan),
    stageId:"finalization",results:result.map(x=>({id:x.rule_id,fingerprint:x.fingerprint}))});
-  await tx.query("UPDATE api_pt9_stages SET status='COMPLETED',finished_at=now(),evidence_fingerprint=$3,reason='IMMUTABLE_REPORT_PUBLISHED' WHERE assessment_id=$1 AND stage_id='finalization'",
+  await tx.query("UPDATE api_pt9_stages SET status='COMPLETED',finished_at=now(),evidence_fingerprint=$2,reason='IMMUTABLE_REPORT_PUBLISHED' WHERE assessment_id=$1 AND stage_id='finalization'",
    [id,finishedFingerprint]);
   const stageOutcomes=stages.map((x,i)=>i===stages.length-1?
    {...x,status:"COMPLETED",evidence_fingerprint:finishedFingerprint}:x);
