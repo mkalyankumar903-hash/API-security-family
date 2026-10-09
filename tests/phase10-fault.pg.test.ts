@@ -33,7 +33,7 @@ test("Phase10 real child SIGKILL: governed evaluation and durable checkpoint rec
    const value=(normalized.json() as unknown as {method:string;path:string;key:string}[]).find(x=>x.path===path&&x.method==="GET")?.key;
    assert.ok(value,path);return value;
   });
-  for(const scenario of ["after-evaluation","after-checkpoint"]){
+  for(const scenario of ["after-evaluation","after-checkpoint","after-report"]){
    const scope=await call("POST","/v6/pt/targets/"+tid+"/scopes",{
     specificationId:sid,operationKeys:keys,fixtureId:"pt-security-v1",exclusions:[],
     maxEvaluations:4,ratePerMinute:4,maxConcurrency:1,deadlineMs:30000,validityMinutes:15
@@ -67,12 +67,22 @@ test("Phase10 real child SIGKILL: governed evaluation and durable checkpoint rec
      assert.ok(before.ledger.filter(x=>x.state==="CONSUMED").length>=1);
      assert.equal(before.stages.find(x=>x.stage_id==="authorization")?.status,"COMPLETED");
     }
+    if(scenario==="after-report"){
+     assert.equal(before.ledger.filter(x=>x.state==="CONSUMED").length,4);
+     assert.equal(before.stages.find(x=>x.stage_id==="finalization")?.status,"COMPLETED");
+    }
     const dead=new Promise<NodeJS.Signals|null>(resolve=>child.once("exit",(_code,signal)=>resolve(signal)));
     child.kill("SIGKILL");
     assert.equal(await dead,"SIGKILL","real kernel kill, not a thrown exception");
-    await withWorkerTenant(A,tx=>tx.query(
-     "UPDATE api_queue.api_assessment_queue SET locked_until=clock_timestamp()-interval '1 second' WHERE assessment_id=$1",[jid]));
-    assert.equal(await processOneJob(),true,"new worker resumes persisted authorized state");
+    if(scenario!=="after-report"){
+     await withWorkerTenant(A,tx=>tx.query(
+      "UPDATE api_queue.api_assessment_queue SET locked_until=clock_timestamp()-interval '1 second' WHERE assessment_id=$1",[jid]));
+     assert.equal(await processOneJob(),true,"new worker resumes persisted authorized state");
+    }else{
+     const queue=await withWorkerTenant(A,tx=>tx.query(
+      "SELECT 1 FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[jid]));
+     assert.equal(queue.rowCount,0,"report committed and queued acknowledgment in one transaction");
+    }
     const completed=await call("GET","/v9/pt/orchestrations/"+jid);ok(completed,200);
     assert.equal(completed.json().status,"COMPLETED",completed.body);
     const report=await call("GET","/v9/pt/orchestrations/"+jid+"/report");ok(report,200);
@@ -89,7 +99,9 @@ test("Phase10 real child SIGKILL: governed evaluation and durable checkpoint rec
     assert.ok(persisted.ledger.every(x=>x.state==="CONSUMED"));
     assert.equal(persisted.permit.consumed,4);
     assert.equal(persisted.permit.reserved,0);
-    assert.deepEqual(persisted.attempts.map(x=>x.state),["LOST","COMPLETED"]);
+    assert.deepEqual(persisted.attempts.map(x=>x.state),
+     scenario==="after-report"?["COMPLETED"]:["LOST","COMPLETED"],
+     "attempt finalization must be committed atomically with the report, even after SIGKILL");
     assert.equal(persisted.reports,1,"exactly one authoritative report");
    }finally{if(child.exitCode===null&&!child.killed)child.kill("SIGKILL");}
   }
