@@ -1,0 +1,329 @@
+openapi: 3.1.0
+info:
+  title: LumicSec Isolated Phase 06 Synthetic PT API
+  version: 6.0.0
+  description: Test-only signed permit control plane. No customer target network execution or real Host authority.
+servers:
+  - url: http://127.0.0.1:3001
+security:
+  - simulatedTenantToken: []
+components:
+  securitySchemes:
+    simulatedTenantToken:
+      type: http
+      scheme: bearer
+      description: Synthetic test identity only; NOT a production Host identity.
+    trustedTestAuthority:
+      type: apiKey
+      in: header
+      name: x-pt-authority-key
+      description: Separate CI-only test authority key; never browser-controlled.
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  schemas:
+    PtScopeProposal:
+      type: object
+      additionalProperties: false
+      required: [specificationId, operationKeys, maxEvaluations, maxConcurrency, ratePerMinute, deadlineMs, validityMinutes, fixtureId]
+      properties:
+        specificationId: {type: string, format: uuid}
+        operationKeys: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string}}
+        exclusions: {type: array, maxItems: 20, uniqueItems: true, items: {type: string, enum: [/bills, /status]}}
+        maxEvaluations: {type: integer, minimum: 1, maximum: 30}
+        maxConcurrency: {type: integer, minimum: 1, maximum: 2}
+        ratePerMinute: {type: integer, minimum: 1, maximum: 20}
+        deadlineMs: {type: integer, minimum: 1000, maximum: 30000}
+        validityMinutes: {type: integer, minimum: 1, maximum: 15}
+        fixtureId: {const: billing-safe-v1}
+    PtJobRequest:
+      type: object
+      additionalProperties: false
+      required: [operationKeys]
+      properties:
+        operationKeys: {type: array, minItems: 1, maxItems: 20, uniqueItems: true, items: {type: string}}
+paths:
+  '/v6/pt/capabilities':
+    get:
+      operationId: get_pt6__v6_pt_capabilities
+      summary: Synthetic-only /v6/pt/capabilities
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/targets/{id}/fixtures':
+    get:
+      operationId: get_pt6__v6_pt_targets__id__fixtures
+      summary: Synthetic-only /v6/pt/targets/{id}/fixtures
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/targets/{id}/scopes':
+    get:
+      operationId: get_pt6__v6_pt_targets__id__scopes
+      summary: Synthetic-only /v6/pt/targets/{id}/scopes
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+    post:
+      operationId: post_pt6__v6_pt_targets__id__scopes
+      summary: Synthetic-only /v6/pt/targets/{id}/scopes
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PtScopeProposal'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/scopes/{id}':
+    get:
+      operationId: get_pt6__v6_pt_scopes__id_
+      summary: Synthetic-only /v6/pt/scopes/{id}
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/scopes/{id}/request-authorization':
+    post:
+      operationId: post_pt6__v6_pt_scopes__id__request_authorization
+      summary: Synthetic-only /v6/pt/scopes/{id}/request-authorization
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/test-authority/scopes/{id}/issue':
+    post:
+      operationId: post_pt6__v6_pt_test_authority_scopes__id__issue
+      summary: Trusted test authority only: /v6/pt/test-authority/scopes/{id}/issue
+      security:
+        - simulatedTenantToken: []
+          trustedTestAuthority: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/permits/{id}':
+    get:
+      operationId: get_pt6__v6_pt_permits__id_
+      summary: Synthetic-only /v6/pt/permits/{id}
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/test-authority/permits/{id}/revoke':
+    post:
+      operationId: post_pt6__v6_pt_test_authority_permits__id__revoke
+      summary: Trusted test authority only: /v6/pt/test-authority/permits/{id}/revoke
+      security:
+        - simulatedTenantToken: []
+          trustedTestAuthority: []
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/scopes/{id}/jobs':
+    post:
+      operationId: post_pt6__v6_pt_scopes__id__jobs
+      summary: Synthetic-only /v6/pt/scopes/{id}/jobs
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PtJobRequest'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/jobs/{id}':
+    get:
+      operationId: get_pt6__v6_pt_jobs__id_
+      summary: Synthetic-only /v6/pt/jobs/{id}
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/jobs/{id}/receipts':
+    get:
+      operationId: get_pt6__v6_pt_jobs__id__receipts
+      summary: Synthetic-only /v6/pt/jobs/{id}/receipts
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/jobs/{id}/report':
+    get:
+      operationId: get_pt6__v6_pt_jobs__id__report
+      summary: Synthetic-only /v6/pt/jobs/{id}/report
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/targets/{id}/history':
+    get:
+      operationId: get_pt6__v6_pt_targets__id__history
+      summary: Synthetic-only /v6/pt/targets/{id}/history
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/scopes/{id}/denials':
+    get:
+      operationId: get_pt6__v6_pt_scopes__id__denials
+      summary: Synthetic-only /v6/pt/scopes/{id}/denials
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/jobs/{id}/cancel':
+    post:
+      operationId: post_pt6__v6_pt_jobs__id__cancel
+      summary: Synthetic-only /v6/pt/jobs/{id}/cancel
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/stop':
+    get:
+      operationId: get_pt6__v6_pt_stop
+      summary: Synthetic-only /v6/pt/stop
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/test-authority/stop':
+    post:
+      operationId: post_pt6__v6_pt_test_authority_stop
+      summary: Trusted test authority only: /v6/pt/test-authority/stop
+      security:
+        - simulatedTenantToken: []
+          trustedTestAuthority: []
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}
+  '/v6/pt/test-authority/resume':
+    post:
+      operationId: post_pt6__v6_pt_test_authority_resume
+      summary: Trusted test authority only: /v6/pt/test-authority/resume
+      security:
+        - simulatedTenantToken: []
+          trustedTestAuthority: []
+      responses:
+        '200': {description: Existing or successful response, or rejection evidence as appropriate}
+        '201': {description: Newly created resource}
+        '400': {description: Invalid request}
+        '401': {description: Missing bearer identity}
+        '403': {description: Permission denied}
+        '404': {description: Resource not visible}
+        '409': {description: Explicit authorization or state denial}

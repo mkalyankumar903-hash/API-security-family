@@ -40,6 +40,8 @@ export async function migrate(): Promise<void> {
   const phase4 = resolve(fileURLToPath(new URL("../migrations/006_phase4_authenticated_fixture.sql", import.meta.url)));
   const phase5 = resolve(fileURLToPath(new URL("../migrations/007_phase5_unified_assessment.sql", import.meta.url)));
   const rich5 = resolve(fileURLToPath(new URL("../migrations/008_phase5_rich_offline.sql", import.meta.url)));
+  const pt6 = resolve(fileURLToPath(new URL("../migrations/009_phase6_pt_safe_execution.sql", import.meta.url)));
+  const pt6h = resolve(fileURLToPath(new URL("../migrations/010_phase6_permit_storage_hardening.sql", import.meta.url)));
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -90,6 +92,16 @@ export async function migrate(): Promise<void> {
     if(!p8.rowCount){
       await owner.query(readFileSync(rich5,"utf8"));
       await owner.query("INSERT INTO api_schema_migrations(version) VALUES('008')");
+    }
+    const p9=await owner.query("SELECT version FROM api_schema_migrations WHERE version='009'");
+    if(!p9.rowCount){
+      await owner.query(readFileSync(pt6,"utf8"));
+      await owner.query("INSERT INTO api_schema_migrations(version) VALUES('009')");
+    }
+    const hardened=await owner.query("SELECT version FROM api_schema_migrations WHERE version='010'");
+    if(!hardened.rowCount){
+      await owner.query(readFileSync(pt6h,"utf8"));
+      await owner.query("INSERT INTO api_schema_migrations(version) VALUES('010')");
     }
     await owner.query("COMMIT");
   } catch(error) {await owner.query("ROLLBACK"); throw error;}

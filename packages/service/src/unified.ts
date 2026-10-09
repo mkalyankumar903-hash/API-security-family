@@ -130,7 +130,7 @@ export async function registerUnifiedRoutes(app:FastifyInstance,tenant:(req:Fast
     return withTenant(tenant(req),async tx=>{
       if(targetId&&!(await tx.query("SELECT 1 FROM api_targets WHERE id=$1",[targetId])).rowCount)fail(404,"TARGET_NOT_FOUND");
       return (await tx.query(summarySql+
-        " WHERE ($1::uuid IS NULL OR a.target_id=$1) AND ($2::uuid IS NULL OR a.specification_id=$2)"+
+        " WHERE a.engine_version<>'pt-fixture-v1' AND ($1::uuid IS NULL OR a.target_id=$1) AND ($2::uuid IS NULL OR a.specification_id=$2)"+
         " AND ($3::text IS NULL OR a.engine_version=$3) AND ($4::text IS NULL OR a.status=$4)"+
         " AND ($5::timestamptz IS NULL OR a.created_at>=$5) AND ($6::timestamptz IS NULL OR a.created_at<=$6)"+
         " AND ($7='' OR a.id::text LIKE $7||'%') ORDER BY a.created_at DESC,a.id DESC LIMIT $8 OFFSET $9",
@@ -138,7 +138,7 @@ export async function registerUnifiedRoutes(app:FastifyInstance,tenant:(req:Fast
     });
   });
   const getRun=async(tx:import("pg").PoolClient,id:string):Promise<Run>=>{
-    const row=(await tx.query(summarySql+" WHERE a.id=$1",[id])).rows[0] as Run|undefined;
+    const row=(await tx.query(summarySql+" WHERE a.id=$1 AND a.engine_version<>'pt-fixture-v1'",[id])).rows[0] as Run|undefined;
     if(!row)fail(404,"ASSESSMENT_NOT_FOUND");
     return row!;
   };

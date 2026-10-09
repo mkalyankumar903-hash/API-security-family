@@ -9,6 +9,7 @@ import {registerDiscoveryRoutes,ImportError} from "./discovery.js";
 import {registerDetectionRoutes,DetectionError} from "./detection.js";
 import {registerAuthFixtureRoutes,AuthFixtureError} from "./auth-fixture.js";
 import {registerUnifiedRoutes,UnifiedError} from "./unified.js";
+import {registerPtRoutes,PtError} from "./pt.js";
 
 class ApiError extends Error { constructor(public statusCode: number, public code: string) { super(code); } }
 const sessions = new WeakMap<FastifyRequest,string>();
@@ -54,7 +55,7 @@ export async function makeApp(): Promise<FastifyInstance> {
   });
   app.setErrorHandler((error,req,reply) => {
     const e = error as Error & { statusCode?:number; code?:string };
-    const known=e instanceof ApiError||e instanceof OnboardingError||e instanceof TargetInputError||e instanceof ImportError||e instanceof DetectionError||e instanceof AuthFixtureError||e instanceof UnifiedError;
+    const known=e instanceof ApiError||e instanceof OnboardingError||e instanceof TargetInputError||e instanceof ImportError||e instanceof DetectionError||e instanceof AuthFixtureError||e instanceof UnifiedError||e instanceof PtError;
     const status = known ? (e instanceof TargetInputError?400:(e as ApiError|OnboardingError|ImportError).statusCode) : e.statusCode === 413 ? 413 : e.code === "23505" ? 409 : 500;
     req.log.error({requestId:req.id,code:status},"request failed");
     reply.code(status).send({ error: known ? (e instanceof TargetInputError?e.reason:(e as ApiError|OnboardingError|ImportError).code) : status === 413 ? "BODY_TOO_LARGE" : status === 409 ? "CONFLICT" : "INTERNAL_ERROR", requestId:req.id });
@@ -180,5 +181,6 @@ export async function makeApp(): Promise<FastifyInstance> {
   await registerDetectionRoutes(app,tenant);
   await registerAuthFixtureRoutes(app,tenant);
   await registerUnifiedRoutes(app,tenant);
+  registerPtRoutes(app,tenant);
   return app;
 }

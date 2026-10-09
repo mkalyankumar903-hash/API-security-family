@@ -3,6 +3,7 @@ import {InventoryDetection} from "./InventoryDetection.js";
 import {AuthFixtureAssessment} from "./AuthFixtureAssessment.js";
 import {TargetOnboarding} from "./TargetOnboarding.js";
 import {UnifiedAssessment} from "./UnifiedAssessment.js";
+import {PtConsole} from "./PtConsole.js";
 import React, { useEffect, useState } from "react";
 const API_BASE = (typeof import.meta.env === "object" && import.meta.env.VITE_API_BASE) || "http://127.0.0.1:3001";
 type Target = {id:string;name:string;base_url:string;environment:string;lifecycle:string;revision:number;ownership_status:string};
@@ -130,6 +131,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
       <form onSubmit={e=>void createTarget(e)}><div className="formgrid"><label>Target name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)} placeholder="Payments API"/></label><label>HTTPS base URL<input required type="url" value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="https://api.example.invalid"/></label><label>Environment<select value={environment} onChange={e=>setEnvironment(e.target.value)}><option>SYNTHETIC</option><option>STAGING</option><option>PRODUCTION</option></select></label></div><button disabled={busy||!token} type="submit">Register target</button></form>
     </section>
     <UnifiedAssessment token={token} targetId={targetId}/>
+    {targetId&&<PtConsole key={"pt6-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"}/>}
     {targetId&&<TargetOnboarding key={targetId+token} token={token} targetId={targetId} onChanged={reloadTargets}/>}
     {targetId&&<SpecDiscoveryExplorer key={"discovery-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"} onSelected={async id=>{
       const updated=await call<Specification[]>(token,"/v1/targets/"+targetId+"/specifications");
