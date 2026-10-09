@@ -58,7 +58,7 @@ test("Phase06 real PostgreSQL: full isolated PT workflow and transaction content
  async function receipts(id:string){const r=await call("GET","/v6/pt/jobs/"+id+"/receipts");assert.equal(r.statusCode,200);return r.json() as unknown as {decision:string;code:string;http_status:number}[];}
  try{
   await t.test("fresh version 009, FORCE RLS, least privilege and preserved migration lineage",async()=>{
-   assert.equal((await pool.query("SELECT count(*)::int AS n FROM api_schema_migrations WHERE version IN('001','002','003','004','005','006','007','008','009')")).rows[0].n,9);
+   assert.equal((await pool.query("SELECT count(*)::int AS n FROM api_schema_migrations WHERE version IN('001','002','003','004','005','006','007','008','009','010')")).rows[0].n,10);
    const r=await pool.query("SELECT c.relname,c.relrowsecurity,c.relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname LIKE 'api_pt_%' AND c.relkind='r'");
    assert.equal(r.rowCount,10);
    assert.ok(r.rows.every(x=>x.relrowsecurity&&x.relforcerowsecurity));
@@ -98,8 +98,10 @@ test("Phase06 real PostgreSQL: full isolated PT workflow and transaction content
    assert.equal(p.statusCode,200);assert.equal(p.json().state,"SYNTHETIC_TEST_ONLY_VALID");
    assert.equal(p.body.includes("signed_token"),false);
    assert.equal((await call("GET","/v6/pt/permits/"+permit,undefined,{token:"local-test-token-beta"})).statusCode,404);
-   const record=await withTenant(TENANT,tx=>tx.query("SELECT signed_token,token_hash FROM api_pt_permits WHERE id=$1",[permit]));
-   assert.match(record.rows[0].signed_token,/^pt6v1\./);
+   const record=await withTenant(TENANT,tx=>tx.query("SELECT claims,token_hash FROM api_pt_permits WHERE id=$1",[permit]));
+   assert.match(record.rows[0].token_hash,/^[0-9a-f]{64}$/);
+   assert.equal(record.rows[0].claims.permitId,permit);
+   assert.equal((await pool.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name='api_pt_permits' AND column_name='signed_token'")).rows[0].n,0);
    await assert.rejects(()=>withTenant(TENANT,tx=>tx.query("UPDATE api_pt_permits SET token_hash=$2 WHERE id=$1",[permit,"0".repeat(64)])),/permission denied|PT_PERMIT_IMMUTABLE/);
   });
   await t.test("authorized worker + actual fixture injection + immutable report + idempotency",async()=>{
