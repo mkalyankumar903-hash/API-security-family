@@ -1,3 +1,4 @@
+import {PtDetectionConsole} from "./PtDetectionConsole.js";
 import React,{useCallback,useEffect,useState} from "react";
 const BASE=(typeof import.meta.env==="object"&&import.meta.env.VITE_API_BASE)||"http://127.0.0.1:3001";
 type Version={specificationId:string;version:number;format:string};
@@ -175,5 +176,6 @@ export function PtConsole({token,targetId,active}:{token:string;targetId:string;
   <button type="button" className="secondary" onClick={()=>void run(refreshHistory)} disabled={busy}>Refresh PT history and emergency status</button>
   {history.map(x=><p key={x.id}><button className="secondary" type="button" onClick={()=>{setJobId(x.id);setJob(null);setReceipts([]);setReport(null);}}>Inspect run {x.id.slice(0,8)} · {x.status}</button></p>)}
   <p><small>Permit revocation, issuance and emergency stop are reserved to the separate trusted test authority, never customer-controlled browser actions. No production signing keys or network transports are exposed.</small></p>
+  <PtDetectionConsole token={token} targetId={targetId} active={active}/>
  </section>;
 }
