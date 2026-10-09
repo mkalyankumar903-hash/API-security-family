@@ -66,6 +66,7 @@ components:
         - realCustomerApiTestingAuthorized
         - warning
         - assessment
+        - execution
         - queue
         - attempts
         - events
@@ -96,6 +97,49 @@ components:
             error_code: {type: [string, "null"]}
             created_at: {type: string, format: date-time}
             completed_at: {type: [string, "null"], format: date-time}
+        execution:
+          type: object
+          required: [queueRecordId, currentAttemptId, lifecycle, deadline, authorization, checkpoints, receipts, terminalReason, provenance]
+          properties:
+            queueRecordId: {type: [string, "null"], format: uuid}
+            currentAttemptId: {type: [string, "null"], format: uuid}
+            lifecycle: {type: string, enum: [QUEUED, PROCESSING, COMPLETED, FAILED, CANCELLED]}
+            deadline: {type: [string, "null"], format: date-time}
+            terminalReason: {type: [string, "null"]}
+            provenance:
+              type: string
+              const: POSTGRESQL_PRIVATE_WORKER_AND_GOVERNED_LEDGER
+            authorization:
+              oneOf:
+                - type: "null"
+                - type: object
+                  properties:
+                    permitId: {type: string, format: uuid}
+                    permitExpiresAt: {type: string, format: date-time}
+                    status:
+                      type: string
+                      enum: [REVOKED, EMERGENCY_STOPPED, TARGET_NOT_ACTIVE, VALIDITY_REQUIRES_GOVERNOR_RECHECK]
+                    consumed: {type: integer, minimum: 0}
+                    reserved: {type: integer, minimum: 0}
+                    rateUsed: {type: integer, minimum: 0}
+            checkpoints:
+              type: array
+              maxItems: 6
+              items:
+                type: object
+                properties:
+                  stage_id: {type: string}
+                  status: {type: string}
+                  ordinal: {type: integer}
+                  reason: {type: [string, "null"]}
+            receipts:
+              type: array
+              maxItems: 3
+              items:
+                type: object
+                properties:
+                  state: {type: string, enum: [RESERVED, CONSUMED, UNCERTAIN]}
+                  total: {type: integer, minimum: 0}
         queue:
           oneOf:
             - type: "null"
