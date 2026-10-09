@@ -42,7 +42,7 @@ type Scope={
  rate_per_minute:number;deadline_ms:number;validity_minutes:number;
 };
 type Target={id:string;environment:string;lifecycle:string;verification_version:number;scope_revision:number};
-type Permit={id:string;scope_id:string;token_hash:string;claims:PtClaims;expires_at:string;revoked_at:string|null;consumed:number;reserved:number};
+type Permit={id:string;scope_id:string;token_hash:string;claims:PtClaims;signed_body:string;expires_at:string;revoked_at:string|null;consumed:number;reserved:number};
 async function scope(tx:PoolClient,sid:string):Promise<Scope>{
  const r=await tx.query("SELECT * FROM api_pt_scopes WHERE id=$1",[sid]);
  if(!r.rowCount)throw new PtError(404,"PT_SCOPE_NOT_FOUND");
@@ -200,8 +200,8 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    let token;
    try{token=issueTestPermit(claims);}catch{throw new PtError(403,"TEST_AUTHORITY_DISABLED");}
    const c=verifyTestPermit(token);
-   await tx.query("INSERT INTO api_pt_permits(id,tenant_id,scope_id,token_hash,claims,issued_at,expires_at) VALUES($1,$2,$3,$4,$5::jsonb,to_timestamp($6::double precision/1000),to_timestamp($7::double precision/1000))",
-    [pid,t,sid,digest(token),JSON.stringify(c),now,c.expiresAt]);
+   await tx.query("INSERT INTO api_pt_permits(id,tenant_id,scope_id,token_hash,claims,signed_body,issued_at,expires_at) VALUES($1,$2,$3,$4,$5::jsonb,$6,to_timestamp($7::double precision/1000),to_timestamp($8::double precision/1000))",
+    [pid,t,sid,digest(token),JSON.stringify(c),token.split(".")[1],now,c.expiresAt]);
    await record(tx,t,pid,"TEST_ONLY_PERMIT_ISSUED",{scopeId:sid,tokenHash:digest(token)});
    return {id:pid,status:"ISSUED",expiresAt:new Date(c.expiresAt).toISOString(),tokenHash:digest(token),created:true};
   });
@@ -251,7 +251,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    if(p.revoked_at)return denied(tx,t,sid,"PERMIT_REVOKED");
    let claims:PtClaims;
    try{
-    claims=verifyStoredTestPermit(p.claims,p.token_hash);
+    claims=verifyStoredTestPermit(p.claims,p.token_hash,p.signed_body);
     if(claims.permitId!==p.id)throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
     checkBinding(claims,s,targetNow,t);
    }catch(e){return denied(tx,t,sid,e instanceof PermitError?e.code:"PERMIT_INVALID");}
