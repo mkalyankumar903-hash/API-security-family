@@ -37,7 +37,7 @@ test("real Chromium Phase04 full trusted fixture workflow, secure vs BOLA, evide
  expect(tid).toBeTruthy();
  const before=await request.get(appBase+"/v4/targets/"+tid+"/assessments",{headers:auth});
  const first=(await before.json() as {id:string}[])[0]?.id;
- expect(first).toBeTruthy();
+ if(!first)throw new Error("FIRST_ASSESSMENT_MISSING");
  const forbidden=await request.get(appBase+"/v4/assessments/"+first,{headers:{authorization:"Bearer local-test-token-beta"}});
  expect(forbidden.status()).toBe(404);
  await region.getByLabel("Fixture version").selectOption("broken-bola-v1");

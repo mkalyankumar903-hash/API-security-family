@@ -1,0 +1,135 @@
+openapi: 3.1.0
+info:
+  title: LumicSec API Family Phase 04 Synthetic Auth Fixture
+  version: 4.0.0-test-only
+  description: Synthetic Fastify.inject assessment only. No real customer-target runtime, Host identity or credential retrieval.
+servers:
+  - url: http://127.0.0.1:3001
+components:
+  securitySchemes:
+    SyntheticDevelopmentToken:
+      type: http
+      scheme: bearer
+      description: Test-only explicit synthetic identity; not a production login.
+  schemas:
+    Start:
+      type: object
+      additionalProperties: false
+      required: [specificationId, profileId, profileRevision, mode, engineVersion, analysisProfile]
+      properties:
+        specificationId: {type: string, format: uuid}
+        profileId: {type: string, format: uuid}
+        profileRevision: {type: integer, minimum: 1}
+        mode: {type: string, const: SPEC_ONLY}
+        engineVersion: {type: string, const: auth-fixture-v1}
+        analysisProfile: {type: string, const: SYNTHETIC_AUTH_FIXTURE}
+    Profile:
+      type: object
+      required: [specificationId, fixtureVersion, scheme, identityKey, credentialReference]
+      additionalProperties: false
+      properties:
+        specificationId: {type: string, format: uuid}
+        fixtureVersion: {type: string, enum: [secure-v1, broken-bola-v1]}
+        scheme: {type: string, enum: [BEARER, API_KEY, BASIC, OAUTH2, SESSION]}
+        identityKey: {type: string, enum: [user-a, user-b, manager, admin]}
+        credentialReference: {type: string, pattern: '^credref:[A-Za-z0-9_-]{8,128}$'}
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  responses:
+    Recorded:
+      description: Tenant-scoped synthetic artifact; never a customer-runtime verdict.
+security:
+  - SyntheticDevelopmentToken: []
+paths:
+  /v4/auth/capabilities:
+    get:
+      responses: {'200': {description: Trusted synthetic capabilities and restrictions}}
+  /v4/auth/fixtures:
+    get:
+      responses: {'200': {description: Trusted fixture and policy inventory}}
+  /v4/targets/{id}/profiles:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Profile'}
+      responses: {'201': {$ref: '#/components/responses/Recorded'}}
+  /v4/profiles/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    patch:
+      description: Revision-checked synthetic profile rotation; resets validation.
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/profiles/{id}/validate:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      description: Checks test-only fixture readiness without retrieving real secrets.
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/profiles/{id}/revoke:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/profiles/{id}/history:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/targets/{id}/assessments:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+    post:
+      parameters:
+        - name: idempotency-key
+          in: header
+          required: true
+          schema: {type: string, minLength: 8, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Start'}
+      responses: {'201': {$ref: '#/components/responses/Recorded'}}
+  /v4/assessments/{id}:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/assessments/{id}/evaluations:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/assessments/{id}/findings:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/assessments/{id}/coverage:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/assessments/{id}/report:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/assessments/{id}/cancel:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/assessments/{id}/evidence/{evidenceId}:
+    parameters:
+      - {$ref: '#/components/parameters/Id'}
+      - name: evidenceId
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
+  /v4/targets/{id}/assessments/compare:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    post:
+      responses: {'200': {$ref: '#/components/responses/Recorded'}}
