@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   fast:
-    if: ${{ !contains(github.event.head_commit.message, '[phase04-full]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[phase04-full]') && !contains(github.event.head_commit.message, '[phase04-e2e]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -86,3 +86,52 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Real Chromium React Fastify PostgreSQL worker
         run: npm run test:browser
+
+  browser-targeted:
+    if: ${{ contains(github.event.head_commit.message, '[phase04-e2e]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      SYNTHETIC_VERIFICATION_ENABLED: "true"
+      PHASE1_SYNTHETIC_SIGNING_KEY: "LUMICSEC_TEST_ONLY_NEVER_PRODUCTION_phase01_test_fixture_key_2026"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+      WORKER_DATABASE_URL: postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family
+      MIGRATION_DATABASE_URL: postgres://postgres:local_admin_only@127.0.0.1:55432/api_family
+      VITE_API_BASE: http://127.0.0.1:3001
+      VITE_DEV_TOKEN: local-test-token-alpha
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Exact final HEAD
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA" && git log -1 --format=%s | grep -F '[phase04-e2e]'
+      - name: Isolated PostgreSQL application and private worker principals
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Frozen dependencies
+        run: npm ci --no-audit --no-fund
+      - name: React production build
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Real Chromium React Fastify PostgreSQL worker
+        run: npx playwright test tests/browser/phase4.spec.ts
