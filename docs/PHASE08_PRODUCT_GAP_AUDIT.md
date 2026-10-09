@@ -21,7 +21,7 @@ Repository: `mkalyankumar903-hash/API-security-family`. Phase 08 is an **isolate
 | Failed/cancelled rule-level coverage | PARTIAL | Migration 012 terminal summary + v8 diagnostic API + React display | TESTING |
 | Real worker fault after partial evaluation | NOT_PRESENT in customer report | In-process private worker test hook, no HTTP access | TESTING |
 | Global findings search and filters | PARTIAL | v8 tenant-gated finding projections + React customer explorer | TESTING |
-| Progress from persisted evaluations | PARTIAL | v8 progress projection | TESTING |
+| Progress from persisted evaluations | PARTIAL | v8 progress projection wired to React worker status | TESTING |
 | History filters and stable pagination | PARTIAL | v8 history projection | TESTING |
 | Comparison | PARTIAL | Phase 07 compatible completed-report comparison retained | PARTIAL |
 | Remediation | IMPLEMENTED_AND_WIRED | Rule-specific guidance surfaced by v8 finding detail | TESTING |

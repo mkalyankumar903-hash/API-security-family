@@ -7,6 +7,8 @@ type Rule={id:string;revision:string;category:string;path:string;evaluations:num
 type ScopeDetail={scope:{id:string;operation_keys:string[];max_evaluations:number};
  requested:boolean;permit:{id:string;revoked:boolean;expired:boolean;expiresAt:string;consumed:number;reserved:number}|null};
 type Status={id:string;status:string;errorCode:string|null;counts:Record<string,number>;plan_fingerprint:string};
+type Progress={status:string;plannedEvaluations:number;executedEvaluations:number;uncertainEvaluations:number;inFlightReservations:number;notYetExecuted:number;complete:boolean};
+type Preview={executable:boolean;plannedEvaluations:number;applicableEvaluations:number;rules:{ruleId:string;applicable:boolean;reason:string;operationKey:string|null}[]};
 type Observation={ruleId:string;category:string;impact:string;confidence:string;status:string;code:string;fingerprint:string;
  remediation:string;evidence:{actor:string;path:string;status:number;exposedPaths:string[];cacheControl:string|null}[]};
 type Terminal={schemaVersion:string;status:string;errorCode:string;notice:string;rules:{rule_id:string;status:string;code:string;planned:number;executed:number;uncertain:number;notRun:number}[];
@@ -29,6 +31,7 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
  const [chosen,setChosen]=useState<string[]>([]),[scopeId,setScopeId]=useState("");
  const [scope,setScope]=useState<ScopeDetail|null>(null),[jobId,setJobId]=useState("");
  const [job,setJob]=useState<Status|null>(null),[report,setReport]=useState<Report|null>(null);
+ const [progress,setProgress]=useState<Progress|null>(null),[preview,setPreview]=useState<Preview|null>(null);
  const [terminal,setTerminal]=useState<Terminal|null>(null);
  const [coverage,setCoverage]=useState<{rule_id:string;status:string;code:string}[]>([]);
  const [history,setHistory]=useState<{id:string;status:string;plan_fingerprint:string}[]>([]);
@@ -46,7 +49,7 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
   setSpecs(versions);setRules(registry.rules);setProfiles(fixtures.profiles);setHistory(previous);
  },[targetId,token]);
  useEffect(()=>{setSpecs([]);setSpecId("");setScopeId("");setScope(null);setJobId("");setJob(null);
-  setReport(null);setTerminal(null);setHistory([]);setChosen([]);
+  setReport(null);setTerminal(null);setProgress(null);setPreview(null);setHistory([]);setChosen([]);
   if(active&&targetId)void refresh().catch(e=>setError(String(e)));
  },[active,targetId,refresh]);
  useEffect(()=>{let live=true;setOperations([]);setChosen([]);
@@ -61,7 +64,9 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
  const refreshScope=useCallback(async()=>{if(scopeId)setScope(await call<ScopeDetail>(token,"/v6/pt/scopes/"+scopeId));},[scopeId,token]);
  const refreshJob=useCallback(async()=>{
   if(!jobId)return;
-  const x=await call<Status>(token,"/v7/pt/jobs/"+jobId);setJob(x);
+  const [x,p]=await Promise.all([call<Status>(token,"/v7/pt/jobs/"+jobId),
+   call<Progress>(token,"/v8/pt/jobs/"+jobId+"/progress")]);
+  setJob(x);setProgress(p);
   if(x.status==="COMPLETED"){
    setTerminal(null);
    try{setReport(await call<Report>(token,"/v7/pt/jobs/"+jobId+"/report"));
@@ -122,6 +127,13 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
    {specId&&applicable.length===0&&<p>No applicable trusted GET operation in this imported specification.</p>}
   </fieldset>
   <p>Signed-permit evaluation budget preview: <strong>{total}</strong> · Applicable rules {applicable.length} · Selected {selected.length} · Real customer requests: 0.</p>
+  <button type="button" className="secondary" disabled={busy||!specId||!selected.length}
+   onClick={()=>void work(async()=>setPreview(await call<Preview>(token,"/v8/pt/specifications/"+specId+"/plan-preview",
+    "POST",{profile,ruleIds:chosen,exclusions:[]})))}>Preview governed rule applicability</button>
+  {preview&&<section aria-label="Authoritative evaluation plan preview">
+   <p>Server-side planned evaluations {preview.plannedEvaluations}, applicable {preview.applicableEvaluations}. All selected rules executable: {String(preview.executable)}.</p>
+   <ul>{preview.rules.map(x=><li key={x.ruleId}>{x.ruleId} — {x.applicable?"APPLICABLE":x.reason} · {x.operationKey??"No governed operation"}</li>)}</ul>
+  </section>}
   <button disabled={busy||!active||!selected.length||total>20||!specId} onClick={propose}>Propose detection scope</button>
   {scopeId&&<article>
    <h3>Synthetic authorization</h3><p>Scope: {scopeId}</p>
@@ -137,6 +149,7 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
   {jobId&&<article>
    <h3>Private worker detection</h3><p>Assessment {jobId} · <strong>{job?.status??"Loading"}</strong> · Customer-network requests 0.</p>
    {job?.errorCode&&<p role="alert">{job.errorCode}</p>}
+   {progress&&<p role="status">Persisted governed progress: {progress.executedEvaluations}/{progress.plannedEvaluations} evaluations · {progress.inFlightReservations} in flight · {progress.uncertainEvaluations} uncertain · {progress.notYetExecuted} pending.</p>}
    <button type="button" className="secondary" disabled={busy} onClick={()=>void work(refreshJob)}>Refresh detection results</button>
    {job&&["QUEUED","PROCESSING"].includes(job.status)&&<button disabled={busy} onClick={()=>void work(async()=>{
     await call(token,"/v6/pt/jobs/"+jobId+"/cancel","POST");await refreshJob();

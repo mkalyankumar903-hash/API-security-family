@@ -113,5 +113,46 @@ test("Phase08 real PostgreSQL: migration 012, terminal persistence, fault recove
   await assert.rejects(()=>withTenant(A,tx=>tx.query(
    "UPDATE api_pt8_terminal_coverage SET projection='{}'::jsonb WHERE assessment_id=$1",[faultId])),
    /permission denied|immutable/i);
+
+  // Full customer API product projections are backed by the real PostgreSQL worker.
+  const product=await call("GET","/v8/pt/product");
+  assert.equal(product.statusCode,200,product.body);
+  assert.equal(product.json().productionHost,"BLOCKED");
+  const preview=await call("POST","/v8/pt/specifications/"+spec+"/plan-preview",{
+   profile:"MISSING_AUTH_ENFORCEMENT",ruleIds:["PT-AUTH-ANONYMOUS"],exclusions:[]
+  });
+  assert.equal(preview.statusCode,200,preview.body);
+  assert.equal(preview.json().plannedEvaluations,2);
+  assert.equal(preview.json().executable,true);
+  const forbiddenPreview=await call("POST","/v8/pt/specifications/"+spec+"/plan-preview",{
+   profile:"MISSING_AUTH_ENFORCEMENT",ruleIds:["PT-AUTH-ANONYMOUS"],verdict:"SAFE"
+  });
+  assert.equal(forbiddenPreview.statusCode,400);
+  const complete=await authorizedScope(),doneId=await start(complete.sid);
+  assert.equal(await processOneJob(),true);
+  const completed=await call("GET","/v7/pt/jobs/"+doneId);
+  assert.equal(completed.json().status,"COMPLETED",completed.body);
+  const progress=await call("GET","/v8/pt/jobs/"+doneId+"/progress");
+  assert.equal(progress.statusCode,200,progress.body);
+  assert.equal(progress.json().executedEvaluations,2);
+  assert.equal(progress.json().notYetExecuted,0);
+  const findings=await call("GET","/v8/pt/findings?targetId="+tid+"&ruleId=PT-AUTH-ANONYMOUS&limit=10");
+  assert.equal(findings.statusCode,200,findings.body);
+  const rows=(findings.json() as unknown as {items:{id:string;rule_id:string}[]}).items;
+  assert.equal(rows.length,1);
+  assert.equal(rows[0]?.rule_id,"PT-AUTH-ANONYMOUS");
+  const single=await call("GET","/v8/pt/findings/"+rows[0]!.id);
+  assert.equal(single.statusCode,200,single.body);
+  assert.equal(single.json().verifiedFixed,false);
+  assert.equal(single.json().runtimeCustomerVerification,false);
+  assert.equal((await call("GET","/v8/pt/findings/"+rows[0]!.id,undefined,{token:"local-test-token-beta"})).statusCode,404);
+  const history=await call("GET","/v8/pt/history?targetId="+tid+"&limit=20");
+  assert.equal(history.statusCode,200,history.body);
+  const runs=(history.json() as unknown as {items:{id:string;status:string}[]}).items;
+  assert.ok(runs.some(x=>x.id===doneId&&x.status==="COMPLETED"));
+  assert.ok(runs.some(x=>x.id===faultId&&x.status==="FAILED"));
+  assert.equal((await call("GET","/v8/pt/history?targetId="+tid,undefined,{token:"local-test-token-beta"})).statusCode,200);
+  assert.equal(((await call("GET","/v8/pt/history?targetId="+tid,undefined,{token:"local-test-token-beta"})).json() as unknown as {items:unknown[]}).items.length,0);
+
  }finally{await app.close();await closeDatabase();}
 });
