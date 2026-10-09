@@ -1,0 +1,81 @@
+import {test,expect} from "@playwright/test";
+import {drainQueue} from "../../packages/worker/src/index.js";
+import {closeDatabase} from "../../packages/database/src/index.js";
+test.afterAll(async()=>{await closeDatabase();});
+const url="http://127.0.0.1:3001";
+const auth={"authorization":"Bearer local-test-token-alpha"};
+const signer=process.env.PT_TEST_AUTHORITY_KEY??"";
+test("Phase07 real Chromium: protected fixture weakness, secure negative, permit boundary, history and no customer network",async({page,request})=>{
+ test.setTimeout(160000);
+ const external:string[]=[];
+ page.on("request",r=>{if(r.url().endsWith(".fixture.invalid")||r.url().includes(".fixture.invalid/"))external.push(r.url());});
+ const suffix=crypto.randomUUID().slice(0,8);
+ await page.goto("/");
+ await page.getByPlaceholder("Payments API").fill("PT7 "+suffix);
+ await page.getByPlaceholder("https://api.example.invalid").fill("https://phase07-"+suffix+".fixture.invalid");
+ await page.getByRole("button",{name:"Register target"}).click();
+ const tid=await page.getByLabel("Select target").inputValue();
+ const uploader=page.getByLabel(/OpenAPI 3.0 \/ 3.1, Swagger 2.0 JSON\/YAML or Postman Collection/);
+ await uploader.setInputFiles("fixtures/phase07-security.openapi.json");
+ await expect(page.getByRole("status").filter({hasText:/Imported OPENAPI_3_0/})).toBeVisible();
+ const panel=page.getByRole("region",{name:"API PT deterministic detection assessment"});
+ await expect(panel.getByText(/NOT CUSTOMER PRODUCTION VULNERABILITY VERIFICATION/)).toBeVisible();
+ await panel.getByRole("button",{name:"Refresh detection catalog & history"}).click();
+ await panel.getByLabel("PT detection specification").selectOption({index:1});
+ await panel.getByLabel("PT detection fixture profile").selectOption("CROSS_USER_ACCESS_WEAKNESS");
+ await panel.getByRole("checkbox",{name:/PT-BOLA-CROSS-USER/}).check();
+ await expect(panel.getByText(/Signed-permit evaluation budget preview/)).toContainText("2");
+ await panel.getByRole("button",{name:"Propose detection scope"}).click();
+ const scoped=await request.get(url+"/v6/pt/targets/"+tid+"/scopes",{headers:auth});
+ expect(scoped.status()).toBe(200);
+ const sid=(await scoped.json() as {id:string}[])[0]!.id;
+ const before=await request.post(url+"/v7/pt/scopes/"+sid+"/detections",{
+  headers:{...auth,"idempotency-key":"pt7-deny-"+crypto.randomUUID()},
+  data:{profile:"CROSS_USER_ACCESS_WEAKNESS",ruleIds:["PT-BOLA-CROSS-USER"]}});
+ expect(before.status()).toBe(409);
+ expect((await before.json() as {error:string}).error).toBe("AUTHORIZATION_MISSING");
+ await panel.getByRole("button",{name:"Request separate synthetic test authority"}).click();
+ const spoof=await request.post(url+"/v6/pt/test-authority/scopes/"+sid+"/issue",{headers:auth,data:{}});
+ expect(spoof.status()).toBe(403);
+ const signed=await request.post(url+"/v6/pt/test-authority/scopes/"+sid+"/issue",
+  {headers:{...auth,"x-pt-authority-key":signer},data:{}});
+ expect(signed.status()).toBe(201);
+ await panel.getByRole("button",{name:"Refresh detection permit"}).click();
+ await expect(panel.getByText("TEST-ONLY PERMIT ISSUED")).toBeVisible();
+ await panel.getByRole("button",{name:"Start governed detection assessment"}).click();
+ expect(await drainQueue(1)).toBe(1);
+ await panel.getByRole("button",{name:"Refresh detection results"}).click();
+ await expect(panel.getByText(/Synthetic observations 1/)).toBeVisible();
+ await expect(panel.getByText(/PT-BOLA-CROSS-USER · HIGH · HIGH/)).toBeVisible();
+ await panel.getByText("Redacted observed evidence").click();
+ await expect(panel.getByText(/alice · \/pt\/resources\/bob · HTTP 200/)).toBeVisible();
+ await expect(panel.getByText(/VERIFIED_FIXED: false/)).toBeVisible();
+ const first=await request.get(url+"/v7/pt/targets/"+tid+"/history",{headers:auth});
+ const firstJob=(await first.json() as {id:string}[])[0]!.id;
+ const firstReport=await request.get(url+"/v7/pt/jobs/"+firstJob+"/report",{headers:auth});
+ expect((await firstReport.json() as {observations:unknown[]}).observations.length).toBe(1);
+ await panel.getByRole("button",{name:"Export persisted JSON report"}).click();
+ // Secure fixture: identical trusted operation/rule but a different signed scope and new test-only permit.
+ await panel.getByLabel("PT detection fixture profile").selectOption("SECURE_BASELINE");
+ await panel.getByRole("button",{name:"Propose detection scope"}).click();
+ const all=await request.get(url+"/v6/pt/targets/"+tid+"/scopes",{headers:auth});
+ const newScope=(await all.json() as {id:string}[]).find(x=>x.id!==sid)!.id;
+ await panel.getByRole("button",{name:"Request separate synthetic test authority"}).click();
+ expect((await request.post(url+"/v6/pt/test-authority/scopes/"+newScope+"/issue",
+  {headers:{...auth,"x-pt-authority-key":signer},data:{}})).status()).toBe(201);
+ await panel.getByRole("button",{name:"Refresh detection permit"}).click();
+ await panel.getByRole("button",{name:"Start governed detection assessment"}).click();
+ expect(await drainQueue(1)).toBe(1);
+ await panel.getByRole("button",{name:"Refresh detection results"}).click();
+ await expect(panel.getByText(/Synthetic observations 0/)).toBeVisible();
+ await expect(panel.getByText(/No synthetic weakness observed/)).toBeVisible();
+ const after=await request.get(url+"/v7/pt/targets/"+tid+"/history",{headers:auth});
+ const secondJob=(await after.json() as {id:string}[]).find(x=>x.id!==firstJob)!.id;
+ const compare=await request.get(url+"/v7/pt/jobs/"+firstJob+"/compare/"+secondJob,{headers:auth});
+ expect(compare.status()).toBe(200);
+ expect((await compare.json() as {compatibility:string;verifiedFixed:boolean}).compatibility).toBe("COMPATIBLE");
+ expect((await compare.json() as {verifiedFixed:boolean}).verifiedFixed).toBe(false);
+ expect((await request.get(url+"/v7/pt/jobs/"+firstJob+"/report",{
+  headers:{authorization:"Bearer local-test-token-beta"}})).status()).toBe(409);
+ expect(external).toEqual([]);
+});
