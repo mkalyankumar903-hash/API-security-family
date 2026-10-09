@@ -82,9 +82,10 @@ export function registerPtProductRoutes(app:FastifyInstance,identity:(req:Fastif
    const results=selection.map(rule=>{
     const op=operations.rows.find(x=>x.method==="GET"&&x.path===rule.path);
     const applicable=Boolean(op)&&!exclusions.includes(rule.path);
+    const reason=!op?"NO_SUPPORTED_GET_OPERATION":exclusions.includes(rule.path)?"OPERATION_EXCLUDED":"APPLICABLE";
     return {ruleId:rule.id,ruleRevision:rule.revision,requiredPath:rule.path,
-     applicable,reason:!op?"NO_SUPPORTED_GET_OPERATION":exclusions.includes(rule.path)?"OPERATION_EXCLUDED":"APPLICABLE",
-     evaluations:rule.cases.length,operationKey:applicable?op.operation_key:null};
+     applicable,status:applicable?"APPLICABLE":reason==="OPERATION_EXCLUDED"?"SKIPPED":"BLOCKED",
+     reason,evaluations:rule.cases.length,operationKey:applicable?op.operation_key:null};
    });
    return {version:"pt-plan-preview-v1",specificationId:specId,rawProfile:b.profile,
     specFingerprint:spec.rows[0].fingerprint,

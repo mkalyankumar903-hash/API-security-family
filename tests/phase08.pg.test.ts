@@ -124,6 +124,16 @@ test("Phase08 real PostgreSQL: migration 012, terminal persistence, fault recove
   assert.equal(preview.statusCode,200,preview.body);
   assert.equal(preview.json().plannedEvaluations,2);
   assert.equal(preview.json().executable,true);
+  // Explicit operator exclusions are SKIPPED, never PASS and never silently executable.
+  const excludedPreview=await call("POST","/v8/pt/specifications/"+spec+"/plan-preview",{
+   profile:"MISSING_AUTH_ENFORCEMENT",ruleIds:["PT-AUTH-ANONYMOUS"],exclusions:["/pt/account"]
+  });
+  assert.equal(excludedPreview.statusCode,200,excludedPreview.body);
+  assert.equal(excludedPreview.json().executable,false);
+  assert.equal(excludedPreview.json().applicableEvaluations,0);
+  const excludedRule=(excludedPreview.json() as unknown as {rules:{status:string;reason:string}[]}).rules[0];
+  assert.equal(excludedRule?.status,"SKIPPED");
+  assert.equal(excludedRule?.reason,"OPERATION_EXCLUDED");
   const forbiddenPreview=await call("POST","/v8/pt/specifications/"+spec+"/plan-preview",{
    profile:"MISSING_AUTH_ENFORCEMENT",ruleIds:["PT-AUTH-ANONYMOUS"],verdict:"SAFE"
   });

@@ -49,3 +49,8 @@ Accepted Phase 07 report rows stay immutable. The terminal summary is a distinct
 
 ## Reproduction
 Hosted GitHub Actions: `.github/workflows/phase08.yml`. Commit marker `[phase08-full]` requests the authoritative full job. Intermediate changes use fast/targeted jobs. Do not run founder laptop software or self-hosted workers.
+
+
+## Phase08 exclusion semantics clarification
+
+`SKIPPED` in `plan-preview` is emitted only for an explicitly excluded operation; this never creates an assessment, claims execution, or marks a security rule PASS. Missing necessary operations are `BLOCKED` at preview. Governed assessments admit only executable selected rules, so terminal-coverage `SKIPPED` is reserved for future explicitly evidenced execution skips and is not synthesized from absent evidence. In incomplete persisted terminal assessments, `NOT_RUN` and `INCONCLUSIVE` remain conservative. No invented production authority or remediation verification.
