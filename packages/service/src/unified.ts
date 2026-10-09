@@ -1,5 +1,6 @@
 import type {FastifyInstance,FastifyRequest} from "fastify";
-import {withTenant} from "../../database/src/index.js";
+import {withTenant,uuid} from "../../database/src/index.js";
+import type {Inventory} from "../../discovery/src/index.js";
 import {RULE_CATALOG} from "../../assessment-engine/src/inventory.js";
 
 /** Read-only, tenant-scoped projection of existing assessment authorities.
@@ -33,7 +34,7 @@ const date=(x:unknown):string|null=>{
     fail(400,"INVALID_DATE");
   return x as string;
 };
-const engines=["legacy-v1","inventory-v1","auth-fixture-v1"] as const;
+const engines=["legacy-v1","inventory-v1","inventory-v2","auth-fixture-v1"] as const;
 const states=["QUEUED","PROCESSING","COMPLETED","FAILED","CANCELLED"] as const;
 const summarySql='SELECT a.id,a.target_id AS "targetId",t.name AS "targetName",t.environment,a.specification_id AS "specificationId",i.version_number AS "specificationVersion",s.format,a.inventory_fingerprint AS "inventoryFingerprint",a.engine_version AS "engineVersion",a.mode,a.status,a.error_code AS "errorCode",a.created_at AS "createdAt",a.completed_at AS "completedAt" FROM api_assessments a JOIN api_targets t ON t.id=a.target_id AND t.tenant_id=a.tenant_id JOIN api_specifications s ON s.id=a.specification_id AND s.tenant_id=a.tenant_id LEFT JOIN api_spec_inventories i ON i.specification_id=a.specification_id AND i.tenant_id=a.tenant_id';
 const disclaimer="No runtime security validation. UNKNOWN != SAFE; NO EVIDENCE != SAFE; absence of an observation is NOT VERIFIED_FIXED.";
@@ -53,12 +54,65 @@ export async function registerUnifiedRoutes(app:FastifyInstance,tenant:(req:Fast
     options:[
       {engineVersion:"inventory-v1",label:"Specification Security Assessment",input:"phase02-v1 immutable inventory",formats:["OPENAPI_3_0","OPENAPI_3_1","SWAGGER_2","POSTMAN_2_1"],rules:28,
         executedCatalogRules:RULE_CATALOG.filter(x=>!x.unsupported).length,notes:"Declaration-only; no runtime vulnerability confirmation."},
+      {engineVersion:"inventory-v2",normalization:"phase05-v2",label:"Richer Offline Specification Analysis",input:"new-import-only immutable rich metadata",formats:["OPENAPI_3_0","OPENAPI_3_1","SWAGGER_2"],rules:28,executedCatalogRules:21,notes:"Six additional declaration checks, no customer network contact. Historical phase02-v1 versions remain unchanged."},
       {engineVersion:"auth-fixture-v1",label:"Synthetic Authentication & Authorization Validation",input:"Phase 02 inventory and validated synthetic fixture profile",formats:["OPENAPI_3_0","OPENAPI_3_1","SWAGGER_2","POSTMAN_2_1"],
         notes:"Only trusted in-process fixtures. Does not test customer authentication."},
       {engineVersion:"legacy-v1",label:"Historical OpenAPI Specification Assessment",input:"Legacy compatible specification",formats:["OPENAPI_3_1","SWAGGER_2"],
         notes:"Preserved for historical compatibility; prefer inventory-v1 for new imports."}
     ],disclaimer
   }));
+  // One versioned customer entrypoint; shares the original api_assessments authority,
+  // original enqueue procedure, private worker and idempotency. No second queue.
+  // Auth fixtures retain the Phase04 profile-attestation-specific start authority.
+  app.post("/v5/targets/:targetId/assessments",async(req,reply)=>{
+    const targetId=param(req,"targetId");
+    const data=req.body;
+    if(!data||typeof data!=="object"||Array.isArray(data))fail(400,"INVALID_ASSESSMENT_REQUEST");
+    const b=data as Record<string,unknown>;
+    const keys=Object.keys(b).sort().join(",");
+    if(keys!=="engineVersion,mode,specificationId"||b.mode!=="SPEC_ONLY"||
+      !["inventory-v1","inventory-v2"].includes(String(b.engineVersion)))
+      fail(400,"INVALID_ENGINE_CONTRACT");
+    const specificationId=uid(b.specificationId),engine=b.engineVersion as "inventory-v1"|"inventory-v2";
+    const key=req.headers["idempotency-key"];
+    if(typeof key!=="string"||!/^[a-zA-Z0-9:_-]{8,128}$/.test(key))fail(400,"IDEMPOTENCY_KEY_REQUIRED");
+    const tenantId=tenant(req),newId=uuid();
+    const record=await withTenant(tenantId,async tx=>{
+      const target=await tx.query("SELECT lifecycle FROM api_targets WHERE id=$1 FOR UPDATE",[targetId]);
+      if(!target.rowCount)fail(404,"TARGET_NOT_FOUND");
+      if(target.rows[0].lifecycle!=="ACTIVE")fail(409,"TARGET_NOT_ACTIVE");
+      const result=await tx.query(
+       "SELECT i.version_number,i.raw_fingerprint,i.normalized_fingerprint,i.snapshot,s.fingerprint,"+
+       "r.rich_fingerprint,r.snapshot AS rich_snapshot FROM api_spec_inventories i "+
+       "JOIN api_specifications s ON s.id=i.specification_id AND s.tenant_id=i.tenant_id "+
+       "LEFT JOIN api_rich_inventories r ON r.specification_id=i.specification_id AND r.tenant_id=i.tenant_id "+
+       "WHERE i.target_id=$1 AND i.specification_id=$2",[targetId,specificationId]);
+      if(!result.rowCount)fail(404,"INVENTORY_VERSION_NOT_FOUND");
+      const r=result.rows[0],old=r.snapshot as Inventory;
+      if(old.normalizationVersion!=="phase02-v1"||old.rawFingerprint!==r.raw_fingerprint||
+       old.normalizedFingerprint!==r.normalized_fingerprint||old.rawFingerprint!==r.fingerprint)
+       fail(409,"INVENTORY_INTEGRITY_FAILURE");
+      if(engine==="inventory-v2"&&(!r.rich_snapshot||r.rich_snapshot.richFingerprint!==r.rich_fingerprint||
+       r.rich_snapshot.rawFingerprint!==old.rawFingerprint||
+       r.rich_snapshot.phase02Fingerprint!==old.normalizedFingerprint))
+       fail(409,"RICH_INVENTORY_UNAVAILABLE");
+      const inserted=await tx.query(
+       "INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version,inventory_version,inventory_raw_fingerprint,inventory_fingerprint) "+
+       "VALUES($1,$2,$3,$4,'QUEUED','SPEC_ONLY',$5,$6,$7,$8,$9) "+
+       "ON CONFLICT(tenant_id,idempotency_key) DO UPDATE SET id=api_assessments.id "+
+       "RETURNING id,target_id,specification_id,engine_version,inventory_fingerprint,status",
+       [newId,tenantId,targetId,specificationId,key,engine,r.version_number,r.raw_fingerprint,r.normalized_fingerprint]);
+      const entry=inserted.rows[0];
+      if(entry.target_id!==targetId||entry.specification_id!==specificationId||
+         entry.engine_version!==engine||entry.inventory_fingerprint!==r.normalized_fingerprint)
+       fail(409,"IDEMPOTENCY_CONFLICT");
+      if(entry.status==="QUEUED")await tx.query("SELECT public.api_enqueue_assessment($1)",[entry.id]);
+      return entry;
+    });
+    reply.code(record.id===newId?201:200).send({id:record.id,status:record.status,
+      engineVersion:record.engine_version,targetId,specificationId,mode:"SPEC_ONLY",
+      maxRequests:0,methods:[],networkRequestsAuthorized:0});
+  });
   app.get("/v5/assessments",async req=>{
     const q=query(req),p=page(q),targetId=optionalId(q.targetId),specificationId=optionalId(q.specificationId);
     const engine=choice(q.engineVersion,engines),status=choice(q.status,states);
