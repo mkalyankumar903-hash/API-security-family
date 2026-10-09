@@ -296,16 +296,22 @@ export async function governedPtDetectionInteraction(tenant:string,id:string,tok
  });
 }
 /** Cancellation, stale worker and exceptions must settle uncertain reservations without replay. */
-export async function settlePtDetectionReservations(tenant:string,id:string):Promise<void>{
- await withWorkerTenant(tenant,async tx=>{
+export async function settlePtDetectionReservations(tenant:string,id:string,claimToken:string):Promise<boolean>{
+ return withWorkerTenant(tenant,async tx=>{
   const s=await context(tx,tenant,id,true);
-  if(!s)return;
+  if(!s)return false;
+  // A stale worker MUST NOT settle reservations belonging to a later claimant.
+  // Follow the governor lock order (scope/permit then private queue lease).
+  const lease=await tx.query("SELECT claim_token,locked_until FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[id]);
+  if(lease.rows[0]?.claim_token!==claimToken||!lease.rows[0]?.locked_until||
+   new Date(lease.rows[0].locked_until).getTime()<=Date.now())return false;
   const rows=await tx.query("SELECT evaluation_key FROM api_pt_detection_evaluations WHERE assessment_id=$1 AND state='RESERVED' FOR UPDATE",[id]);
   for(const row of rows.rows){
    await tx.query("UPDATE api_pt_detection_evaluations SET state='UNCERTAIN',reason='CONSERVATIVE_NO_REPLAY',settled_at=now() WHERE assessment_id=$1 AND evaluation_key=$2",[id,row.evaluation_key]);
    await tx.query("UPDATE api_pt_permits SET reserved=reserved-1,consumed=consumed+1 WHERE id=$1 AND reserved>0",[s.permit_id]);
   }
   if(rows.rowCount)await audit(tx,tenant,id,"PT7_ORPHANED_EVALUATIONS_UNCERTAIN",String(rows.rowCount));
+  return true;
  });
 }
 
