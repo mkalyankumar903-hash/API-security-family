@@ -358,4 +358,159 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    return {enabled:false,notice:"Previously revoked permits remain revoked"};
   });
  });
+
+ // Phase07: additive isolated synthetic detection admission. Legacy Phase06 jobs stay unchanged.
+ app.get("/v7/pt/rules",async()=>({engine:"pt-detection-v1",fixtureId:DETECTION_FIXTURE,
+  rules:RULES.map(r=>({id:r.id,revision:r.revision,category:r.category,path:r.path,
+   requiredIdentities:r.cases.map(x=>x.actor),evaluations:r.cases.length,impact:r.impact,
+   description:r.description,remediation:r.remediation})),productionHostAuthorization:"BLOCKED",customerNetworkRequests:0}));
+ app.get("/v7/pt/fixtures",async()=>({fixtureId:DETECTION_FIXTURE,fixtureVersion:1,profiles:PROFILES,
+  paths:["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"],methods:["GET","HEAD"],
+  identities:["anonymous","alice","bob","admin","invalid","expired","revoked"],
+  trustedExpectedPolicy:"REPOSITORY_OWNED_VERSIONED_ORACLE",customerNetworkRequests:0}));
+ app.post("/v7/pt/scopes/:id/detections",async(req,reply)=>{
+  const t=identity(req),sid=params(req),b=obj(req.body);
+  strict(b,["profile","ruleIds"]);
+  if(!isProfile(b.profile))throw new PtError(400,"UNSUPPORTED_TRUSTED_PROFILE");
+  const profile=b.profile;
+  const selected=planRules(names(b.ruleIds,"RULES",RULES.length));
+  const idem=key(req),newJob=uuid();
+  const result=await withTenant(t,async tx=>{
+   const s=await scope(tx,sid);
+   if(s.fixture_id!==DETECTION_FIXTURE)throw new PtError(409,"PT7_TRUSTED_FIXTURE_REQUIRED");
+   const ops=await tx.query("SELECT operation_key,method,path FROM api_inventory_operations WHERE specification_id=$1 AND method='GET'",[s.specification_id]);
+   const byPath=new Map((ops.rows as {operation_key:string;method:string;path:string}[]).map(x=>[x.path,x]));
+   const selectedKeys:string[]=[];
+   const evaluations:{evaluationKey:string;ruleId:string;caseId:string;operationKey:string;method:"GET";path:string;actor:string}[]=[];
+   for(const rule of selected){
+    const op=byPath.get(rule.path);
+    if(!op||!s.operation_keys.includes(op.operation_key)||s.exclusions.includes(rule.path))
+     throw new PtError(409,"DETECTION_OPERATION_OUT_OF_SCOPE");
+    if(!fixtureOperationFor(DETECTION_FIXTURE,op.method,op.path))
+     throw new PtError(409,"DETECTION_FIXTURE_OPERATION_DENIED");
+    if(!selectedKeys.includes(op.operation_key))selectedKeys.push(op.operation_key);
+    for(const testCase of rule.cases){
+     evaluations.push({evaluationKey:rule.id+":"+testCase.caseId,ruleId:rule.id,
+      caseId:testCase.caseId,operationKey:op.operation_key,method:"GET",path:rule.path,actor:testCase.actor});
+    }
+   }
+   if(evaluations.length>20||evaluations.length>s.max_evaluations)
+    throw new PtError(409,"DETECTION_BUDGET_PREVIEW_EXCEEDS_SCOPE");
+   const plannedRules=selected.map(x=>({id:x.id,revision:x.revision}));
+   const plan={engineVersion:"pt-detection-v1",fixtureVersion:1,fixtureId:DETECTION_FIXTURE,
+    profile,rules:plannedRules,evaluations,specFingerprint:s.spec_fingerprint,scopeId:s.id};
+   const fingerprint=digest(JSON.stringify(plan));
+   const halted=await stop(tx,t);
+   const existing=await tx.query("SELECT a.id,p.plan_fingerprint FROM api_assessments a JOIN api_pt_detection_plans p ON p.assessment_id=a.id AND p.tenant_id=a.tenant_id WHERE a.tenant_id=$1 AND a.idempotency_key=$2",[t,idem]);
+   if(existing.rowCount){
+    if(existing.rows[0].plan_fingerprint!==fingerprint)throw new PtError(409,"IDEMPOTENCY_CONFLICT");
+    return {id:existing.rows[0].id,status:"QUEUED_OR_PROCESSING",created:false};
+   }
+   if(halted)return denied(tx,t,sid,"EMERGENCY_STOP_ACTIVE");
+   const current=await target(tx,s.target_id,true),p=await permit(tx,sid,true);
+   if(!p)return denied(tx,t,sid,"AUTHORIZATION_MISSING");
+   if(p.revoked_at)return denied(tx,t,sid,"PERMIT_REVOKED");
+   try{
+    const claims=verifyStoredTestPermit(p.claims,p.token_hash,p.signed_body);
+    if(claims.permitId!==p.id)throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
+    checkBinding(claims,s,current,t);
+   }catch(e){return denied(tx,t,sid,e instanceof PermitError?e.code:"PERMIT_INVALID");}
+   if(evaluations.length>p.claims.maxEvaluations-p.consumed-p.reserved)
+    return denied(tx,t,sid,"PERMIT_BUDGET_EXHAUSTED");
+   if(evaluations.length>s.rate_per_minute)
+    return denied(tx,t,sid,"DETECTION_RATE_BUDGET_TOO_SMALL");
+   const active=await tx.query("SELECT count(*)::int AS tenant_active,count(*) FILTER(WHERE j.target_id=$1)::int AS target_active,count(*) FILTER(WHERE j.permit_id=$2)::int AS permit_active FROM api_pt_jobs j JOIN api_assessments a ON a.id=j.assessment_id WHERE j.tenant_id=$3 AND a.status IN('QUEUED','PROCESSING')",[s.target_id,p.id,t]);
+   if(active.rows[0].tenant_active>=3||active.rows[0].target_active>=2||active.rows[0].permit_active>=s.max_concurrency)
+    return denied(tx,t,sid,"CONCURRENCY_LIMIT");
+   await tx.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version,inventory_version,inventory_raw_fingerprint,inventory_fingerprint) SELECT $1,$2,$3,$4,'QUEUED','SYNTHETIC_PT_FIXTURE',$5,'pt-detection-v1',i.version_number,i.raw_fingerprint,i.normalized_fingerprint FROM api_spec_inventories i WHERE i.specification_id=$4",
+    [newJob,t,s.target_id,s.specification_id,idem]);
+   await tx.query("INSERT INTO api_pt_jobs(assessment_id,tenant_id,target_id,scope_id,permit_id,operation_keys,job_deadline) VALUES($1,$2,$3,$4,$5,$6::jsonb,now()+($7::text||' milliseconds')::interval)",
+    [newJob,t,s.target_id,sid,p.id,JSON.stringify(selectedKeys),s.deadline_ms]);
+   await tx.query("INSERT INTO api_pt_detection_plans(assessment_id,tenant_id,fixture_version,fixture_profile,engine_version,rules,evaluations,plan_fingerprint) VALUES($1,$2,1,$3,'pt-detection-v1',$4::jsonb,$5::jsonb,$6)",
+    [newJob,t,profile,JSON.stringify(plannedRules),JSON.stringify(evaluations),fingerprint]);
+   await tx.query("SELECT public.api_enqueue_assessment($1)",[newJob]);
+   await record(tx,t,newJob,"PT7_DETECTION_QUEUED",{permitId:p.id,rules:selected.length,evaluations:evaluations.length,planFingerprint:fingerprint});
+   return {id:newJob,status:"QUEUED",created:true,plannedEvaluations:evaluations.length,planFingerprint:fingerprint,customerNetworkRequests:0};
+  });
+  if("error" in result)reply.code(409).send(result);
+  else reply.code(result.created?201:200).send(result);
+ });
+ app.get("/v7/pt/jobs/:id",async req=>{
+  const t=identity(req),jid=params(req);
+  return withTenant(t,async tx=>{
+   const q=await tx.query("SELECT a.id,a.status,a.error_code AS \"errorCode\",p.fixture_profile,p.rules,p.evaluations,p.plan_fingerprint,j.permit_id,j.scope_id,j.target_id FROM api_pt_detection_plans p JOIN api_assessments a ON a.id=p.assessment_id AND a.tenant_id=p.tenant_id JOIN api_pt_jobs j ON j.assessment_id=p.assessment_id WHERE p.assessment_id=$1",[jid]);
+   if(!q.rowCount)throw new PtError(404,"DETECTION_JOB_NOT_FOUND");
+   const n=await tx.query("SELECT state,count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1 GROUP BY state",[jid]);
+   return {...q.rows[0],counts:Object.fromEntries(n.rows.map(x=>[x.state,x.n])),customerNetworkRequests:0};
+  });
+ });
+ app.get("/v7/pt/jobs/:id/evaluations",async req=>{
+  const t=identity(req),jid=params(req),limit=queryLimit(req);
+  return withTenant(t,async tx=>{
+   const present=await tx.query("SELECT 1 FROM api_pt_detection_plans WHERE assessment_id=$1",[jid]);
+   if(!present.rowCount)throw new PtError(404,"DETECTION_JOB_NOT_FOUND");
+   return (await tx.query("SELECT id,evaluation_key,operation_key,method,path,actor,state,evidence,reason,created_at,settled_at FROM api_pt_detection_evaluations WHERE assessment_id=$1 ORDER BY evaluation_key LIMIT $2",[jid,limit])).rows;
+  });
+ });
+ app.get("/v7/pt/jobs/:id/findings",async req=>{
+  const t=identity(req),jid=params(req),limit=queryLimit(req);
+  return withTenant(t,async tx=>{
+   const present=await tx.query("SELECT 1 FROM api_pt_detection_plans WHERE assessment_id=$1",[jid]);
+   if(!present.rowCount)throw new PtError(404,"DETECTION_JOB_NOT_FOUND");
+   return (await tx.query("SELECT rule_id,rule_revision,status,code,fingerprint,evidence FROM api_pt_detection_results WHERE assessment_id=$1 AND status='OBSERVED' ORDER BY rule_id LIMIT $2",[jid,limit])).rows;
+  });
+ });
+ app.get("/v7/pt/jobs/:id/coverage",async req=>{
+  const t=identity(req),jid=params(req);
+  return withTenant(t,async tx=>{
+   const present=await tx.query("SELECT 1 FROM api_pt_detection_plans WHERE assessment_id=$1",[jid]);
+   if(!present.rowCount)throw new PtError(404,"DETECTION_JOB_NOT_FOUND");
+   return (await tx.query("SELECT rule_id,rule_revision,status,code,fingerprint FROM api_pt_detection_results WHERE assessment_id=$1 ORDER BY rule_id",[jid])).rows;
+  });
+ });
+ app.get("/v7/pt/jobs/:id/report",async req=>{
+  const t=identity(req),jid=params(req);
+  return withTenant(t,async tx=>{
+   const r=await tx.query("SELECT projection FROM api_pt_detection_reports WHERE assessment_id=$1",[jid]);
+   if(!r.rowCount)throw new PtError(409,"DETECTION_REPORT_NOT_READY");
+   return r.rows[0].projection;
+  });
+ });
+ app.get("/v7/pt/jobs/:id/export",async(req,reply)=>{
+  const t=identity(req),jid=params(req);
+  const report=await withTenant(t,async tx=>{
+   const r=await tx.query("SELECT projection FROM api_pt_detection_reports WHERE assessment_id=$1",[jid]);
+   if(!r.rowCount)throw new PtError(409,"DETECTION_REPORT_NOT_READY");
+   return r.rows[0].projection as Record<string,unknown>;
+  });
+  reply.header("content-disposition","attachment; filename=synthetic-detection-"+jid+".json");
+  reply.type("application/json").send(report);
+ });
+ app.get("/v7/pt/targets/:id/history",async req=>{
+  const t=identity(req),tid=params(req),limit=queryLimit(req);
+  return withTenant(t,async tx=>{
+   await target(tx,tid);
+   return (await tx.query("SELECT a.id,a.status,a.error_code,p.fixture_profile,p.plan_fingerprint,a.created_at,a.completed_at FROM api_pt_detection_plans p JOIN api_assessments a ON a.id=p.assessment_id JOIN api_pt_jobs j ON j.assessment_id=p.assessment_id WHERE j.target_id=$1 ORDER BY a.created_at DESC LIMIT $2",[tid,limit])).rows;
+  });
+ });
+ app.get("/v7/pt/jobs/:id/compare/:otherId",async req=>{
+  const t=identity(req),jid=params(req),other=params(req,"otherId");
+  return withTenant(t,async tx=>{
+   const r=await tx.query("SELECT p.assessment_id,p.fixture_version,p.rules,p.fixture_profile,j.scope_id,j.target_id,j.scope_id,s.spec_fingerprint,r.projection FROM api_pt_detection_plans p JOIN api_pt_jobs j ON j.assessment_id=p.assessment_id JOIN api_pt_scopes s ON s.id=j.scope_id JOIN api_pt_detection_reports r ON r.assessment_id=p.assessment_id WHERE p.assessment_id=ANY($1::uuid[])",[[jid,other]]);
+   if(r.rowCount!==2)throw new PtError(409,"COMPARISON_REQUIRES_COMPLETED_REPORTS");
+   const a=r.rows.find(x=>x.assessment_id===jid)!,b=r.rows.find(x=>x.assessment_id===other)!;
+   if(a.target_id!==b.target_id||a.spec_fingerprint!==b.spec_fingerprint||a.fixture_version!==b.fixture_version||
+    JSON.stringify(a.rules)!==JSON.stringify(b.rules))
+    return {compatibility:"INCOMPATIBLE_SNAPSHOT",verifiedFixed:false,customerNetworkRequests:0};
+   const before=(a.projection as {observations:{ruleId:string;fingerprint:string}[]}).observations;
+   const after=(b.projection as {observations:{ruleId:string;fingerprint:string}[]}).observations;
+   const left=new Map(before.map(x=>[x.ruleId,x.fingerprint])),right=new Map(after.map(x=>[x.ruleId,x.fingerprint]));
+   return {compatibility:"COMPATIBLE",newlyObserved:after.filter(x=>!left.has(x.ruleId)).map(x=>x.ruleId),
+    stillObserved:after.filter(x=>left.get(x.ruleId)===x.fingerprint).map(x=>x.ruleId),
+    evidenceChanged:after.filter(x=>left.has(x.ruleId)&&left.get(x.ruleId)!==x.fingerprint).map(x=>x.ruleId),
+    noLongerObserved:before.filter(x=>!right.has(x.ruleId)).map(x=>x.ruleId),
+    verifiedFixed:false,customerNetworkRequests:0,limitation:"Disappeared synthetic observations are not VERIFIED_FIXED"};
+  });
+ });
+
 }
