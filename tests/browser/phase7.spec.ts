@@ -25,6 +25,9 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  const uploader=page.getByLabel(/OpenAPI 3.0 \/ 3.1, Swagger 2.0 JSON\/YAML or Postman Collection/);
  await uploader.setInputFiles("fixtures/phase07-security.openapi.json");
  await expect(page.getByRole("status").filter({hasText:/Imported OPENAPI_3_0/})).toBeVisible();
+ // Preserve the accepted Phase06 accessible heading selector when the Phase07 console is nested.
+ const legacyPanel=page.getByRole("region",{name:"API Penetration Testing authorization and safe execution"});
+ await expect(legacyPanel.getByRole("heading",{name:/API Penetration Testing/})).toHaveCount(1);
  const panel=page.getByRole("region",{name:"API PT deterministic detection assessment"});
  await expect(panel.getByText(/NOT CUSTOMER PRODUCTION VULNERABILITY VERIFICATION/)).toBeVisible();
  await panel.getByRole("button",{name:"Refresh detection catalog & history"}).click();
