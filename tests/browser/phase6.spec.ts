@@ -67,6 +67,11 @@ test("Phase06 Chromium: React scope/denial/issuer/worker/receipts/report/revocat
  const history=await runs.json() as Row[];
  expect(history.length).toBe(1);
  expect(history[0]!.status).toBe("COMPLETED");
+ const immutableReceipts=await request.get(base+"/v6/pt/jobs/"+history[0]!.id+"/receipts",{headers:auth});
+ expect(immutableReceipts.status()).toBe(200);
+ const proof=await immutableReceipts.json() as {specification_version:number;scope_revision:number;permit_hash:string;evaluation_sequence:number;budget_remaining:number;decision:string}[];
+ expect(proof.length).toBeGreaterThan(0);
+ expect(proof.every(x=>x.specification_version>=1&&x.scope_revision>=0&&x.permit_hash.length===64&&x.evaluation_sequence>0&&x.budget_remaining>=0&&x.decision==="ALLOWED")).toBe(true);
  const report=await request.get(base+"/v6/pt/jobs/"+history[0]!.id+"/report",{headers:auth});
  const projection=await report.json() as {syntheticOnly:boolean;customerNetworkRequests:number;confirmedCustomerVulnerabilities:unknown[];verifiedFixed:boolean};
  expect(projection.syntheticOnly).toBe(true);expect(projection.customerNetworkRequests).toBe(0);
