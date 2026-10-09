@@ -3,6 +3,10 @@
 ALTER TABLE public.api_assessments DROP CONSTRAINT api_assessments_engine_version_check;
 ALTER TABLE public.api_assessments ADD CONSTRAINT api_assessments_engine_version_check
  CHECK (engine_version IN ('legacy-v1','inventory-v1','auth-fixture-v1','inventory-v2','pt-fixture-v1'));
+ALTER TABLE public.api_assessments DROP CONSTRAINT api_assessments_mode_check;
+ALTER TABLE public.api_assessments ADD CONSTRAINT api_assessments_mode_check
+ CHECK ((mode='SPEC_ONLY' AND engine_version<>'pt-fixture-v1') OR
+        (mode='SYNTHETIC_PT_FIXTURE' AND engine_version='pt-fixture-v1'));
 
 CREATE TABLE public.api_pt_scopes (
  id uuid PRIMARY KEY, tenant_id uuid NOT NULL, target_id uuid NOT NULL,
