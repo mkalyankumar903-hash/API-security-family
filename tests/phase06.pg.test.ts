@@ -2,7 +2,6 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {readFileSync} from "node:fs";
-import {Pool} from "pg";
 import {makeApp} from "../packages/service/src/app.js";
 import {migrate,pool,workerPool,withTenant,withWorkerTenant,claimJob} from "../packages/database/src/index.js";
 import {processOneJob,drainQueue} from "../packages/worker/src/index.js";
