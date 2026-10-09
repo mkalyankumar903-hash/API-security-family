@@ -169,7 +169,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Real Chromium accepted Phase06 and Phase09 governed detection journeys
-        run: npx playwright test tests/browser/phase6.spec.ts && npx playwright test tests/browser/phase7.spec.ts && npx playwright test tests/browser/phase8.spec.ts
+        run: npx playwright test tests/browser/phase6.spec.ts && npx playwright test tests/browser/phase7.spec.ts && npx playwright test tests/browser/phase8.spec.ts && npx playwright test tests/browser/phase9.spec.ts
 
   postgres-targeted:
     if: ${{ contains(github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message, '[phase09-pg]') }}
