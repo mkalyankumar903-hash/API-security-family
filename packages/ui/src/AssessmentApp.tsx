@@ -1,3 +1,4 @@
+import {SpecDiscoveryExplorer} from "./SpecDiscoveryExplorer.js";
 import {TargetOnboarding} from "./TargetOnboarding.js";
 import React, { useEffect, useState } from "react";
 const API_BASE = (typeof import.meta.env === "object" && import.meta.env.VITE_API_BASE) || "http://127.0.0.1:3001";
@@ -109,7 +110,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
     await attempt(async()=>{const r=await call<Job>(token,"/v1/assessments/"+job.id+"/cancel",{method:"POST"});setJob({...job,status:r.status});});
   }
   return <main className="container">
-    <header><div><small>LUMICSEC / API SECURITY FAMILY</small><h1>API Security Assessment</h1><p>Evidence-based OpenAPI analysis · SPEC_ONLY · No live network scanning</p></div><strong className="tag">Phase 1 · Isolated SPEC_ONLY · No Host authority</strong></header>
+    <header><div><small>LUMICSEC / API SECURITY FAMILY</small><h1>API Security Assessment</h1><p>Evidence-based OpenAPI analysis · SPEC_ONLY · No live network scanning</p></div><strong className="tag">Phase 2 · Offline specification discovery · No Host authority</strong></header>
     <section><label htmlFor="devtoken">Synthetic development token (never a production login)</label><input id="devtoken" value={token} onChange={e=>setToken(e.target.value)} type="password" autoComplete="off" placeholder="Local development token"/></section>
     {loading && <p role="status">Loading targets…</p>}
     {error && <p role="alert" className="error">{error === "PERMISSION_DENIED" || error === "UNAUTHORIZED" ? "Access denied: "+error : error}</p>}
@@ -126,6 +127,10 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
       <form onSubmit={e=>void createTarget(e)}><div className="formgrid"><label>Target name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)} placeholder="Payments API"/></label><label>HTTPS base URL<input required type="url" value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="https://api.example.invalid"/></label><label>Environment<select value={environment} onChange={e=>setEnvironment(e.target.value)}><option>SYNTHETIC</option><option>STAGING</option><option>PRODUCTION</option></select></label></div><button disabled={busy||!token} type="submit">Register target</button></form>
     </section>
     {targetId&&<TargetOnboarding key={targetId+token} token={token} targetId={targetId} onChanged={reloadTargets}/>}
+    {targetId&&<SpecDiscoveryExplorer key={"discovery-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"} onSelected={async id=>{
+      const updated=await call<Specification[]>(token,"/v1/targets/"+targetId+"/specifications");
+      setSpecs(updated);setSpecId(id);
+    }}/>}
     {targetId&&<section><h2>2. OpenAPI specification</h2><p>Upload OpenAPI 3.1 or Swagger 2.0 JSON/YAML, up to 1 MiB. No remote refs are fetched.</p>
       <label htmlFor="specfile">Specification file</label><input id="specfile" type="file" accept=".json,.yaml,.yml" disabled={busy||targets.find(t=>t.id===targetId)?.lifecycle!=="ACTIVE"} onChange={e=>void upload(e)}/>
       <label htmlFor="spec">Select specification</label><select id="spec" value={specId} onChange={e=>setSpecId(e.target.value)}><option value="">Choose uploaded specification</option>{specs.map(s=><option key={s.id} value={s.id}>{s.filename} ({s.fingerprint.slice(0,12)})</option>)}</select>

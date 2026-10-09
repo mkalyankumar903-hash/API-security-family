@@ -1,0 +1,107 @@
+{
+  "info": {
+    "name": "Nested Sample",
+    "_postman_id": "c3aa4bd9-301d-4cb8-93d4-b77ca6e45123",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://api.fixture.invalid"
+    },
+    {
+      "key": "apiToken",
+      "value": "test-secret-DO-NOT-PERSIST"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "Bearer secret-real"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Billing",
+      "auth": {
+        "type": "inherit"
+      },
+      "item": [
+        {
+          "name": "List",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/bills?token=SECRET123",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bills"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "List bills"
+          },
+          "response": [
+            {
+              "name": "OK",
+              "code": 200,
+              "body": "{\"private\":\"TOKEN\"}"
+            }
+          ]
+        },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/bills",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "bills"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"token\":\"secret\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('example',()=>{})"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "pm.environment.set('leak','TOKEN')"
+        ]
+      }
+    }
+  ]
+}
