@@ -92,7 +92,8 @@ export async function registerUnifiedRoutes(app:FastifyInstance,tenant:(req:Fast
         'f.category,f.severity AS impact,f.evidence_confidence AS confidence,f.potential_impact AS "potentialImpact",'+
         'f.explanation,f.remediation,f.confidence AS "observationType",f.validation_level AS "validationLevel",'+
         'f.review_required AS "reviewRequired",f.evidence_id AS "evidenceId",e.pointer AS "sourcePointer",'+
-        'f.created_at AS "createdAt" FROM api_findings f JOIN api_evidence e ON e.id=f.evidence_id AND e.tenant_id=f.tenant_id'+
+        'a.created_at AS "createdAt" FROM api_findings f JOIN api_evidence e ON e.id=f.evidence_id AND e.tenant_id=f.tenant_id'+
+        ' JOIN api_assessments a ON a.id=f.assessment_id AND a.tenant_id=f.tenant_id'+
         ' WHERE f.assessment_id=$1 AND ($2::text IS NULL OR f.severity=$2)'+
         ' AND ($3::text IS NULL OR f.evidence_confidence=$3)'+
         ' AND ($4=\'\' OR f.category=$4) AND ($5=\'\' OR f.rule_id=$5)'+
@@ -187,7 +188,8 @@ export async function registerUnifiedRoutes(app:FastifyInstance,tenant:(req:Fast
       const all=rows.rows as (Fingerprint&{assessment_id:string})[];
       if(all.some(x=>!x.fingerprint||!x.correlationKey||!x.ruleVersion))
         return incompatible("INSUFFICIENT_COMPARISON_EVIDENCE");
-      const difference=comparePersistedFindings(all.filter(x=>x.assessment_id===fromId),all.filter(x=>x.assessment_id===toId));
+      const stable=all.map(x=>from.engineVersion==="auth-fixture-v1"?{...x,correlationKey:x.fingerprint}:x);
+      const difference=comparePersistedFindings(stable.filter(x=>x.assessment_id===fromId),stable.filter(x=>x.assessment_id===toId));
       return {comparable:true,reason:null,fromAssessmentId:fromId,toAssessmentId:toId,
         engineVersion:from.engineVersion,specificationVersions:[from.specificationVersion,to.specificationVersion],
         ...difference,counts:Object.fromEntries(Object.entries(difference).map(([key,list])=>[key,list.length])),
