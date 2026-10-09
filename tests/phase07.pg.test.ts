@@ -52,7 +52,7 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
   assert.equal(r.statusCode,201,r.body);
   return r.json().id as string;
  }
- async function start(sid:string,profile:string,ruleIds=RULES.map(x=>x.id),key="pt7-job-"+randomUUID()){
+ async function start(sid:string,profile:string,ruleIds:string[]=RULES.map(x=>x.id),key="pt7-job-"+randomUUID()){
   return call("POST","/v7/pt/scopes/"+sid+"/detections",{profile,ruleIds},{key});
  }
  try{
