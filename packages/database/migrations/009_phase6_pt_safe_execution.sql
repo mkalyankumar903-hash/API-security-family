@@ -66,7 +66,7 @@ CREATE TABLE public.api_pt_ledger (
  permit_id uuid NOT NULL,operation_key text NOT NULL,
  state text NOT NULL CHECK(state IN('RESERVED','CONSUMED','UNCERTAIN')),
  created_at timestamptz NOT NULL DEFAULT now(),settled_at timestamptz,
- UNIQUE(tenant_id,assessment_id,operation_key),UNIQUE(tenant_id,assessment_id,evaluation_sequence),
+ UNIQUE(tenant_id,assessment_id,operation_key),
  FOREIGN KEY(tenant_id,assessment_id) REFERENCES public.api_pt_jobs(tenant_id,assessment_id),
  FOREIGN KEY(tenant_id,permit_id) REFERENCES public.api_pt_permits(tenant_id,id)
 );
@@ -85,7 +85,7 @@ CREATE TABLE public.api_pt_receipts (
  response_hash char(64),duration_ms integer CHECK(duration_ms>=0),
  budget_consumed integer NOT NULL CHECK(budget_consumed>=0),
  created_at timestamptz NOT NULL DEFAULT now(),
- UNIQUE(tenant_id,assessment_id,operation_key),
+ UNIQUE(tenant_id,assessment_id,operation_key),UNIQUE(tenant_id,assessment_id,evaluation_sequence),
  FOREIGN KEY(tenant_id,assessment_id) REFERENCES public.api_pt_jobs(tenant_id,assessment_id),
  FOREIGN KEY(tenant_id,permit_id) REFERENCES public.api_pt_permits(tenant_id,id)
 );
