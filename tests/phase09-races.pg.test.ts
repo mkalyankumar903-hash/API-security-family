@@ -70,7 +70,7 @@ test("Phase09 independently coordinated PostgreSQL transaction and orchestration
   });
   await t.test("concurrent different idempotency keys honor permit active-concurrency ceiling",async()=>{
    const s=await setup(),runs=await Promise.all([admit(s),admit(s)]);
-   assert.deepEqual(runs.map(r=>r.statusCode).sort(),[201,409],runs.map(r=>r.body));
+   assert.deepEqual(runs.map(r=>r.statusCode).sort(),[201,409],runs.map(r=>r.body).join("\n"));
    const jid=runs.find(r=>r.statusCode===201)!.json().id as string;
    assert.equal(await processOneJob(),true);
    await terminal(jid,"COMPLETED");
