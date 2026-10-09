@@ -1,0 +1,111 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "LumicSec Phase07 Trusted Synthetic PT Fixture",
+    "version": "1.0.0",
+    "description": "Trusted repository fixture; never a live customer target"
+  },
+  "servers": [
+    {
+      "url": "https://trusted-fixture.invalid"
+    }
+  ],
+  "paths": {
+    "/pt/account": {
+      "get": {
+        "operationId": "synthetic_account",
+        "summary": "Protected synthetic account",
+        "security": [
+          {
+            "syntheticBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Allowed synthetic read"
+          },
+          "401": {
+            "description": "Synthetic identity rejected"
+          },
+          "403": {
+            "description": "Synthetic policy denied"
+          }
+        }
+      }
+    },
+    "/pt/resources/bob": {
+      "get": {
+        "operationId": "synthetic_resources_bob",
+        "summary": "Synthetic Bob-owned object",
+        "security": [
+          {
+            "syntheticBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Allowed synthetic read"
+          },
+          "401": {
+            "description": "Synthetic identity rejected"
+          },
+          "403": {
+            "description": "Synthetic policy denied"
+          }
+        }
+      }
+    },
+    "/pt/admin": {
+      "get": {
+        "operationId": "synthetic_admin",
+        "summary": "Privileged synthetic operation",
+        "security": [
+          {
+            "syntheticBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Allowed synthetic read"
+          },
+          "401": {
+            "description": "Synthetic identity rejected"
+          },
+          "403": {
+            "description": "Synthetic policy denied"
+          }
+        }
+      }
+    },
+    "/pt/confidential": {
+      "get": {
+        "operationId": "synthetic_confidential",
+        "summary": "Confidential synthetic response",
+        "security": [
+          {
+            "syntheticBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Allowed synthetic read"
+          },
+          "401": {
+            "description": "Synthetic identity rejected"
+          },
+          "403": {
+            "description": "Synthetic policy denied"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "syntheticBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

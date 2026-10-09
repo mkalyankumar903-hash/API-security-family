@@ -6,7 +6,7 @@ export const PT_AUDIENCE="lumicsec-in-process-fixture-only-v1";
 export const PT_PROFILE="SYNTHETIC_PT_READ_ONLY";
 export type PtClaims={
  v:1;permitId:string;issuer:string;audience:string;tenantId:string;targetId:string;
- environment:"SYNTHETIC";fixtureId:"billing-safe-v1";specificationId:string;
+ environment:"SYNTHETIC";fixtureId:"billing-safe-v1"|"pt-security-v1";specificationId:string;
  specificationVersion:number;specFingerprint:string;targetVerificationVersion:number;
  targetScopeRevision:number;scopeId:string;operationKeys:string[];methods:("GET"|"HEAD")[];
  exclusions:string[];maxEvaluations:number;maxConcurrency:number;ratePerMinute:number;
@@ -45,24 +45,29 @@ export function issueTestPermit(input:Omit<PtClaims,"v"|"issuer"|"audience"|"pro
  if(Object.keys(raw).length!==fields.length||fields.some(k=>!Object.hasOwn(raw,k)))
   throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
  const ordered=Object.fromEntries(fields.map(k=>[k,raw[k]]));
+ if(claims.fixtureId!=="billing-safe-v1"&&claims.fixtureId!=="pt-security-v1")
+  throw new PermitError("PERMIT_FIXTURE_MISMATCH");
  const body=b64(JSON.stringify(ordered));
- const signature=createHmac("sha256",key).update("pt6v1."+body).digest();
- return "pt6v1."+body+"."+b64(signature);
+ const prefix=claims.fixtureId==="pt-security-v1"?"pt7v1":"pt6v1";
+ const signature=createHmac("sha256",key).update(prefix+"."+body).digest();
+ return prefix+"."+body+"."+b64(signature);
 }
 export function verifyTestPermit(token:string,now=Date.now()):PtClaims {
  const key=root();
  const parts=token.split(".");
- if(parts.length!==3||parts[0]!=="pt6v1")throw new PermitError("PERMIT_ALGORITHM_DENIED");
+ if(parts.length!==3||(parts[0]!=="pt6v1"&&parts[0]!=="pt7v1"))throw new PermitError("PERMIT_ALGORITHM_DENIED");
  const body=decodeCanonical(parts[1]??"");
  const signature=decodeCanonical(parts[2]??"");
  if(signature.length!==32)throw new PermitError("PERMIT_SIGNATURE_LENGTH");
- const expected=createHmac("sha256",key).update("pt6v1."+parts[1]).digest();
+ const expected=createHmac("sha256",key).update(parts[0]+"."+parts[1]).digest();
  if(!timingSafeEqual(signature,expected))throw new PermitError("PERMIT_SIGNATURE_INVALID");
  let c:PtClaims;
  try {c=JSON.parse(body.toString("utf8")) as PtClaims;}catch{throw new PermitError("PERMIT_JSON_INVALID");}
  if(b64(JSON.stringify(c))!==parts[1])throw new PermitError("NONCANONICAL_PERMIT");
  if(c.v!==1||c.issuer!==PT_ISSUER)throw new PermitError("PERMIT_ISSUER_DENIED");
- if(c.audience!==PT_AUDIENCE||c.profile!==PT_PROFILE||c.environment!=="SYNTHETIC"||c.fixtureId!=="billing-safe-v1")throw new PermitError("PERMIT_AUDIENCE_DENIED");
+ if(c.audience!==PT_AUDIENCE||c.profile!==PT_PROFILE||c.environment!=="SYNTHETIC"||
+  !((c.fixtureId==="billing-safe-v1"&&parts[0]==="pt6v1")||(c.fixtureId==="pt-security-v1"&&parts[0]==="pt7v1")))
+  throw new PermitError("PERMIT_AUDIENCE_DENIED");
  if(!Number.isSafeInteger(c.notBefore)||!Number.isSafeInteger(c.expiresAt)||c.notBefore>now||c.expiresAt<=now||c.expiresAt-c.notBefore>15*60000)
   throw new PermitError("PERMIT_EXPIRED_OR_NOT_YET_VALID");
  if(!Array.isArray(c.operationKeys)||c.operationKeys.length===0||c.operationKeys.length>20||
@@ -92,8 +97,9 @@ export function verifyStoredTestPermit(claims:PtClaims,tokenHash:string,unsigned
  const normalize=(o:PtClaims)=>JSON.stringify(Object.fromEntries(
   Object.entries(o).sort(([a],[b])=>a<b?-1:a>b?1:0)));
  if(normalize(parsed)!==normalize(claims))throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
- const signature=createHmac("sha256",key).update("pt6v1."+unsignedBody).digest();
- const full="pt6v1."+unsignedBody+"."+b64(signature);
+ const prefix=parsed.fixtureId==="pt-security-v1"?"pt7v1":"pt6v1";
+ const signature=createHmac("sha256",key).update(prefix+"."+unsignedBody).digest();
+ const full=prefix+"."+unsignedBody+"."+b64(signature);
  if(!timingSafeEqual(Buffer.from(digest(full),"hex"),Buffer.from(tokenHash,"hex")))
   throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
  return verifyTestPermit(full,now);

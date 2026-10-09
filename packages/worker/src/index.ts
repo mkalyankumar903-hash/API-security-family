@@ -5,6 +5,7 @@ import {detectRichInventory} from "../../assessment-engine/src/rich.js";
 import type {RichInventory} from "../../discovery/src/rich.js";
 import {processAuthFixtureJob} from "./auth.js";
 import {processPtJob} from "./pt.js";
+import {processPtDetectionJob} from "./pt-detection.js";
 import type {Inventory} from "../../discovery/src/index.js";
 import { claimJob, uuid, withWorkerTenant } from "../../database/src/index.js";
 
@@ -22,6 +23,10 @@ export async function processOneJob(): Promise<boolean> {
     });
     if (!job) {
       await withWorkerTenant(tenant, async tx => { await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId, token]); });
+      return true;
+    }
+    if(job.engine_version==="pt-detection-v1"){
+      await processPtDetectionJob(tenant,jobId,token);
       return true;
     }
     if(job.engine_version==="pt-fixture-v1"){
