@@ -286,7 +286,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
   return withTenant(t,async tx=>{
    const check=await tx.query("SELECT 1 FROM api_pt_jobs WHERE assessment_id=$1",[jid]);
    if(!check.rowCount)throw new PtError(404,"PT_JOB_NOT_FOUND");
-   const r=await tx.query("SELECT id,operation_key,method,path,fixture_id,decision,outcome,code,http_status,response_bytes,response_hash,duration_ms,budget_consumed,created_at FROM api_pt_receipts WHERE assessment_id=$1 ORDER BY created_at,id LIMIT $2",[jid,limit]);
+   const r=await tx.query("SELECT id,operation_key,method,path,fixture_id,specification_version,scope_revision,permit_hash,evaluation_sequence,budget_remaining,decision,outcome,code,http_status,response_bytes,response_hash,duration_ms,budget_consumed,created_at FROM api_pt_receipts WHERE assessment_id=$1 ORDER BY created_at,id LIMIT $2",[jid,limit]);
    return r.rows;
   });
  });
