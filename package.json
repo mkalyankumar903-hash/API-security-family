@@ -9,14 +9,14 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tests/engine.test.ts tests/policy.test.ts tests/openapi-validation.test.ts tests/wire-v032.test.ts tests/phase0-consistency.test.ts tests/phase1-contract.test.ts",
-    "test:pg": "node --import tsx --test --test-concurrency=1 tests/assessment.pg.test.ts tests/ui.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase1.pg.test.ts tests/phase1-upgrade.pg.test.ts",
+    "test": "node --import tsx --test tests/engine.test.ts tests/policy.test.ts tests/openapi-validation.test.ts tests/wire-v032.test.ts tests/phase0-consistency.test.ts tests/phase1-contract.test.ts tests/phase2-contract.test.ts tests/phase2-isolated.test.ts",
+    "test:pg": "node --import tsx --test --test-concurrency=1 tests/assessment.pg.test.ts tests/ui.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase1.pg.test.ts tests/phase1-upgrade.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase2.pg.test.ts tests/phase2-upgrade.pg.test.ts",
     "api": "node --env-file-if-exists=.env --import tsx packages/service/src/server.ts",
     "worker": "node --env-file-if-exists=.env --import tsx packages/worker/src/main.ts",
     "dev": "vite --host 127.0.0.1",
     "migrate": "node --env-file-if-exists=.env --import tsx packages/database/src/migrate.ts",
     "lint": "eslint packages apps tests vite.config.ts playwright.config.ts",
-    "test:browser": "playwright test tests/browser/assessment.spec.ts && playwright test tests/browser/phase1.spec.ts"
+    "test:browser": "playwright test tests/browser/assessment.spec.ts && playwright test tests/browser/phase1.spec.ts && playwright test tests/browser/phase2.spec.ts"
   },
   "dependencies": {
     "@fastify/cors": "11.0.1",

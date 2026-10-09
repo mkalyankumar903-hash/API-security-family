@@ -1,0 +1,317 @@
+openapi: 3.1.0
+info:
+  title: LumicSec API Family Phase 02 - Offline Specification Discovery
+  version: 0.2.0-provisional
+  description: |
+    Independent offline import/inventory/diff APIs. No external specification or server URL is fetched.
+    Synthetic bearer tokens exist only in isolated development; Host contract is not frozen.
+    OpenAPI 3.0 and Postman 2.1 inventories are not eligible for the legacy SPEC_ONLY assessment engine.
+servers:
+  - url: http://127.0.0.1:3001
+security:
+  - syntheticDevelopmentBearer: []
+components:
+  securitySchemes:
+    syntheticDevelopmentBearer:
+      type: http
+      scheme: bearer
+      description: Non-production synthetic test adapter; not Main Platform authorization.
+  parameters:
+    targetId:
+      in: path
+      name: id
+      required: true
+      schema: {type: string, format: uuid}
+    specId:
+      in: path
+      name: specId
+      required: true
+      schema: {type: string, format: uuid}
+    importId:
+      in: path
+      name: importId
+      required: true
+      schema: {type: string, format: uuid}
+    operationKey:
+      in: path
+      name: operationKey
+      required: true
+      schema: {type: string, maxLength: 250}
+    limit:
+      in: query
+      name: limit
+      required: false
+      schema: {type: integer, minimum: 0, maximum: 100}
+    offset:
+      in: query
+      name: offset
+      required: false
+      schema: {type: integer, minimum: 0, maximum: 1000000}
+  schemas:
+    ImportSubmission:
+      type: object
+      additionalProperties: false
+      required: [filename, content]
+      properties:
+        filename:
+          type: string
+          pattern: "^[A-Za-z0-9_.-]{1,120}\\.(json|yaml|yml)$"
+        content:
+          type: string
+          description: Max 1,048,576 UTF-8 bytes (including application JSON envelope limits).
+    ImportResult:
+      type: object
+      required: [id, targetId, status, rawFingerprint]
+      properties:
+        id: {type: string, format: uuid}
+        targetId: {type: string, format: uuid}
+        specificationId: {type: [string, "null"], format: uuid}
+        status: {type: string, enum: [RECEIVED, VALIDATING, NORMALIZING, COMPLETED, FAILED]}
+        errorCode: {type: [string, "null"], description: Stable redacted diagnostic category}
+        rawFingerprint: {type: string, minLength: 64, maxLength: 64}
+        format: {type: string, enum: [OPENAPI_3_0, OPENAPI_3_1, SWAGGER_2, POSTMAN_2_1]}
+        version: {type: integer, minimum: 1}
+        deduplicated: {type: boolean}
+        assessmentEligible: {type: boolean}
+    Operation:
+      type: object
+      required: [key, method, path, pointer, auth, parameters, requestBodies, responses]
+      properties:
+        key: {type: string}
+        method: {type: string}
+        path: {type: string}
+        originalPath: {type: string}
+        operationId: {type: [string, "null"]}
+        summary: {type: [string, "null"]}
+        pointer: {type: string}
+        tags: {type: array, items: {type: string}}
+        folder: {type: array, items: {type: string}}
+        deprecated: {type: boolean}
+        servers: {type: array, items: {type: string}}
+        auth: {$ref: "#/components/schemas/DeclaredAuth"}
+        parameters: {type: array, items: {$ref: "#/components/schemas/Parameter"}}
+        requestBodies: {type: array, items: {$ref: "#/components/schemas/SchemaShape"}}
+        responses: {type: array, items: {$ref: "#/components/schemas/SchemaShape"}}
+        warnings: {type: array, items: {type: string}}
+        unresolved: {type: array, items: {type: string}}
+    DeclaredAuth:
+      type: object
+      required: [state, requirements, source]
+      properties:
+        state:
+          type: string
+          enum: [DECLARED, UNDECLARED, EXPLICIT_NONE, INHERITED, OVERRIDDEN, UNKNOWN]
+        source: {type: string}
+        requirements:
+          type: array
+          items:
+            type: object
+            additionalProperties:
+              type: array
+              items: {type: string}
+    Parameter:
+      type: object
+      required: [name, in, required, pointer]
+      properties:
+        name: {type: string}
+        in: {type: string}
+        required: {type: boolean}
+        type: {type: [string, "null"]}
+        format: {type: [string, "null"]}
+        pointer: {type: string}
+        constraints: {type: object}
+        schemaFingerprint: {type: [string, "null"]}
+    SchemaShape:
+      type: object
+      required: [mediaType, status, schemaFingerprint, pointer, requiredProperties]
+      properties:
+        mediaType: {type: string}
+        status: {type: [string, "null"]}
+        schemaFingerprint: {type: [string, "null"]}
+        type: {type: [string, "null"]}
+        requiredProperties: {type: array, items: {type: string}}
+        nullable: {type: boolean}
+        composition: {type: array, items: {type: string}}
+        pointer: {type: string}
+        description: {type: [string, "null"]}
+    StructuralDiff:
+      type: object
+      required: [from, to, added, removed, changed, metadataChanges, reviewRequired]
+      properties:
+        from: {type: string}
+        to: {type: string}
+        added: {type: array, items: {type: string}}
+        removed: {type: array, items: {type: string}}
+        changed:
+          type: array
+          items:
+            type: object
+            required: [key, fields, possibleBreaking, fromPointer, toPointer]
+            properties:
+              key: {type: string}
+              fields: {type: array, items: {type: string}}
+              possibleBreaking: {type: boolean}
+              fromPointer: {type: string}
+              toPointer: {type: string}
+        metadataChanges: {type: array, items: {type: string}}
+        reviewRequired: {type: boolean, const: true}
+paths:
+  /v2/targets/{id}/specifications/imports:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    post:
+      summary: Offline file import with atomic persistence and failure diagnostics
+      parameters:
+        - name: idempotency-key
+          in: header
+          required: true
+          schema: {type: string, minLength: 8, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ImportSubmission"}
+      responses:
+        "201":
+          description: New completed (or deduplicated) import
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ImportResult"}
+        "200": {description: "Idempotent retry of previous submission"}
+        "413": {description: "Document too large"}
+        "422":
+          description: Validly recorded import failure, no authoritative inventory
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ImportResult"}
+        "409": {description: "Target inactive or idempotency conflict"}
+    get:
+      summary: Paginated tenant-scoped import job history
+      parameters:
+        - {$ref: "#/components/parameters/limit"}
+        - {$ref: "#/components/parameters/offset"}
+      responses:
+        "200": {description: "Import states and bounded redacted diagnostics"}
+  /v2/targets/{id}/specifications/imports/{importId}:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+      - {$ref: "#/components/parameters/importId"}
+    get:
+      summary: Persisted import result and transition events
+      responses:
+        "200": {description: "Import and state-event history"}
+        "404": {description: "Not visible to tenant"}
+  /v2/targets/{id}/specifications:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    get:
+      summary: Read-only immutable specification version history
+      parameters:
+        - {$ref: "#/components/parameters/limit"}
+        - {$ref: "#/components/parameters/offset"}
+      responses:
+        "200": {description: "List of target-bound versions and assessment eligibility"}
+        "404": {description: "Tenant target unavailable"}
+  /v2/specifications/{specId}:
+    parameters:
+      - {$ref: "#/components/parameters/specId"}
+    get:
+      summary: Full structural snapshot metadata, fingerprint and declared scheme inventory
+      responses:
+        "200": {description: "Immutable version metadata and coverage"}
+        "404": {description: "Version not visible to tenant"}
+  /v2/specifications/{specId}/operations:
+    parameters:
+      - {$ref: "#/components/parameters/specId"}
+    get:
+      summary: Search and filter persisted normalized operation inventory
+      parameters:
+        - {$ref: "#/components/parameters/limit"}
+        - {$ref: "#/components/parameters/offset"}
+        - name: search
+          in: query
+          schema: {type: string, maxLength: 120}
+        - name: method
+          in: query
+          schema: {type: string, enum: [GET, POST, PUT, PATCH, DELETE, OPTIONS, TRACE, HEAD]}
+        - name: auth
+          in: query
+          schema: {type: string, enum: [DECLARED, UNDECLARED, EXPLICIT_NONE, INHERITED, OVERRIDDEN, UNKNOWN]}
+        - name: tag
+          in: query
+          schema: {type: string, maxLength: 100}
+      responses:
+        "200":
+          description: Read-only tenant-scoped persisted inventory
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Operation"}
+  /v2/specifications/{specId}/operations/{operationKey}:
+    parameters:
+      - {$ref: "#/components/parameters/specId"}
+      - {$ref: "#/components/parameters/operationKey"}
+    get:
+      summary: Inspect operation auth, parameters, request/response metadata and provenance
+      responses:
+        "200":
+          description: Full normalized structural details
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Operation"}
+  /v2/specifications/{specId}/schemes:
+    parameters:
+      - {$ref: "#/components/parameters/specId"}
+    get:
+      summary: Declared authentication scheme inventory
+      responses:
+        "200": {description: "Parsed declared schemes, not runtime authentication verification"}
+  /v2/specifications/{specId}/coverage:
+    parameters:
+      - {$ref: "#/components/parameters/specId"}
+    get:
+      summary: Explicitly separate unsupported declaration coverage from security findings
+      responses:
+        "200": {description: "Warnings, format, eligibility, offline-only limitation"}
+  /v2/targets/{id}/specifications/compare:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+    post:
+      summary: Deterministic persisted cross-version structural diff and possible breaking candidates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fromSpecificationId, toSpecificationId]
+              properties:
+                fromSpecificationId: {type: string, format: uuid}
+                toSpecificationId: {type: string, format: uuid}
+      responses:
+        "200":
+          description: Structural diff requiring human review
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/StructuralDiff"}
+        "404": {description: "Either version not bound to target or tenant"}
+  /v2/targets/{id}/specifications/{specId}/select:
+    parameters:
+      - {$ref: "#/components/parameters/targetId"}
+      - {$ref: "#/components/parameters/specId"}
+    post:
+      summary: Optimistic version selection for existing zero-network SPEC_ONLY assessment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedSelectedId]
+              properties:
+                expectedSelectedId: {type: [string, "null"], format: uuid}
+      responses:
+        "200": {description: "Selected only after eligible-version checks; network requests authorized equals zero"}
+        "409": {description: "Stale version selection, inactive target, or unsupported legacy rules"}
