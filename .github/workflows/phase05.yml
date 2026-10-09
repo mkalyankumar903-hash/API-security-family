@@ -137,4 +137,4 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Real Chromium React Fastify PostgreSQL worker
-        run: npx playwright test tests/browser/assessment.spec.ts tests/browser/phase5.spec.ts
+        run: npx playwright test tests/browser/assessment.spec.ts && npx playwright test tests/browser/phase5.spec.ts
