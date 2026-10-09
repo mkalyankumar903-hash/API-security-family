@@ -190,9 +190,12 @@ export async function registerUnifiedRoutes(app:FastifyInstance,tenant:(req:Fast
       ' LEFT JOIN api_spec_inventories i ON i.specification_id=a.specification_id AND i.tenant_id=a.tenant_id'+
       ' WHERE r.assessment_id=$1',[id])).rows[0];
     if(!row)fail(404,"REPORT_NOT_FOUND");
+    const stored=row.projection as Record<string,unknown>;
     const value={schemaVersion:"phase05-report-v1",assessment:run,
       provenance:{rawFingerprint:row.rawFingerprint,normalizedFingerprint:row.normalizedFingerprint,
         engineVersion:run.engineVersion,specificationVersion:run.specificationVersion,
+        normalizationVersion:run.engineVersion==="inventory-v2"?"phase05-v2":"phase02-v1",
+        richFingerprint:run.engineVersion==="inventory-v2"?(stored.richFingerprint??null):null,
         validationLevel:run.engineVersion==="auth-fixture-v1"?"SYNTHETIC_AUTH_FIXTURE":"SPEC_ONLY"},
       immutableReport:row.projection,notice:disclaimer,verifiedFixed:false};
     if(Buffer.byteLength(JSON.stringify(value),"utf8")>1024*1024)fail(413,"REPORT_EXPORT_LIMIT");
