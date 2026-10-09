@@ -1,6 +1,6 @@
 import type {PoolClient} from "pg";
 import {withWorkerTenant,uuid} from "../../database/src/index.js";
-import {verifyTestPermit,enforcePermit,digest,PermitError,type PtClaims} from "../../pt/src/permit.js";
+import {verifyStoredTestPermit,enforcePermit,PermitError,type PtClaims} from "../../pt/src/permit.js";
 import {evaluateFixture,fixtureOperation,FIXTURE_ID} from "../../pt/src/fixture.js";
 
 type State={
@@ -8,7 +8,7 @@ type State={
  spec_fingerprint:string;target_verification_version:number;target_scope_revision:number;
  fixture_id:string;operation_keys:string[];exclusions:string[];max_evaluations:number;
  rate_per_minute:number;max_concurrency:number;deadline_ms:number;job_deadline:Date|string;
- signed_token:string;token_hash:string;revoked_at:string|null;expires_at:string;
+ claims:PtClaims;token_hash:string;revoked_at:string|null;expires_at:string;
  consumed:number;reserved:number;rate_start:string;rate_used:number;
  target_environment:string;target_lifecycle:string;current_verification:number;current_scope_revision:number;
 };
@@ -17,7 +17,7 @@ type Admission={decision:"RESERVED"|"DENIED"|"SKIPPED"|"LEASE_LOST";code:string;
 const empty=(key:string):Op=>({operation_key:key,method:"UNKNOWN",path:""});
 async function context(tx:PoolClient,tenant:string,id:string,lock:boolean):Promise<State|null>{
  const r=await tx.query(
-  "SELECT j.scope_id,j.permit_id,j.target_id,s.specification_id,s.specification_version,s.spec_fingerprint,s.target_verification_version,s.target_scope_revision,s.fixture_id,s.operation_keys AS allowed_keys,s.exclusions,s.max_evaluations,s.rate_per_minute,s.max_concurrency,s.deadline_ms,j.operation_keys,j.job_deadline,p.signed_token,p.token_hash,p.revoked_at,p.expires_at,p.consumed,p.reserved,p.rate_start,p.rate_used,t.environment AS target_environment,t.lifecycle AS target_lifecycle,t.verification_version AS current_verification,t.scope_revision AS current_scope_revision FROM api_pt_jobs j JOIN api_pt_scopes s ON s.id=j.scope_id AND s.tenant_id=j.tenant_id JOIN api_pt_permits p ON p.id=j.permit_id AND p.tenant_id=j.tenant_id JOIN api_targets t ON t.id=j.target_id AND t.tenant_id=j.tenant_id WHERE j.tenant_id=$1 AND j.assessment_id=$2"+(lock?" FOR UPDATE OF p,j,t":""),[tenant,id]);
+  "SELECT j.scope_id,j.permit_id,j.target_id,s.specification_id,s.specification_version,s.spec_fingerprint,s.target_verification_version,s.target_scope_revision,s.fixture_id,s.operation_keys AS allowed_keys,s.exclusions,s.max_evaluations,s.rate_per_minute,s.max_concurrency,s.deadline_ms,j.operation_keys,j.job_deadline,p.claims,p.token_hash,p.revoked_at,p.expires_at,p.consumed,p.reserved,p.rate_start,p.rate_used,t.environment AS target_environment,t.lifecycle AS target_lifecycle,t.verification_version AS current_verification,t.scope_revision AS current_scope_revision FROM api_pt_jobs j JOIN api_pt_scopes s ON s.id=j.scope_id AND s.tenant_id=j.tenant_id JOIN api_pt_permits p ON p.id=j.permit_id AND p.tenant_id=j.tenant_id JOIN api_targets t ON t.id=j.target_id AND t.tenant_id=j.tenant_id WHERE j.tenant_id=$1 AND j.assessment_id=$2"+(lock?" FOR UPDATE OF p,j,t":""),[tenant,id]);
  return r.rows[0] as State|undefined??null;
 }
 async function leased(tx:PoolClient,id:string,token:string):Promise<boolean>{
@@ -28,8 +28,8 @@ async function leased(tx:PoolClient,id:string,token:string):Promise<boolean>{
 }
 function check(s:State,tenant:string,op:Op):string|null{
  try {
-  const c:PtClaims=verifyTestPermit(s.signed_token);
-  if(c.permitId!==s.permit_id||digest(s.signed_token)!==s.token_hash)throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
+  const c:PtClaims=verifyStoredTestPermit(s.claims,s.token_hash);
+  if(c.permitId!==s.permit_id)throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
   if(s.revoked_at)throw new PermitError("PERMIT_REVOKED");
   if(new Date(s.expires_at).getTime()<=Date.now())throw new PermitError("PERMIT_EXPIRED");
   if(s.target_lifecycle!=="ACTIVE"||s.target_environment!=="SYNTHETIC")throw new PermitError("TARGET_NOT_SYNTHETIC_ACTIVE");
