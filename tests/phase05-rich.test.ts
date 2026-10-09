@@ -41,6 +41,21 @@ test("phase05-v2 negative declarations and reference ambiguity never manufacture
  const tampered={...rich!,phase02Fingerprint:"0".repeat(64)};
  assert.throws(()=>detectRichInventory(inv,tampered),/INTEGRITY/);
 });
+test("phase05-v2 evaluates OAuth scope declarations without storing tokens or probing endpoints",async()=>{
+ const raw=JSON.parse(sample);
+ raw.components.securitySchemes={OAuth:{type:"oauth2",flows:{clientCredentials:{
+  tokenUrl:"https://auth.fixture.invalid/token",scopes:{read:"Read only"}}}};
+ raw.security=[{OAuth:["admin"]}];
+ const text=JSON.stringify(raw);
+ const inv=await importOfflineDocument(text);
+ const rich=buildRichInventory(text,inv);
+ assert.ok(rich);
+ const findings=detectRichInventory(inv,rich!).observations;
+ assert.ok(findings.some(x=>x.ruleId==="API03_AUTH_OAUTH_SCOPE"));
+ raw.security=[{OAuth:["read"]}];
+ const valid=JSON.stringify(raw),normal=await importOfflineDocument(valid);
+ assert.equal(detectRichInventory(normal,buildRichInventory(valid,normal)!).observations.some(x=>x.ruleId==="API03_AUTH_OAUTH_SCOPE"),false);
+});
 test("phase05-v2 does not fabricate Postman formal OpenAPI semantics",async()=>{
  const raw=readFileSync(new URL("../fixtures/phase2-postman21.json",import.meta.url),"utf8");
  const v1=await importOfflineDocument(raw);
