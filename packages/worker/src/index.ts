@@ -8,13 +8,22 @@ import {processPtJob} from "./pt.js";
 import {processPtDetectionJob} from "./pt-detection.js";
 import {processPtOrchestrationJob} from "./pt-orchestrator.js";
 import type {Inventory} from "../../discovery/src/index.js";
-import { claimJob, uuid, withWorkerTenant } from "../../database/src/index.js";
+import { claimJob,renewWorkerClaim,finishWorkerAttempt, uuid, withWorkerTenant } from "../../database/src/index.js";
 
 const RULES = ["SPEC_AUTH_UNDECLARED", "SPEC_SENSITIVE_UNDECLARED", "SPEC_UNKNOWN_SCHEME", "SPEC_INCONSISTENT_AUTH", "SPEC_HTTP_SERVER"];
 export async function processOneJob(): Promise<boolean> {
   const lease = await claimJob();
   if (!lease) return false;
   const { tenant_id: tenant, assessment_id: jobId, claim_token: token } = lease;
+  // DB-authoritative heartbeats only maintain an existing lease. If renewal fails,
+  // every governed evaluation/publication boundary still rechecks the private claim.
+  let busy=false;
+  const heartbeat=setInterval(()=>{
+    if(busy)return;
+    busy=true;
+    void renewWorkerClaim(lease).catch(()=>false).finally(()=>{busy=false;});
+  },10000);
+  heartbeat.unref();
   try {
     const job = await withWorkerTenant(tenant, async tx => {
       const result = await tx.query("SELECT a.id,a.status,a.target_id,a.specification_id,a.engine_version,a.inventory_version,a.inventory_fingerprint,a.inventory_raw_fingerprint,i.snapshot,s.raw_spec,s.fingerprint,r.snapshot AS rich_snapshot,r.rich_fingerprint FROM api_assessments a JOIN api_specifications s ON s.id=a.specification_id AND s.tenant_id=a.tenant_id LEFT JOIN api_spec_inventories i ON i.specification_id=a.specification_id AND i.tenant_id=a.tenant_id LEFT JOIN api_rich_inventories r ON r.specification_id=a.specification_id AND r.tenant_id=a.tenant_id WHERE a.id=$1", [jobId]);
@@ -124,6 +133,11 @@ export async function processOneJob(): Promise<boolean> {
       await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,$3,$4)",[uuid(),tenant,"ASSESSMENT_FAILED",jobId]);
       await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]);
     });
+  } finally {
+    clearInterval(heartbeat);
+    // Finalize from durable database state. A stale worker cannot mark the newer
+    // generation's attempt successful.
+    await finishWorkerAttempt(lease);
   }
   return true;
 }
