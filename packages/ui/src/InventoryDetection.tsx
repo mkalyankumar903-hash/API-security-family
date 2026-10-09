@@ -69,7 +69,7 @@ export function InventoryDetection({token,targetId,active}:{token:string;targetI
   await run(async()=>{
    const j=await api<Job>(token,"/v3/targets/"+targetId+"/assessments","POST",
     {specificationId:selected,mode:"SPEC_ONLY",engineVersion:"inventory-v1"},{"idempotency-key":"detection-"+crypto.randomUUID()});
-   setJob(j);setComparison(null);setImpact("");setCategory("");setOffset(0);await refresh();
+   setJob(j);setComparison(null);setImpact("");setCategory("");setOffset(0);await refresh();setFrom(history[0]?.id??"");setTo(j.id);
   });
  }
  async function openFinding(f:Finding){
