@@ -24,7 +24,7 @@ export function registerWorkerSafetyRoutes(app:FastifyInstance,identity:(req:Fas
     customerNetworkRequests:0,realCustomerApiTestingAuthorized:false,
     warning:"WORKER RECOVERY DOES NOT GRANT NEW SECURITY AUTHORITY",
     assessment:a.rows[0],queue:queue.rows[0]?.state??null,
-    attempts:attempts.rows,events:events.rows,quarantine:quarantine.rows[0]??null};
+    attempts:attempts.rows.map(row=>({...row,claim_generation:Number(row.claim_generation)})),events:events.rows,quarantine:quarantine.rows[0]??null};
   });
  });
 }
