@@ -2,7 +2,7 @@ import type {FastifyInstance,FastifyRequest} from "fastify";
 import type {PoolClient} from "pg";
 import {withTenant,uuid} from "../../database/src/index.js";
 import {digest,enforcePermit,issueTestPermit,validateTestAuthority,verifyTestPermit,verifyStoredTestPermit,PermitError,PT_PROFILE,type PtClaims} from "../../pt/src/permit.js";
-import {FIXTURE_ID,fixtureOperation,fixtureOperationFor} from "../../pt/src/fixture.js";
+import {FIXTURE_ID,fixtureOperationFor} from "../../pt/src/fixture.js";
 import {DETECTION_FIXTURE,PROFILES,isProfile} from "../../pt/src/security-fixture.js";
 import {RULES,planRules,planFingerprint} from "../../pt/src/detection.js";
 
@@ -115,7 +115,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    const previous=await tx.query("SELECT * FROM api_pt_scopes WHERE target_id=$1 AND idempotency_key=$2",[tid,idempotency]);
    if(previous.rowCount){
     const p=previous.rows[0] as Scope;
-    if(p.specification_id!==sid||JSON.stringify(p.operation_keys)!==JSON.stringify(operationKeys)||
+    if(p.specification_id!==sid||p.fixture_id!==b.fixtureId||JSON.stringify(p.operation_keys)!==JSON.stringify(operationKeys)||
        JSON.stringify(p.exclusions)!==JSON.stringify(exclusions)||p.max_evaluations!==budget||
        p.max_concurrency!==concurrency||p.rate_per_minute!==rate||p.deadline_ms!==deadline||
        p.validity_minutes!==validMinutes)throw new PtError(409,"IDEMPOTENCY_CONFLICT");
