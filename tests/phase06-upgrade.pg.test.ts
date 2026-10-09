@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {randomUUID} from "node:crypto";
 import {Pool} from "pg";
+import {issueTestPermit,verifyTestPermit,verifyStoredTestPermit,digest} from "../packages/pt/src/permit.js";
 
 test("Phase06 populated Phase05 -> migration009 and hardening010 upgrade preserves targets, inventory-v2, evidence, findings and immutable reports",async()=>{
  const root=process.env.MIGRATION_DATABASE_URL;
@@ -50,7 +51,34 @@ test("Phase06 populated Phase05 -> migration009 and hardening010 upgrade preserv
   try{
    await clone.query(migrate9);
    await clone.query("INSERT INTO api_schema_migrations(version) VALUES('009')");
+   // Qualified populated 009->010 transition: an existing genuine MAC-bound
+   // synthetic permit survives without keeping its bearer or signature.
+   const oldScope=randomUUID(),oldPermit=randomUUID(),issuedAt=Date.now();
+   const current=await clone.query("SELECT verification_version,scope_revision FROM api_targets WHERE id=$1",[target]);
+   const claimsInput={
+    permitId:oldPermit,tenantId:tenant,targetId:target,environment:"SYNTHETIC" as const,
+    fixtureId:"billing-safe-v1" as const,specificationId:spec,specificationVersion:1,
+    specFingerprint:"a".repeat(64),targetVerificationVersion:current.rows[0].verification_version,
+    targetScopeRevision:current.rows[0].scope_revision,scopeId:oldScope,
+    operationKeys:["GET /status"],methods:["GET","HEAD"] as ("GET"|"HEAD")[],
+    exclusions:[],maxEvaluations:1,maxConcurrency:1,ratePerMinute:1,
+    deadlineMs:10000,notBefore:issuedAt-1000,expiresAt:issuedAt+300000
+   };
+   const originalBearer=issueTestPermit(claimsInput);
+   const originalClaims=verifyTestPermit(originalBearer);
+   await clone.query(
+    "INSERT INTO api_pt_scopes(id,tenant_id,target_id,specification_id,specification_version,spec_fingerprint,target_verification_version,target_scope_revision,environment,fixture_id,profile,operation_keys,exclusions,max_evaluations,max_concurrency,rate_per_minute,deadline_ms,validity_minutes,idempotency_key) VALUES($1,$2,$3,$4,1,$5,$6,$7,'SYNTHETIC','billing-safe-v1','SYNTHETIC_PT_READ_ONLY',$8::jsonb,'[]'::jsonb,1,1,1,10000,5,$9)",
+    [oldScope,tenant,target,spec,"a".repeat(64),claimsInput.targetVerificationVersion,
+     claimsInput.targetScopeRevision,JSON.stringify(claimsInput.operationKeys),"old-permit-"+randomUUID()]);
+   await clone.query(
+    "INSERT INTO api_pt_permits(id,tenant_id,scope_id,signed_token,token_hash,claims,issued_at,expires_at) VALUES($1,$2,$3,$4,$5,$6::jsonb,to_timestamp($7::double precision/1000),to_timestamp($8::double precision/1000))",
+    [oldPermit,tenant,oldScope,originalBearer,digest(originalBearer),JSON.stringify(originalClaims),issuedAt,claimsInput.expiresAt]);
    await clone.query(readFileSync(new URL("../packages/database/migrations/010_phase6_permit_storage_hardening.sql",import.meta.url),"utf8"));
+   const upgraded=await clone.query("SELECT claims,token_hash,signed_body FROM api_pt_permits WHERE id=$1",[oldPermit]);
+   assert.equal(upgraded.rowCount,1);
+   assert.equal(upgraded.rows[0].signed_body,originalBearer.split(".")[1]);
+   assert.deepEqual(verifyStoredTestPermit(upgraded.rows[0].claims,upgraded.rows[0].token_hash,upgraded.rows[0].signed_body),originalClaims);
+   assert.equal((await clone.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name='api_pt_permits' AND column_name='signed_token'")).rows[0].n,0);
    await clone.query("INSERT INTO api_schema_migrations(version) VALUES('010')");
    await clone.query("COMMIT");
   }catch(e){await clone.query("ROLLBACK");throw e;}
@@ -68,7 +96,7 @@ test("Phase06 populated Phase05 -> migration009 and hardening010 upgrade preserv
   const kinds=await clone.query("SELECT engine_version FROM api_assessments WHERE id=$1",[assessment]);
   assert.equal(kinds.rows[0].engine_version,"legacy-v1");
   const pt=await clone.query("SELECT count(*)::int AS n FROM api_pt_permits");
-  assert.equal(pt.rows[0].n,0,"no implicit synthetic permission after upgrade");
+  assert.equal(pt.rows[0].n,1,"one explicitly seeded historical synthetic permit; no implicit new permission");
   const security=await clone.query("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid='public.api_pt_permits'::regclass");
   assert.equal(security.rows[0].relrowsecurity,true);
   assert.equal(security.rows[0].relforcerowsecurity,true);
