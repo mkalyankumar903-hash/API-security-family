@@ -130,3 +130,42 @@ END $$;
 ALTER FUNCTION public.api_enqueue_assessment(uuid) OWNER TO api_family_queue;
 REVOKE ALL ON FUNCTION public.api_enqueue_assessment(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.api_enqueue_assessment(uuid) TO api_family;
+
+-- Terminal transition + worker-attempt acknowledgement are one PostgreSQL
+-- transaction. If the process dies immediately AFTER report commit, its ACTIVE
+-- attempt cannot survive as a false active worker in durable history.
+CREATE FUNCTION public.api_worker_terminal_attempt_commit() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE a record;
+DECLARE prior_context text;
+BEGIN
+ IF NEW.status NOT IN ('COMPLETED','FAILED','CANCELLED') OR NEW.status=OLD.status THEN RETURN NEW; END IF;
+ prior_context:=current_setting('api.tenant_id',true);
+ PERFORM set_config('api.tenant_id',NEW.tenant_id::text,true);
+ FOR a IN
+  UPDATE public.api_worker_attempts
+   SET state=NEW.status,finished_at=clock_timestamp(),
+    failure_code=CASE WHEN NEW.status='FAILED' THEN left(coalesce(NEW.error_code,'WORKER_TERMINAL_FAILURE'),96) ELSE NULL END
+   WHERE tenant_id=NEW.tenant_id AND assessment_id=NEW.id AND state='ACTIVE'
+   RETURNING id,claim_generation
+ LOOP
+  INSERT INTO public.api_worker_events(id,tenant_id,assessment_id,attempt_id,kind,code)
+   VALUES(gen_random_uuid(),NEW.tenant_id,NEW.id,a.id,NEW.status,'ASSESSMENT_TERMINAL_COMMIT');
+  IF NEW.status='FAILED' AND coalesce(NEW.error_code,'') ~
+   '^(PT9_(PLAN_OR_ENGINE_MISSING|AUTHORITY_BINDING_MISMATCH|NONDETERMINISTIC_OR_STALE_PLAN|STAGE_COUNT_MISMATCH|.*TAMPERED)|UNSUPPORTED_WORKER_ENGINE|INVENTORY_SNAPSHOT_MISMATCH|RICH_INVENTORY_MISSING_OR_TAMPERED)$'
+  THEN
+   INSERT INTO public.api_worker_quarantine(assessment_id,tenant_id,reason_code,attempts)
+    VALUES(NEW.id,NEW.tenant_id,left(NEW.error_code,96),least(5,a.claim_generation)::int)
+    ON CONFLICT DO NOTHING;
+   INSERT INTO public.api_worker_events(id,tenant_id,assessment_id,attempt_id,kind,code)
+    VALUES(gen_random_uuid(),NEW.tenant_id,NEW.id,a.id,'QUARANTINED',left(NEW.error_code,96));
+  END IF;
+ END LOOP;
+ PERFORM set_config('api.tenant_id',coalesce(prior_context,''),true);
+ RETURN NEW;
+END $$;
+ALTER FUNCTION public.api_worker_terminal_attempt_commit() OWNER TO api_family_queue;
+CREATE TRIGGER api_worker_terminal_commit_v1
+ AFTER UPDATE OF status ON public.api_assessments
+ FOR EACH ROW WHEN (NEW.status IN ('COMPLETED','FAILED','CANCELLED'))
+ EXECUTE FUNCTION public.api_worker_terminal_attempt_commit();
