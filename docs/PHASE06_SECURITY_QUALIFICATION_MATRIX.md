@@ -42,3 +42,12 @@ Main Platform Host JWT/JWKS delegated permissions; target ownership/authorized e
 ## CI proof standard
 
 Only a successful Full CI at the **exact branch/PR HEAD**, including PostgreSQL security races, fresh/upgrade 001–010, unit/contract tests, ESLint, TypeScript, build and Chromium, can qualify the isolated rework. Prior-head successes do not count. Reviewers must read executed logs and note any remaining gaps, rather than assuming that the 20 table rows represent 20 distinct race tests.
+
+## Final candidate targeted qualification checkpoints
+
+The independently executed GitHub-hosted PostgreSQL qualification at `c7b5f57fed6d3af7eec4a7a88b8adcca5014fd9a` passed:
+
+- Original Phase06 targeted PostgreSQL: https://github.com/mkalyankumar903-hash/API-security-family/actions/runs/37936476093 — SUCCESS.
+- Dedicated hardening PostgreSQL, deterministic seven real race cases, unit/security regressions and populated 009->010 permit migration: https://github.com/mkalyankumar903-hash/API-security-family/actions/runs/37936476091 — SUCCESS.
+
+These are **prior-head targeted evidence only**, NOT a replacement for the candidate's actual final-head Full CI. The final Full CI `[phase06-full]` commit must independently test 78 unit/security cases, 45 PostgreSQL cases (historical 37 plus new suite 8 including parent), and eight Chromium browser journeys. Any failure keeps independent acceptance withheld.
