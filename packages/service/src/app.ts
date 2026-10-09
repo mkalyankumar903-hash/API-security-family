@@ -5,6 +5,7 @@ import { withTenant, uuid } from "../../database/src/index.js";
 import { validatePlan } from "../../contracts/src/policy.js";
 import {canonicalTargetUrl,checkName,checkEnvironment,TargetInputError} from "../../targets/src/contracts.js";
 import {registerOnboardingRoutes,OnboardingError} from "./onboarding.js";
+import {registerDiscoveryRoutes,ImportError} from "./discovery.js";
 
 class ApiError extends Error { constructor(public statusCode: number, public code: string) { super(code); } }
 const sessions = new WeakMap<FastifyRequest,string>();
@@ -50,10 +51,10 @@ export async function makeApp(): Promise<FastifyInstance> {
   });
   app.setErrorHandler((error,req,reply) => {
     const e = error as Error & { statusCode?:number; code?:string };
-    const known=e instanceof ApiError||e instanceof OnboardingError||e instanceof TargetInputError;
-    const status = known ? (e instanceof TargetInputError?400:(e as ApiError|OnboardingError).statusCode) : e.statusCode === 413 ? 413 : e.code === "23505" ? 409 : 500;
+    const known=e instanceof ApiError||e instanceof OnboardingError||e instanceof TargetInputError||e instanceof ImportError;
+    const status = known ? (e instanceof TargetInputError?400:(e as ApiError|OnboardingError|ImportError).statusCode) : e.statusCode === 413 ? 413 : e.code === "23505" ? 409 : 500;
     req.log.error({requestId:req.id,code:status},"request failed");
-    reply.code(status).send({ error: known ? (e instanceof TargetInputError?e.reason:(e as ApiError|OnboardingError).code) : status === 413 ? "BODY_TOO_LARGE" : status === 409 ? "CONFLICT" : "INTERNAL_ERROR", requestId:req.id });
+    reply.code(status).send({ error: known ? (e instanceof TargetInputError?e.reason:(e as ApiError|OnboardingError|ImportError).code) : status === 413 ? "BODY_TOO_LARGE" : status === 409 ? "CONFLICT" : "INTERNAL_ERROR", requestId:req.id });
   });
   app.get("/health/live",async()=> ({ok:true,service:"api-family",scope:"SPEC_ONLY"}));
   app.post("/v1/targets", async (req,reply) => {
@@ -134,6 +135,9 @@ export async function makeApp(): Promise<FastifyInstance> {
       if(target.rows[0].lifecycle!=="ACTIVE")throw new ApiError(409,"TARGET_NOT_ACTIVE");
       const exists=await tx.query("SELECT id FROM api_specifications WHERE id=$1 AND target_id=$2",[specId,targetId]);
       if (!exists.rows[0]) throw new ApiError(404,"SPECIFICATION_NOT_FOUND");
+      const eligibility=await tx.query("SELECT assessment_source FROM api_spec_inventories WHERE specification_id=$1",[specId]);
+      if(eligibility.rowCount && eligibility.rows[0].assessment_source===null)
+        throw new ApiError(409,"FORMAT_NOT_ELIGIBLE_FOR_LEGACY_ASSESSMENT");
       const r=await tx.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key) VALUES($1,$2,$3,$4,'QUEUED','SPEC_ONLY',$5) ON CONFLICT(tenant_id,idempotency_key) DO UPDATE SET id=api_assessments.id RETURNING id,target_id,specification_id,status,mode,created_at",[id,t,targetId,specId,key]);
       if (r.rows[0].specification_id !== specId || r.rows[0].target_id !== targetId) throw new ApiError(409,"IDEMPOTENCY_CONFLICT");
       if (r.rows[0].status === "QUEUED") await tx.query("SELECT public.api_enqueue_assessment($1)",[r.rows[0].id]);
@@ -169,5 +173,6 @@ export async function makeApp(): Promise<FastifyInstance> {
     });
   });
   await registerOnboardingRoutes(app,tenant);
+  await registerDiscoveryRoutes(app,tenant);
   return app;
 }
