@@ -2,6 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {randomUUID} from "node:crypto";
+import {Pool} from "pg";
 import {makeApp} from "../packages/service/src/app.js";
 import {migrate,pool,workerPool,withTenant,withWorkerTenant,claimJob} from "../packages/database/src/index.js";
 import {drainQueue,processOneJob} from "../packages/worker/src/index.js";
@@ -59,6 +60,36 @@ test("Phase05 real PostgreSQL: unified cross-engine history, immutable export, c
   assert.equal(await processOneJob(),true);
   assert.equal((await call("GET","/v5/assessments/"+staleId)).json().status,"COMPLETED");
   assert.equal((await call("POST","/v5/assessments/compare",{fromAssessmentId:richId,toAssessmentId:staleId})).json().comparable,true);
+  // Controlled PostgreSQL fault during report INSERT must roll back every evidence,
+  // finding and rule result in the publication transaction. The failed assessment
+  // remains auditable and a fresh assessment can recover without manual repair.
+  const injected=await call("POST","/v5/targets/"+tid+"/assessments",v2Body,"local-test-token-alpha","fault-"+randomUUID());
+  assert.equal(injected.statusCode,201,injected.body);
+  const faultId=injected.json().id as string;
+  const admin=new Pool({connectionString:process.env.MIGRATION_DATABASE_URL,max:1});
+  try{
+    await admin.query("CREATE FUNCTION public.phase05_test_fault() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN IF NEW.assessment_id = '"+faultId+"'::uuid THEN RAISE EXCEPTION 'PHASE05_INJECTED_PUBLICATION_FAILURE'; END IF; RETURN NEW; END $");
+    await admin.query("CREATE TRIGGER phase05_inject BEFORE INSERT ON public.api_reports FOR EACH ROW EXECUTE FUNCTION public.phase05_test_fault()");
+    assert.equal(await processOneJob(),true);
+    assert.equal((await call("GET","/v5/assessments/"+faultId)).json().status,"FAILED");
+    const outputs=await withTenant(A,async tx=>Promise.all([
+      tx.query("SELECT count(*)::int AS n FROM api_reports WHERE assessment_id=$1",[faultId]),
+      tx.query("SELECT count(*)::int AS n FROM api_findings WHERE assessment_id=$1",[faultId]),
+      tx.query("SELECT count(*)::int AS n FROM api_evidence WHERE assessment_id=$1",[faultId]),
+      tx.query("SELECT count(*)::int AS n FROM api_rule_results WHERE assessment_id=$1",[faultId])
+    ]));
+    assert.deepEqual(outputs.map(x=>x.rows[0].n),[0,0,0,0],"publication must be atomic");
+    assert.equal((await withWorkerTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[faultId]))).rows[0].n,0);
+  }finally{
+    await admin.query("DROP TRIGGER IF EXISTS phase05_inject ON public.api_reports");
+    await admin.query("DROP FUNCTION IF EXISTS public.phase05_test_fault()");
+    await admin.end();
+  }
+  const recovery=await call("POST","/v5/targets/"+tid+"/assessments",v2Body,"local-test-token-alpha","recovered-"+randomUUID());
+  assert.equal(recovery.statusCode,201);
+  assert.equal(await processOneJob(),true);
+  assert.equal((await call("GET","/v5/assessments/"+recovery.json().id)).json().status,"COMPLETED");
+
   const firstJob=await call("POST","/v3/targets/"+tid+"/assessments",{specificationId:firstSpec,mode:"SPEC_ONLY",engineVersion:"inventory-v1"},"local-test-token-alpha","phase05-run-"+randomUUID());
   assert.equal(firstJob.statusCode,201,firstJob.body);
   const firstId=firstJob.json().id as string;
