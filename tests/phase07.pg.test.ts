@@ -149,5 +149,49 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
    assert.equal((await call("GET","/v7/pt/jobs/"+jid+"/report")).statusCode,409);
    assert.equal((await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1",[jid]))).rows[0].n,0);
   });
+  await t.test("parallel idempotent PT7 admission owns exactly one queue item and enforces per-permit concurrency",async()=>{
+   const fresh=await scope(s,[RULES[4]!.id]);await permit(fresh);
+   const idem="pt7-parallel-"+randomUUID();
+   const [one,two]=await Promise.all([
+    start(fresh,"CROSS_USER_ACCESS_WEAKNESS",[RULES[4]!.id],idem),
+    start(fresh,"CROSS_USER_ACCESS_WEAKNESS",[RULES[4]!.id],idem)
+   ]);
+   assert.deepEqual([one.statusCode,two.statusCode].sort((a,b)=>a-b),[200,201],one.body+" | "+two.body);
+   const first=one.json().id as string,second=two.json().id as string;
+   assert.equal(first,second,"parallel idempotent admissions must return the same immutable assessment");
+   const queue=await withWorkerTenant(A,tx=>tx.query(
+    "SELECT count(*)::int AS n FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[first]));
+   assert.equal(queue.rows[0].n,1,"no duplicate worker delivery was persisted");
+   const rejected=await start(fresh,"CROSS_USER_ACCESS_WEAKNESS",[RULES[4]!.id]);
+   assert.equal(rejected.statusCode,409,rejected.body);
+   assert.equal(rejected.json().error,"CONCURRENCY_LIMIT");
+   assert.equal(await drainQueue(1),1);
+   const detail=await call("GET","/v7/pt/jobs/"+first);
+   assert.equal(detail.json().status,"COMPLETED");
+   const evals=await call("GET","/v7/pt/jobs/"+first+"/evaluations");
+   assert.equal((evals.json() as unknown[]).length,2,"no duplicated governed evaluations");
+   const report=await call("GET","/v7/pt/jobs/"+first+"/report");
+   assert.equal((report.json().observations as unknown[]).length,1);
+  });
+  await t.test("signed-authority emergency stop cancels queued PT7 job without fixture execution or report",async()=>{
+   const fresh=await scope(s,[RULES[0]!.id]);await permit(fresh);
+   const queued=await start(fresh,"MISSING_AUTH_ENFORCEMENT",[RULES[0]!.id]);
+   assert.equal(queued.statusCode,201,queued.body);
+   const jid=queued.json().id as string;
+   const forged=await call("POST","/v6/pt/test-authority/stop",{});
+   assert.equal(forged.statusCode,403,forged.body);
+   const stopped=await call("POST","/v6/pt/test-authority/stop",{}, {authority:true});
+   assert.equal(stopped.statusCode,200,stopped.body);
+   assert.equal((await call("GET","/v7/pt/jobs/"+jid)).json().status,"CANCELLED");
+   assert.equal((await call("GET","/v7/pt/jobs/"+jid+"/report")).statusCode,409);
+   const evaluations=await withTenant(A,tx=>tx.query(
+    "SELECT count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1",[jid]));
+   assert.equal(evaluations.rows[0].n,0,"no execution permitted after emergency stop");
+   const resumed=await call("POST","/v6/pt/test-authority/resume",{}, {authority:true});
+   assert.equal(resumed.statusCode,200,resumed.body);
+   const retry=await start(fresh,"MISSING_AUTH_ENFORCEMENT",[RULES[0]!.id]);
+   assert.equal(retry.statusCode,409,retry.body);
+   assert.equal(retry.json().error,"PERMIT_REVOKED","resume must never revive a revoked permit");
+  });
  }finally{await app.close();await closeDatabase();}
 });
