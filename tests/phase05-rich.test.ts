@@ -44,7 +44,7 @@ test("phase05-v2 negative declarations and reference ambiguity never manufacture
 test("phase05-v2 evaluates OAuth scope declarations without storing tokens or probing endpoints",async()=>{
  const raw=JSON.parse(sample);
  raw.components.securitySchemes={OAuth:{type:"oauth2",flows:{clientCredentials:{
-  tokenUrl:"https://auth.fixture.invalid/token",scopes:{read:"Read only"}}}};
+  tokenUrl:"https://auth.fixture.invalid/token",scopes:{read:"Read only"}}}}};
  raw.security=[{OAuth:["admin"]}];
  const text=JSON.stringify(raw);
  const inv=await importOfflineDocument(text);
