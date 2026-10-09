@@ -93,7 +93,7 @@ export function PtConsole({token,targetId,active}:{token:string;targetId:string;
     specificationId:specId,operationKeys:selected,exclusions:excluded,fixtureId:"billing-safe-v1",
     maxEvaluations,maxConcurrency:concurrency,ratePerMinute:rate,deadlineMs:15000,validityMinutes:10
    },"pt6-scope-"+crypto.randomUUID());
-   setScopeId(response.id);setStatus("CUSTOMER_PROPOSED");setJobId("");setJob(null);setReceipts([]);setReport(null);
+   setScopeId(response.id);setScope(null);setStatus("CUSTOMER_PROPOSED");setJobId("");setJob(null);setReceipts([]);setReport(null);
   });
  }
  async function requestAuthorization(){
