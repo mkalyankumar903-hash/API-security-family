@@ -1,3 +1,4 @@
+import {fixtureOperationV7} from "./security-fixture.js";
 import Fastify from "fastify";
 import {createHash} from "node:crypto";
 import {performance} from "node:perf_hooks";
@@ -29,4 +30,12 @@ export async function evaluateFixture(op:FixtureOperation):Promise<{
   outcome:response.statusCode>=500?"FIXTURE_ERROR":"FIXTURE_RESPONSE"
  };
  return result;
+}
+
+/** Phase07 selection is governed by the same signed-permit and ledger authority.
+ * Phase06 billing-safe-v1 fixture semantics are unchanged. */
+export function fixtureOperationFor(fixtureId:string,method:string,path:string):boolean{
+ if(fixtureId===FIXTURE_ID)return fixtureOperation(method,path);
+ if(fixtureId==="pt-security-v1")return fixtureOperationV7(method,path);
+ return false;
 }
