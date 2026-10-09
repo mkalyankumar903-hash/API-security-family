@@ -1,4 +1,5 @@
-import {test} from "node:test";
+import {test,after} from "node:test";
+after(async()=>{await closeDatabase();});
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {spawn} from "node:child_process";
@@ -64,7 +65,7 @@ test("Phase10 PostgreSQL: imbalanced tenants, parallel claims, bounded per-tenan
    await withWorkerTenant(item.tenant,tx=>tx.query(
     "DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[item.id]));
   }
-  await app.close();await closeDatabase();
+  await app.close();
  }
 });
 
@@ -122,6 +123,6 @@ test("Phase10 PostgreSQL: stop-aware claim-release fencing and genuine SIGTERM w
  }finally{
   if(jobId)await withWorkerTenant(A,tx=>tx.query(
    "DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[jobId]));
-  await app.close();await closeDatabase();
+  await app.close();
  }
 });
