@@ -114,10 +114,9 @@ async function finishStage(tenant:string,id:string,token:string,plan:Orchestrati
 }
 async function publish(tenant:string,id:string,token:string,plan:OrchestrationPlan):Promise<void>{
  await gated(tenant,id,token,async tx=>{
-  const stages=(await tx.query("SELECT stage_id,stage_type,ordinal,status,dependencies,evidence_fingerprint,started_at,finished_at FROM api_pt9_stages WHERE assessment_id=$1 ORDER BY ordinal FOR UPDATE",[id])).rows;
+  const stages=(await tx.query("SELECT stage_id,stage_type,ordinal,status,dependencies,evidence_fingerprint,started_at,finished_at,claim_token FROM api_pt9_stages WHERE assessment_id=$1 ORDER BY ordinal FOR UPDATE",[id])).rows;
   if(stages.length!==plan.stages.length||stages.slice(0,-1).some(x=>x.status!=="COMPLETED")||
-   stages[stages.length-1]?.status!=="RUNNING"||stages[stages.length-1]?.claim_token!==undefined &&
-   stages[stages.length-1]?.claim_token!==token)
+   stages[stages.length-1]?.status!=="RUNNING"||stages[stages.length-1]?.claim_token!==token)
    throw new Error("PT9_FINAL_DEPENDENCIES_NOT_SATISFIED");
   const ledger=(await tx.query("SELECT evaluation_key,state,evidence FROM api_pt_detection_evaluations WHERE assessment_id=$1 ORDER BY evaluation_key",[id])).rows as EvaluationRow[];
   if(ledger.length!==plan.evaluations.length||ledger.some(e=>e.state!=="CONSUMED"||!e.evidence))
@@ -200,6 +199,9 @@ export async function processPtOrchestrationJob(tenant:string,id:string,token:st
   }
   throw new Error("PT9_FINALIZATION_UNREACHABLE");
  }catch(e){
+  // Only a deliberately injected isolated test-process death may leave checkpoints for takeover.
+  // Production errors must always fail closed and settle conservatively.
+  if(process.env.NODE_ENV==="test"&&barriers&&e instanceof Error&&e.message==="PT9_ISOLATED_PROCESS_EXIT")return;
   const code=e instanceof Error?e.message:"PT9_UNEXPECTED_ENGINE_FAILURE";
   await fail(tenant,id,token,code.slice(0,110).replace(/[^A-Z0-9_]/g,"_"));
  }
