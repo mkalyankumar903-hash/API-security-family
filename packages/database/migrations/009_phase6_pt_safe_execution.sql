@@ -110,6 +110,7 @@ GRANT SELECT,INSERT ON public.api_pt_scopes,public.api_pt_requests,public.api_pt
 GRANT UPDATE(revoked_at,consumed,reserved,rate_start,rate_used) ON public.api_pt_permits TO api_family;
 GRANT UPDATE(enabled,updated_at,generation) ON public.api_pt_stop TO api_family;
 GRANT SELECT ON public.api_pt_receipts,public.api_pt_reports,public.api_pt_ledger TO api_family;
+GRANT SELECT ON public.api_inventory_operations TO api_family_queue;
 GRANT SELECT,INSERT,UPDATE ON public.api_pt_scopes,public.api_pt_requests,public.api_pt_permits,
  public.api_pt_stop,public.api_pt_jobs,public.api_pt_ledger,public.api_pt_receipts,
  public.api_pt_reports,public.api_pt_events,public.api_pt_denials TO api_family_queue;
