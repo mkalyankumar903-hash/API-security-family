@@ -62,6 +62,20 @@ export function verifyTestPermit(token:string,now=Date.now()):PtClaims {
   throw new PermitError("PERMIT_CLAIMS_INVALID");
  return c;
 }
+/** Independently authenticate persisted permit claims without storing a bearer
+ * or signature. Only the isolated testing key can re-derive the original MAC. */
+export function verifyStoredTestPermit(claims:PtClaims,tokenHash:string,now=Date.now()):PtClaims {
+ const key=root();
+ if(!claims||typeof claims!=="object"||Array.isArray(claims)||
+  typeof tokenHash!=="string"||!/^[0-9a-f]{64}$/.test(tokenHash))
+  throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
+ const body=b64(JSON.stringify(claims));
+ const signature=createHmac("sha256",key).update("pt6v1."+body).digest();
+ const reconstructed="pt6v1."+body+"."+b64(signature);
+ if(!timingSafeEqual(Buffer.from(digest(reconstructed),"hex"),Buffer.from(tokenHash,"hex")))
+  throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
+ return verifyTestPermit(reconstructed,now);
+}
 export function enforcePermit(c:PtClaims,context:{
  tenantId:string;targetId:string;scopeId:string;specificationId:string;specFingerprint:string;
  specificationVersion:number;targetVerificationVersion:number;targetScopeRevision:number;fixtureId:string;
