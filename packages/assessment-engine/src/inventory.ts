@@ -74,7 +74,7 @@ function match(rule:Rule,inv:Inventory,o:DiscoveredOperation|null):{pointer:stri
   return results;
  }
  switch(key){
-  case "AUTH_UNDECLARED":if(o.auth.state==="UNDECLARED")add(o.auth.source,{state:o.auth.state});break;
+  case "AUTH_UNDECLARED":if(o.auth.state==="UNDECLARED")add(o.auth.source,{state:o.auth.state},"DETERMINISTIC_DERIVATION");break;
   case "AUTH_EXPLICIT_NONE":if(o.auth.state==="EXPLICIT_NONE")add(o.auth.source,{state:o.auth.state});break;
   case "AUTH_SENSITIVE_ROUTE":if(unauth(o)&&/(?:^|\/)(admin|billing|payments|accounts|users|secrets|keys|tokens)(?:\/|$|\{)/i.test(o.path))
    add(o.pointer,{authState:o.auth.state,sensitivePathHeuristic:true},"DETERMINISTIC_DERIVATION");break;
@@ -112,7 +112,7 @@ export function detectInventory(inv:Inventory):DetectionResult {
    for(const hit of match(rule,inv,op)){
     const correlationKey=hash(canonical({version:CANONICAL_VERSION,ruleId:rule.id,revision:rule.revision,operationKey:op?.key??null,pointer:hit.pointer}));
     const evidence={kind:hit.kind,pointer:hit.pointer,facts:hit.facts,inventoryFingerprint:inv.normalizedFingerprint};
-    const fingerprint=hash(canonical({correlationKey,evidence,impact:rule.impact,confidence:rule.confidence}));
+    const fingerprint=hash(canonical({correlationKey,kind:hit.kind,facts:hit.facts,impact:rule.impact,confidence:rule.confidence}));
     observations.push({fingerprint,correlationKey,ruleId:rule.id,ruleRevision:rule.revision,operationKey:op?.key??null,
       pointer:hit.pointer,format:inv.format,category:rule.category,impact:rule.impact,confidence:rule.confidence,
       validationLevel:"SPEC_OBSERVATION",reviewRequired:true,explanation:rule.explanation,potentialImpact:rule.potentialImpact,

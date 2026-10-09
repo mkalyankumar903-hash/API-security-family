@@ -21,7 +21,7 @@ export async function registerDetectionRoutes(app:FastifyInstance,tenant:(req:Fa
   limitations:["No runtime testing or authenticated probing","Unknown does not mean safe","Unsupported rules and format gaps are explicit."]}));
  app.get("/v3/detection/rules",async req=>{const p=page(req);return RULE_CATALOG.slice(p.offset,p.offset+p.limit).map(r=>({...r,availability:r.unsupported?"UNSUPPORTED":"DECLARATION_ONLY"}));});
  app.get("/v3/detection/rules/:ruleId",async req=>{const found=RULE_CATALOG.find(r=>r.id===(req.params as Record<string,unknown>).ruleId);
-  if(!found)fail(404,"RULE_NOT_FOUND");return {...found,availability:found.unsupported?"UNSUPPORTED":"DECLARATION_ONLY"};});
+  if(!found)throw new DetectionError(404,"RULE_NOT_FOUND");return {...found,availability:found.unsupported?"UNSUPPORTED":"DECLARATION_ONLY"};});
  app.post("/v3/targets/:id/assessments",async(req,reply)=>{
   const targetId=part(req,"id"),b=body(req.body),specificationId=id(b.specificationId);
   if(b.mode!=="SPEC_ONLY"||b.engineVersion!==INVENTORY_ENGINE_VERSION||

@@ -14,6 +14,7 @@ test("populated Phase02 database upgrades to 005 retaining report bytes and hist
  try{
   await master.query("CREATE DATABASE "+name+" OWNER api_family");
   owner=new Pool({connectionString:admin.toString()});service=new Pool({connectionString:app.toString()});
+  {
   const tx=await service.connect();
   try{
    await tx.query("BEGIN");await tx.query("SELECT set_config('api.tenant_id',$1,true)",[A]);
@@ -26,6 +27,7 @@ test("populated Phase02 database upgrades to 005 retaining report bytes and hist
    await tx.query("INSERT INTO api_reports(id,tenant_id,assessment_id,projection) VALUES($1,$2,$3,$4::jsonb)",[report,A,assessment,JSON.stringify({source:"Phase02",snapshot:true})]);
    await tx.query("COMMIT");
   }catch(e){await tx.query("ROLLBACK");throw e;}finally{tx.release();}
+  }
   for(const [v,f] of [["002","002_queue_isolation.sql"],["003","003_phase1_target_onboarding.sql"],["004","004_phase2_offline_discovery.sql"],["005","005_phase3_deterministic_detection.sql"]] as const){
    await owner.query("BEGIN");try{await owner.query(migration(f));await owner.query("INSERT INTO api_schema_migrations(version) VALUES($1)",[v]);await owner.query("COMMIT");}
    catch(e){await owner.query("ROLLBACK");throw e;}

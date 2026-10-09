@@ -9,7 +9,7 @@ const fixture=(name:string)=>readFileSync(new URL("../fixtures/"+name,import.met
 test("real PostgreSQL Phase03 four-format persisted queue, evidence, immutable reports, comparison, RLS and cancellation",async()=>{
  await migrate();const app=await makeApp(),uid=crypto.randomUUID().slice(0,8);
  const req=(method:"POST"|"GET",url:string,data?:unknown,token="local-test-token-alpha",key?:string)=>
- app.inject({method,url,headers:{authorization:"Bearer "+token,...(key?{"idempotency-key":key}:{})},payload:data});
+ app.inject({method,url,headers:{authorization:"Bearer "+token,...(key?{"idempotency-key":key}:{})},payload:data as object|undefined});
  try{
   const target=await req("POST","/v1/targets",{name:"Detection "+uid,baseUrl:"https://detection-"+uid+".fixture.invalid",environment:"SYNTHETIC"});
   assert.equal(target.statusCode,201,target.body);const tid=target.json().id as string;

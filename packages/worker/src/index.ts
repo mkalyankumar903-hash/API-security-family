@@ -69,7 +69,7 @@ export async function processOneJob(): Promise<boolean> {
       const findings = [];
       for (const observation of observations) {
         const evidenceId = uuid(), findingId = uuid();
-        const content = { specificationFingerprint: spec.fingerprint, pointer: observation.evidencePointer, operationKey: observation.operationKey, ruleId: observation.ruleId };
+        const content = { specificationFingerprint: spec!.fingerprint, pointer: observation.evidencePointer, operationKey: observation.operationKey, ruleId: observation.ruleId };
         const evidenceHash = createHash("sha256").update(JSON.stringify(content)).digest("hex");
         await tx.query("INSERT INTO api_evidence(id,tenant_id,assessment_id,fingerprint,pointer,content_json) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",[evidenceId,tenant,jobId,evidenceHash,observation.evidencePointer,JSON.stringify(content)]);
         await tx.query("INSERT INTO api_findings(id,tenant_id,assessment_id,evidence_id,rule_id,operation_key,category,explanation,remediation,confidence,validation_level,review_required) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",[findingId,tenant,jobId,evidenceId,observation.ruleId,observation.operationKey,observation.category,observation.explanation,observation.remediation,observation.confidence,observation.validationLevel,observation.reviewRequired]);
@@ -77,11 +77,11 @@ export async function processOneJob(): Promise<boolean> {
       }
       const report = {
         assessmentId: jobId, targetId: job.target_id, specificationId: job.specification_id,
-        specificationFingerprint: spec.fingerprint, mode:"SPEC_ONLY", generatedAt: new Date().toISOString(),
+        specificationFingerprint: spec!.fingerprint, mode:"SPEC_ONLY", generatedAt: new Date().toISOString(),
         rulesExecuted: RULES.map(id => ({ id, version: "1.0.0" })),
-        operationsAssessed: spec.operations.length, observationCount: findings.length,
+        operationsAssessed: spec!.operations.length, observationCount: findings.length,
         observations: findings, confirmedVulnerabilities: [],
-        coverage: { level:"SPEC_ONLY", runtimeValidation:false, operationKeys:spec.operations.map(x=>x.key) },
+        coverage: { level:"SPEC_ONLY", runtimeValidation:false, operationKeys:spec!.operations.map(x=>x.key) },
         limitations: ["UNKNOWN != SAFE","NO EVIDENCE != SAFE","FIX APPLIED != VERIFIED_FIXED","No runtime vulnerabilities are confirmed by OpenAPI specification analysis."],
         remediation: [...new Set(findings.map(x=>x.remediation))]
       };
