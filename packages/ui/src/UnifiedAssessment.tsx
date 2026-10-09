@@ -60,6 +60,18 @@ export function UnifiedAssessment({token,targetId}:{token:string;targetId:string
   return()=>{live=false;};
  },[selected?.id,selected?.status,token,findingPage,rule,impact,confidence,search]);
  async function run(fn:()=>Promise<void>){setBusy(true);setError("");try{await fn();}catch(e){setError(e instanceof Error?e.message:"REQUEST_FAILED");}finally{setBusy(false);}}
+ async function reloadVersions(){
+  if(!targetId)return;
+  const v=await api<Version[]>(token,"/v2/targets/"+targetId+"/specifications?limit=100");
+  setVersions(v);setSpecification(old=>v.some(x=>x.specificationId===old)?old:(v[0]?.specificationId??""));
+ }
+ async function cancelRun(){
+  if(!selected||!["inventory-v1","inventory-v2"].includes(selected.engineVersion))return;
+  await run(async()=>{
+   await api(token,"/v5/assessments/"+selected.id+"/cancel","POST");
+   setSelected({...selected,status:"CANCELLED"});await refresh();
+  });
+ }
  async function startAssessment(){
   if(!targetId||!specification||engine==="auth-fixture-v1")return;
   await run(async()=>{
@@ -97,6 +109,7 @@ export function UnifiedAssessment({token,targetId}:{token:string;targetId:string
   </select></label>
   <p>{catalog.find(x=>x.id===engine)?.guide}</p>
   {targetId&&engine!=="auth-fixture-v1"&&<>
+   <button className="secondary" disabled={busy} onClick={()=>void run(reloadVersions)}>Refresh imported specification versions</button>
    <label>Imported immutable specification<select value={specification} onChange={e=>setSpecification(e.target.value)}>
     {versions.length===0&&<option value="">Import a specification first</option>}
     {versions.map(v=><option key={v.specificationId} value={v.specificationId}>Version {v.version} · {v.format}</option>)}
@@ -127,6 +140,8 @@ export function UnifiedAssessment({token,targetId}:{token:string;targetId:string
    <h3>Assessment detail</h3>
    <p>{selected.id} · {selected.engineVersion} · {selected.status}</p>
    {selected.errorCode&&<p role="alert">Failure code: {selected.errorCode}</p>}
+   {["QUEUED","PROCESSING"].includes(selected.status)&&["inventory-v1","inventory-v2"].includes(selected.engineVersion)&&
+    <button className="secondary" disabled={busy} onClick={()=>void cancelRun()}>Cancel pending assessment</button>}
    <p>Specification: {selected.specificationId} · Version: {selected.specificationVersion??"historical"}</p>
    {selected.status!=="COMPLETED"&&<p>This assessment has no completed report. A new valid assessment can be started using the configuration above.</p>}
    {report&&<><h4>Immutable report</h4><p>{report.schemaVersion} · Validated as {String(report.provenance.validationLevel)}.</p>
