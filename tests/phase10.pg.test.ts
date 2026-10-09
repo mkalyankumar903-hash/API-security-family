@@ -20,6 +20,13 @@ test("Phase10 PostgreSQL: atomic claims, generations, tenant read-only status an
   assert.equal(migrated.rowCount,1,"additive migration 014 executed");
   const rls=await pool.query("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname IN ('api_worker_attempts','api_worker_events','api_worker_quarantine')");
   assert.equal(rls.rowCount,3);assert.ok(rls.rows.every(x=>x.relrowsecurity&&x.relforcerowsecurity));
+  const isolation=await pool.query(
+   "SELECT has_column_privilege('api_family','public.api_worker_attempts','claim_token','SELECT') AS leak");
+  assert.equal(isolation.rows[0].leak,false,"app role cannot read worker claim secrets");
+  const fk=await pool.query(
+   "SELECT pg_get_constraintdef(oid) AS rule FROM pg_constraint WHERE conname='api_worker_events_tenant_id_attempt_id_fkey'");
+  assert.ok(fk.rows.some(row=>String(row.rule).includes("FOREIGN KEY (tenant_id, attempt_id)")),
+   "event attribution must be tenant-bound");
   const name=randomUUID().slice(0,8);
   const t=await req("POST","/v1/targets",{name:"Worker "+name,baseUrl:"https://phase10-"+name+".fixture.invalid",environment:"SYNTHETIC"});
   assert.equal(t.statusCode,201,t.body);
