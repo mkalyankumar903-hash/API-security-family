@@ -8,7 +8,7 @@ import {processOneJob,drainQueue} from "../packages/worker/src/index.js";
 const TENANT="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const OTHER="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const token="local-test-token-alpha";
-const admin="PHASE06_SEPARATE_TEST_AUTHORITY_aa99bb88cc77dd66ee55ff44gg33";
+const admin=process.env.PT_TEST_AUTHORITY_KEY??"";
 const fixture=(x:string)=>readFileSync(new URL("../fixtures/"+x,import.meta.url),"utf8");
 type Response={statusCode:number;body:string;json:()=>Record<string,unknown>};
 type Api=(method:"GET"|"POST",url:string,payload?:unknown,opts?:{token?:string;key?:string;authority?:boolean})=>Promise<Response>;
