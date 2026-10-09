@@ -1,5 +1,6 @@
 import {SpecDiscoveryExplorer} from "./SpecDiscoveryExplorer.js";
 import {InventoryDetection} from "./InventoryDetection.js";
+import {AuthFixtureAssessment} from "./AuthFixtureAssessment.js";
 import {TargetOnboarding} from "./TargetOnboarding.js";
 import React, { useEffect, useState } from "react";
 const API_BASE = (typeof import.meta.env === "object" && import.meta.env.VITE_API_BASE) || "http://127.0.0.1:3001";
@@ -133,6 +134,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
       setSpecs(updated);setSpecId(id);
     }}/>}
     {targetId&&<InventoryDetection key={"detect-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"}/>}
+    {targetId&&<AuthFixtureAssessment key={"auth-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"} revision={targets.find(t=>t.id===targetId)?.revision??1}/>}
     {targetId&&<section><h2>2. OpenAPI specification</h2><p>Upload OpenAPI 3.1 or Swagger 2.0 JSON/YAML, up to 1 MiB. No remote refs are fetched.</p>
       <label htmlFor="specfile">Specification file</label><input id="specfile" type="file" accept=".json,.yaml,.yml" disabled={busy||targets.find(t=>t.id===targetId)?.lifecycle!=="ACTIVE"} onChange={e=>void upload(e)}/>
       <label htmlFor="spec">Select specification</label><select id="spec" value={specId} onChange={e=>setSpecId(e.target.value)}><option value="">Choose uploaded specification</option>{specs.map(s=><option key={s.id} value={s.id}>{s.filename} ({s.fingerprint.slice(0,12)})</option>)}</select>
