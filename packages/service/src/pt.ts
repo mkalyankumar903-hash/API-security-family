@@ -261,7 +261,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    const active=await tx.query("SELECT count(*)::int AS tenant_active,count(*) FILTER(WHERE j.target_id=$1)::int AS target_active,count(*) FILTER(WHERE j.permit_id=$2)::int AS permit_active FROM api_pt_jobs j JOIN api_assessments a ON a.id=j.assessment_id WHERE j.tenant_id=$3 AND a.status IN('QUEUED','PROCESSING')",[s.target_id,p.id,t]);
    const counters=active.rows[0];
    if(counters.tenant_active>=3||counters.target_active>=2||counters.permit_active>=s.max_concurrency)return denied(tx,t,sid,"CONCURRENCY_LIMIT");
-   await tx.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version,inventory_version,inventory_raw_fingerprint,inventory_fingerprint) SELECT $1,$2,$3,$4,'QUEUED','SPEC_ONLY',$5,'pt-fixture-v1',i.version_number,i.raw_fingerprint,i.normalized_fingerprint FROM api_spec_inventories i WHERE i.specification_id=$4",
+   await tx.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version,inventory_version,inventory_raw_fingerprint,inventory_fingerprint) SELECT $1,$2,$3,$4,'QUEUED','SYNTHETIC_PT_FIXTURE',$5,'pt-fixture-v1',i.version_number,i.raw_fingerprint,i.normalized_fingerprint FROM api_spec_inventories i WHERE i.specification_id=$4",
     [newJob,t,s.target_id,s.specification_id,idem]);
    await tx.query("INSERT INTO api_pt_jobs(assessment_id,tenant_id,target_id,scope_id,permit_id,operation_keys,job_deadline) VALUES($1,$2,$3,$4,$5,$6::jsonb,now()+($7::text||' milliseconds')::interval)",
     [newJob,t,s.target_id,sid,p.id,JSON.stringify(operations),s.deadline_ms]);
