@@ -34,7 +34,7 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
   return {targetId,specId,keys};
  }
  async function scope(s:Awaited<ReturnType<typeof seed>>,rules=RULES.map(x=>x.id)){
-  const paths=new Set(RULES.filter(x=>rules.includes(x.id)).map(x=>x.path));
+  const paths=new Set<string>(RULES.filter(x=>rules.includes(x.id)).map(x=>x.path));
   const ops=await call("GET","/v2/specifications/"+s.specId+"/operations?limit=100");
   const keys=(ops.json() as unknown as {key:string;path:string;method:string}[])
    .filter(x=>x.method==="GET"&&paths.has(x.path)).map(x=>x.key);
