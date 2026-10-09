@@ -114,7 +114,7 @@ test("Phase06 real Main Platform Host remains deliberately unavailable and fail-
 
 test("Phase06 persisted claims are MAC-bound to ephemeral synthetic key",()=>{
  const bearer=issueTestPermit(claimInput),claims=verifyTestPermit(bearer),fingerprint=digest(bearer);
- assert.deepEqual(verifyStoredTestPermit(claims,fingerprint),claims);
- assert.throws(()=>verifyStoredTestPermit({...claims,maxEvaluations:20},fingerprint),{code:"PERMIT_INTEGRITY_MISMATCH"});
- assert.throws(()=>verifyStoredTestPermit(claims,"0".repeat(64)),{code:"PERMIT_INTEGRITY_MISMATCH"});
+ assert.deepEqual(verifyStoredTestPermit(claims,fingerprint,bearer.split(".")[1]!),claims);
+ assert.throws(()=>verifyStoredTestPermit({...claims,maxEvaluations:20},fingerprint,bearer.split(".")[1]!),{code:"PERMIT_INTEGRITY_MISMATCH"});
+ assert.throws(()=>verifyStoredTestPermit(claims,"0".repeat(64),bearer.split(".")[1]!),{code:"PERMIT_INTEGRITY_MISMATCH"});
 });
