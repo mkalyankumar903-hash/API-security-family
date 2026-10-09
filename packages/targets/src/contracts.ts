@@ -87,8 +87,13 @@ export function signSynthetic(claims:SyntheticClaims):string {
 export function verifySynthetic(value:unknown):SyntheticClaims {
  if(typeof value!=="string"||value.length>4096|| !/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(value))return fail("INVALID_ATTESTATION");
  const [encoded,signature]=value.split(".");
- const expected=createHmac("sha256",fixtureSigningKey()).update(encoded??"").digest(),supplied=Buffer.from(signature??"","base64url");
- if(expected.length!==supplied.length||!timingSafeEqual(expected,supplied))return fail("ATTESTATION_SIGNATURE_INVALID");
+ // Strict Base64URL: 32-byte SHA-256 HMAC has exactly 43 canonical unpadded characters.
+ // Buffer.from(base64url) accepts noncanonical final pad bits; reject encoding aliases.
+ if(!signature || signature.length!==43)return fail("ATTESTATION_SIGNATURE_INVALID");
+ const supplied=Buffer.from(signature,"base64url");
+ if(supplied.length!==32||supplied.toString("base64url")!==signature)return fail("ATTESTATION_SIGNATURE_INVALID");
+ const expected=createHmac("sha256",fixtureSigningKey()).update(encoded??"").digest();
+ if(!timingSafeEqual(expected,supplied))return fail("ATTESTATION_SIGNATURE_INVALID");
  let obj:unknown;
  try{obj=JSON.parse(Buffer.from(encoded??"","base64url").toString("utf8"));}catch{return fail("INVALID_ATTESTATION");}
  const fields=["v","tenant","target","challenge","origin","environment","revision","verificationVersion","nonceHash","expiresAt"];

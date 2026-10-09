@@ -51,7 +51,28 @@ test("synthetic signed attestation cryptography, tampering, wrong signing root, 
    revision:2,verificationVersion:3,nonceHash:"a".repeat(64),expiresAt:new Date(Date.now()+900000).toISOString()};
   const signed=signSynthetic(claims);
   assert.deepEqual(verifySynthetic(signed),claims);
-  assert.throws(()=>verifySynthetic(signed.slice(0,-1)+"x"));
+  // Flip a decoded HMAC byte rather than a Base64URL character (which may alias
+  // the same bytes because SHA-256 has 2 unused pad bits in its final sextet).
+  const [payload,signature]=signed.split(".");
+  assert.ok(payload && signature);
+  const modified=Buffer.from(signature,"base64url");
+  modified[0]! ^= 0x01;
+  const changedSignature=modified.toString("base64url");
+  assert.notDeepEqual(modified,Buffer.from(signature,"base64url"));
+  assert.throws(()=>verifySynthetic(payload+"."+changedSignature),/ATTESTATION_SIGNATURE_INVALID/);
+  // A signature with different text but identical decoded HMAC must be rejected.
+  const alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const finalIndex=alphabet.indexOf(signature.at(-1)!);
+  assert.ok(finalIndex>=0);
+  const noncanonical=signature.slice(0,-1)+alphabet[finalIndex ^ 1]!;
+  assert.notEqual(noncanonical,signature);
+  assert.deepEqual(Buffer.from(noncanonical,"base64url"),Buffer.from(signature,"base64url"));
+  assert.throws(()=>verifySynthetic(payload+"."+noncanonical),/ATTESTATION_SIGNATURE_INVALID/);
+  // Payload changes must fail with the original, unmodified signature.
+  const changedPayload=Buffer.from(payload,"base64url");
+  changedPayload[0]! ^= 0x01;
+  assert.throws(()=>verifySynthetic(changedPayload.toString("base64url")+"."+signature),/ATTESTATION_SIGNATURE_INVALID/);
+  assert.throws(()=>verifySynthetic(payload+"."+signature.slice(1)),/ATTESTATION_SIGNATURE_INVALID/);
   process.env.PHASE1_SYNTHETIC_SIGNING_KEY="different_isolated_secret_root_that_cannot_verify";
   assert.throws(()=>verifySynthetic(signed));
   process.env.PHASE1_SYNTHETIC_SIGNING_KEY="phase01_known_isolated_signing_root_33_chars_only_tests";
