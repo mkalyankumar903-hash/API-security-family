@@ -95,9 +95,17 @@ test("Phase09 independently coordinated PostgreSQL transaction and orchestration
    const ledger=await withTenant(A,tx=>tx.query("SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[s.permitId]));
    assert.equal(ledger.rows[0].consumed,4);
    assert.equal(ledger.rows[0].reserved,0);
-   const states=await withTenant(A,tx=>tx.query("SELECT status FROM api_assessments WHERE id=ANY($1::uuid[])",[[first.json().id,second.json().id]]));
-   assert.equal(states.rows.filter(x=>x.status==="COMPLETED").length,1);
-   assert.equal(states.rows.filter(x=>x.status==="FAILED").length,1);
+   const states=await withTenant(A,tx=>tx.query("SELECT id,status FROM api_assessments WHERE id=ANY($1::uuid[])",[[first.json().id,second.json().id]]));
+   const completed=states.rows.filter(x=>x.status==="COMPLETED");
+   const failed=states.rows.filter(x=>x.status==="FAILED");
+   assert.ok(completed.length===0||completed.length===1,"competing partial consumption must not create two successful runs");
+   assert.equal(completed.length+failed.length,2,"both workers must settle terminally without double-spend");
+   for(const row of failed){
+    const success=await withTenant(A,tx=>tx.query("SELECT 1 FROM api_pt9_reports WHERE assessment_id=$1",[row.id]));
+    const terminal=await withTenant(A,tx=>tx.query("SELECT status FROM api_pt9_terminal WHERE assessment_id=$1",[row.id]));
+    assert.equal(success.rowCount,0,"partially consumed competing run has no fabricated success report");
+    assert.equal(terminal.rowCount,1,"failed competing run preserves diagnostic coverage");
+   }
   });
   await t.test("rate governor does not admit more than four evaluations across concurrent jobs",async()=>{
    const s=await setup(8,4,2);
