@@ -14,8 +14,14 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  await page.goto("/");
  await page.getByPlaceholder("Payments API").fill("PT7 "+suffix);
  await page.getByPlaceholder("https://api.example.invalid").fill("https://phase07-"+suffix+".fixture.invalid");
+ const targetCreated=page.waitForResponse(r=>r.request().method()==="POST"&&r.url()===url+"/v1/targets");
  await page.getByRole("button",{name:"Register target"}).click();
- const tid=await page.getByLabel("Select target").inputValue();
+ const targetResponse=await targetCreated;
+ const targetBody=await targetResponse.json() as {id?:string;error?:string};
+ expect(targetResponse.status(),targetBody.error).toBe(201);
+ const tid=targetBody.id!;
+ expect(tid).toMatch(/^[a-f0-9-]{36}$/i);
+ await expect(page.getByLabel("Select target")).toHaveValue(tid);
  const uploader=page.getByLabel(/OpenAPI 3.0 \/ 3.1, Swagger 2.0 JSON\/YAML or Postman Collection/);
  await uploader.setInputFiles("fixtures/phase07-security.openapi.json");
  await expect(page.getByRole("status").filter({hasText:/Imported OPENAPI_3_0/})).toBeVisible();
@@ -26,10 +32,16 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  await panel.getByLabel("PT detection fixture profile").selectOption("CROSS_USER_ACCESS_WEAKNESS");
  await panel.getByRole("checkbox",{name:/PT-BOLA-CROSS-USER/}).check();
  await expect(panel.getByText(/Signed-permit evaluation budget preview/)).toContainText("2");
+ const firstProposed=page.waitForResponse(r=>r.request().method()==="POST"&&
+  r.url()===url+"/v6/pt/targets/"+tid+"/scopes");
  await panel.getByRole("button",{name:"Propose detection scope"}).click();
+ const firstScopeResponse=await firstProposed;
+ expect(firstScopeResponse.status()).toBe(201);
+ const sid=(await firstScopeResponse.json() as {id:string}).id;
+ await expect(panel.getByText("Scope: "+sid)).toBeVisible();
  const scoped=await request.get(url+"/v6/pt/targets/"+tid+"/scopes",{headers:auth});
  expect(scoped.status()).toBe(200);
- const sid=(await scoped.json() as {id:string}[])[0]!.id;
+ expect((await scoped.json() as {id:string}[]).some(x=>x.id===sid)).toBe(true);
  const before=await request.post(url+"/v7/pt/scopes/"+sid+"/detections",{
   headers:{...auth,"idempotency-key":"pt7-deny-"+crypto.randomUUID()},
   data:{profile:"CROSS_USER_ACCESS_WEAKNESS",ruleIds:["PT-BOLA-CROSS-USER"]}});
@@ -84,9 +96,14 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  await panel.getByRole("button",{name:"Export persisted JSON report"}).click();
  // Secure fixture: identical trusted operation/rule but a different signed scope and new test-only permit.
  await panel.getByLabel("PT detection fixture profile").selectOption("SECURE_BASELINE");
+ const secondProposed=page.waitForResponse(r=>r.request().method()==="POST"&&
+  r.url()===url+"/v6/pt/targets/"+tid+"/scopes");
  await panel.getByRole("button",{name:"Propose detection scope"}).click();
- const all=await request.get(url+"/v6/pt/targets/"+tid+"/scopes",{headers:auth});
- const newScope=(await all.json() as {id:string}[]).find(x=>x.id!==sid)!.id;
+ const secondScopeResponse=await secondProposed;
+ expect(secondScopeResponse.status()).toBe(201);
+ const newScope=(await secondScopeResponse.json() as {id:string}).id;
+ expect(newScope).not.toBe(sid);
+ await expect(panel.getByText("Scope: "+newScope)).toBeVisible();
  await panel.getByRole("button",{name:"Request separate synthetic test authority"}).click();
  expect((await request.post(url+"/v6/pt/test-authority/scopes/"+newScope+"/issue",
   {headers:{...auth,"x-pt-authority-key":signer},data:{}})).status()).toBe(201);
