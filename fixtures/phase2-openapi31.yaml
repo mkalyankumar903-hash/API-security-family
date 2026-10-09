@@ -1,0 +1,35 @@
+openapi: 3.1.0
+info:
+  title: Customers 3.1
+  version: 1.0.0
+servers:
+  - url: https://api.fixture.invalid
+components:
+  securitySchemes:
+    AccessToken:
+      type: http
+      scheme: bearer
+paths:
+  /customers:
+    get:
+      operationId: getCustomers
+      security:
+        - AccessToken: []
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: Customers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: [string, "null"]
