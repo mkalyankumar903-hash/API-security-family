@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { assess, parseAndValidateSpec } from "../../assessment-engine/src/index.js";
 import {detectInventory} from "../../assessment-engine/src/inventory.js";
+import {detectRichInventory} from "../../assessment-engine/src/rich.js";
+import type {RichInventory} from "../../discovery/src/rich.js";
 import {processAuthFixtureJob} from "./auth.js";
 import type {Inventory} from "../../discovery/src/index.js";
 import { claimJob, uuid, withWorkerTenant } from "../../database/src/index.js";
@@ -12,10 +14,10 @@ export async function processOneJob(): Promise<boolean> {
   const { tenant_id: tenant, assessment_id: jobId, claim_token: token } = lease;
   try {
     const job = await withWorkerTenant(tenant, async tx => {
-      const result = await tx.query("SELECT a.id,a.status,a.target_id,a.specification_id,a.engine_version,a.inventory_version,a.inventory_fingerprint,a.inventory_raw_fingerprint,i.snapshot,s.raw_spec,s.fingerprint FROM api_assessments a JOIN api_specifications s ON s.id=a.specification_id AND s.tenant_id=a.tenant_id LEFT JOIN api_spec_inventories i ON i.specification_id=a.specification_id AND i.tenant_id=a.tenant_id WHERE a.id=$1", [jobId]);
+      const result = await tx.query("SELECT a.id,a.status,a.target_id,a.specification_id,a.engine_version,a.inventory_version,a.inventory_fingerprint,a.inventory_raw_fingerprint,i.snapshot,s.raw_spec,s.fingerprint,r.snapshot AS rich_snapshot,r.rich_fingerprint FROM api_assessments a JOIN api_specifications s ON s.id=a.specification_id AND s.tenant_id=a.tenant_id LEFT JOIN api_spec_inventories i ON i.specification_id=a.specification_id AND i.tenant_id=a.tenant_id LEFT JOIN api_rich_inventories r ON r.specification_id=a.specification_id AND r.tenant_id=a.tenant_id WHERE a.id=$1", [jobId]);
       if (!result.rows[0] || !["QUEUED","PROCESSING"].includes(result.rows[0].status)) return null;
       await tx.query("UPDATE api_assessments SET status='PROCESSING' WHERE id=$1 AND status='QUEUED'",[jobId]);
-      return result.rows[0] as { id:string;target_id:string;specification_id:string;raw_spec:string;fingerprint:string;engine_version:string;inventory_version:number|null;inventory_fingerprint:string|null;inventory_raw_fingerprint:string|null;snapshot:Inventory|null };
+      return result.rows[0] as { id:string;target_id:string;specification_id:string;raw_spec:string;fingerprint:string;engine_version:string;inventory_version:number|null;inventory_fingerprint:string|null;inventory_raw_fingerprint:string|null;snapshot:Inventory|null;rich_snapshot:RichInventory|null;rich_fingerprint:string|null };
     });
     if (!job) {
       await withWorkerTenant(tenant, async tx => { await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId, token]); });
@@ -25,11 +27,14 @@ export async function processOneJob(): Promise<boolean> {
       await processAuthFixtureJob(tenant,jobId,token);
       return true;
     }
-    const inventoryBased=job.engine_version==="inventory-v1";
+    const richBased=job.engine_version==="inventory-v2";
+    const inventoryBased=job.engine_version==="inventory-v1"||richBased;
     if(inventoryBased&&(!job.snapshot||job.inventory_fingerprint!==job.snapshot.normalizedFingerprint||
       job.inventory_raw_fingerprint!==job.snapshot.rawFingerprint||job.fingerprint!==job.snapshot.rawFingerprint))
       throw new Error("INVENTORY_SNAPSHOT_MISMATCH");
-    const detected=inventoryBased?detectInventory(job.snapshot!):null;
+    const detected=richBased?(job.rich_snapshot&&job.rich_fingerprint===job.rich_snapshot.richFingerprint?
+       detectRichInventory(job.snapshot!,job.rich_snapshot):(()=>{throw new Error("RICH_INVENTORY_MISSING_OR_TAMPERED");})()):
+      inventoryBased?detectInventory(job.snapshot!):null;
     const spec=inventoryBased?null:await parseAndValidateSpec(job.raw_spec);
     const observations=spec?assess(spec):[];
     await withWorkerTenant(tenant, async tx => {
@@ -57,7 +62,7 @@ export async function processOneJob(): Promise<boolean> {
         }
         const report={assessmentId:jobId,targetId:job.target_id,specificationId:job.specification_id,specificationVersion:job.inventory_version,
           rawFingerprint:detected.rawFingerprint,normalizedFingerprint:detected.normalizedFingerprint,engineVersion:detected.engineVersion,
-          canonicalVersion:detected.canonicalVersion,mode:"SPEC_ONLY",generatedAt:new Date().toISOString(),
+          canonicalVersion:detected.canonicalVersion,richFingerprint:richBased?job.rich_fingerprint:null,mode:"SPEC_ONLY",generatedAt:new Date().toISOString(),
           observationCount:findings.length,operationsAssessed:job.snapshot!.operations.length,
           observations:findings,coverage:detected.coverage,warnings:detected.warnings,
           confirmedVulnerabilities:[],runtimeValidation:false,limitations:detected.limitations};

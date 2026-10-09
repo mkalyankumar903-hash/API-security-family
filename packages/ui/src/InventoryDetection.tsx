@@ -94,7 +94,7 @@ export function InventoryDetection({token,targetId,active}:{token:string;targetI
  const visible=findings.filter(f=>!search||[f.ruleId,f.operationKey??"",f.category].some(x=>x.toLowerCase().includes(search.toLowerCase())));
  const ruleChoices=[...new Set((report?.observations??[]).map(f=>f.ruleId))].sort();
  const operationChoices=[...new Set((report?.observations??[]).map(f=>f.operationKey).filter((v):v is string=>!!v))].sort();
- return <section aria-label="Deterministic API detection">
+ return <section id="api-inventory-analysis" aria-label="Deterministic API detection">
   <h2>Phase 3 · Deterministic API security detection</h2>
   <p>Real persisted SPEC_ONLY observations from imported inventory. No API traffic, live vulnerability verification or Host authority.</p>
   {loading&&<p role="status">Loading detection capabilities and assessment history…</p>}

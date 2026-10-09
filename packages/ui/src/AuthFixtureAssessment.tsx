@@ -145,7 +145,7 @@ export function AuthFixtureAssessment({token,targetId,active,revision}:{token:st
   setDetail(r.content_json);
  });
  const shown=evaluations.filter(x=>filter==="ALL"||x.result===filter);
- return <section role="region" aria-label="Synthetic authenticated assessment">
+ return <section id="api-auth-fixture" role="region" aria-label="Synthetic authenticated assessment">
   <h2>Phase 04 · Synthetic authenticated API assessment</h2><p><strong>{NOTICE}</strong></p>
   <p>Trusted in-process fixtures only · SPEC_ONLY · 0 customer HTTP requests · No Host credential retrieval.</p>
   {error&&<p role="alert" className="error">{error}</p>}
