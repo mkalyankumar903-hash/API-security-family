@@ -69,6 +69,8 @@ GRANT SELECT ON public.api_pt9_plans,public.api_pt9_stages,public.api_pt9_decisi
  public.api_pt9_reports,public.api_pt9_terminal TO api_family,api_family_queue;
 GRANT INSERT ON public.api_pt9_plans,public.api_pt9_stages TO api_family;
 GRANT INSERT ON public.api_pt9_decisions,public.api_pt9_reports,public.api_pt9_terminal TO api_family_queue;
+GRANT INSERT ON public.api_pt9_terminal TO api_family;
+GRANT UPDATE(status,reason,finished_at) ON public.api_pt9_stages TO api_family;
 GRANT UPDATE(status,claim_token,evidence_fingerprint,reason,started_at,finished_at) ON public.api_pt9_stages TO api_family_queue;
 CREATE TRIGGER immutable_pt9_plan BEFORE UPDATE OR DELETE ON public.api_pt9_plans
  FOR EACH ROW EXECUTE FUNCTION public.api_phase1_immutable_audit();
