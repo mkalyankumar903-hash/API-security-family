@@ -24,6 +24,8 @@ CREATE TABLE public.api_auth_profiles(
  target_revision integer NOT NULL CHECK(target_revision>0),
  scope_revision integer NOT NULL CHECK(scope_revision>=0),
  created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),
+ expires_at timestamptz NOT NULL DEFAULT (now() + interval '1 hour'),
+ rotated_at timestamptz,
  UNIQUE(tenant_id,id),
  FOREIGN KEY(tenant_id,target_id) REFERENCES public.api_targets(tenant_id,id),
  FOREIGN KEY(tenant_id,specification_id) REFERENCES public.api_spec_inventories(tenant_id,specification_id)
@@ -107,7 +109,7 @@ BEGIN
  SELECT true INTO found_profile
  FROM public.api_auth_profiles p
  WHERE p.tenant_id=p_tenant AND p.id=p_profile AND p.revision=p_revision
- AND p.status='ACTIVE' AND p.validation_status='VALID'
+ AND p.status='ACTIVE' AND p.validation_status='VALID' AND p.expires_at>now()
  AND p.target_id=p_target AND p.target_revision=p_target_revision
  AND p.scope_revision=p_scope_revision
  FOR UPDATE;

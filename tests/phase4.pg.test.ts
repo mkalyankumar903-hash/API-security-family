@@ -23,6 +23,7 @@ test("Phase04 real PostgreSQL 16: fixture profiles, actual worker eval, immutabl
    {specificationId:specId,fixtureVersion,scheme,identityKey:"user-a",credentialReference:cref});
   const secure=await create("secure-v1");assert.equal(secure.statusCode,201,secure.body);
   const sp=secure.json().id as string;
+  assert.ok(Date.parse(secure.json().expiresAt as string)>Date.now(),"synthetic profile gets bounded expiry metadata");
   assert.equal((await invoke("POST","/v4/profiles/"+sp+"/validate",{revision:1})).json().ready,true);
   const run=async(pid:string,revision:number)=>{
    const config={specificationId:specId,profileId:pid,profileRevision:revision,engineVersion:"auth-fixture-v1",analysisProfile:"SYNTHETIC_AUTH_FIXTURE",mode:"SPEC_ONLY"};
@@ -81,6 +82,17 @@ test("Phase04 real PostgreSQL 16: fixture profiles, actual worker eval, immutabl
   assert.equal(state.rows[0].evals,21);assert.equal(state.rows[0].findings,1);
   await assert.rejects(()=>withTenant(A,tx=>tx.query("UPDATE api_reports SET projection='{}'::jsonb WHERE assessment_id=$1",[a.jobId])),/PHASE1_IMMUTABLE/);
   await assert.rejects(()=>withTenant(A,tx=>tx.query("DELETE FROM api_auth_evaluations WHERE assessment_id=$1",[b.jobId])),/permission denied|PHASE1_IMMUTABLE/);
+  // Simulated time passage: a profile which has expired must fail closed, even
+  // when the last readiness validation was previously VALID.
+  await withTenant(A,tx=>tx.query("UPDATE api_auth_profiles SET expires_at=now()-interval '1 minute' WHERE id=$1",[sp]));
+  const expiredCheck=await invoke("POST","/v4/profiles/"+sp+"/validate",{revision:1});
+  assert.equal(expiredCheck.statusCode,200,expiredCheck.body);
+  assert.equal(expiredCheck.json().ready,false);
+  assert.ok(expiredCheck.json().reasons.includes("PROFILE_EXPIRED"));
+  const expiredAdmission=await invoke("POST","/v4/targets/"+targetId+"/assessments",
+   {specificationId:specId,profileId:sp,profileRevision:1,engineVersion:"auth-fixture-v1",analysisProfile:"SYNTHETIC_AUTH_FIXTURE",mode:"SPEC_ONLY"},
+   "local-test-token-alpha","expired-"+crypto.randomUUID());
+  assert.equal(expiredAdmission.statusCode,409,expiredAdmission.body);
   const foreign=await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM api_auth_profiles"));
   assert.equal(foreign.rows[0].n,0);
   const real=await invoke("POST","/v1/targets",{name:"Production denied",baseUrl:"https://prod-"+name+".fixture.invalid",environment:"PRODUCTION"});

@@ -36,7 +36,7 @@ const projection=(r:Record<string,unknown>)=>({
  id:r.id,targetId:r.target_id,specificationId:r.specification_id,revision:r.revision,fixtureVersion:r.fixture_version,
  scheme:r.scheme,identityKey:r.identity_key,role:r.role_name,credentialReference:r.credential_reference,
  environment:r.environment,status:r.status,validationStatus:r.validation_status,createdAt:r.created_at,
- updatedAt:r.updated_at,syntheticOnly:true,productionCredentialAccess:false
+ updatedAt:r.updated_at,expiresAt:r.expires_at,rotatedAt:r.rotated_at,syntheticOnly:true,productionCredentialAccess:false
 });
 async function profileEvent(tx:import("pg").PoolClient,tenant:string,p:string,revisionNo:number,action:string){
  await tx.query("INSERT INTO api_auth_profile_events(id,tenant_id,profile_id,revision,action,summary) VALUES($1,$2,$3,$4,$5,'{}'::jsonb)",
@@ -92,7 +92,7 @@ export async function registerAuthFixtureRoutes(app:FastifyInstance,tenant:(req:
    const reference=key(b.credentialReference??previous.credential_reference);
    await requireReference(tx,previous.target_id,reference);
    const next=await tx.query(
-    "UPDATE api_auth_profiles SET revision=revision+1,fixture_version=$2,scheme=$3,identity_key=$4,role_name=$5,credential_reference=$6,target_revision=$7,scope_revision=$8,validation_status='PENDING',updated_at=now() WHERE id=$1 RETURNING *",
+    "UPDATE api_auth_profiles SET revision=revision+1,fixture_version=$2,scheme=$3,identity_key=$4,role_name=$5,credential_reference=$6,target_revision=$7,scope_revision=$8,validation_status='PENDING',expires_at=now()+interval '1 hour',rotated_at=now(),updated_at=now() WHERE id=$1 RETURNING *",
     [profileId,fixture,scheme,identity,IDENTITIES[identity].role,reference,target.revision,target.scope_revision]);
    await profileEvent(tx,t,profileId,rev+1,"PROFILE_ROTATED");
    return next.rows[0];
@@ -111,6 +111,7 @@ export async function registerAuthFixtureRoutes(app:FastifyInstance,tenant:(req:
    const spec=await tx.query("SELECT 1 FROM api_spec_inventories WHERE target_id=$1 AND specification_id=$2",[p.target_id,p.specification_id]);
    const reasons:string[]=[];
    if(p.status!=="ACTIVE")reasons.push("PROFILE_REVOKED");
+   if(new Date(p.expires_at).getTime()<=Date.now())reasons.push("PROFILE_EXPIRED");
    if(!tar||tar.lifecycle!=="ACTIVE")reasons.push("TARGET_NOT_ACTIVE");
    if(tar?.environment!=="SYNTHETIC")reasons.push("CUSTOMER_RUNTIME_PROHIBITED");
    if(tar?.revision!==p.target_revision||tar?.scope_revision!==p.scope_revision)reasons.push("STALE_TARGET_OR_SCOPE");
@@ -153,7 +154,8 @@ export async function registerAuthFixtureRoutes(app:FastifyInstance,tenant:(req:
    const p=(await tx.query("SELECT * FROM api_auth_profiles WHERE id=$1 AND target_id=$2 AND specification_id=$3 FOR UPDATE",[profileId,targetId,specId])).rows[0];
    if(!p)fail(404,"PROFILE_NOT_FOUND");
    if(p.revision!==rev||p.validation_status!=="VALID"||p.status!=="ACTIVE"||
-     p.target_revision!==target.revision||p.scope_revision!==target.scope_revision)fail(409,"PROFILE_VALIDATION_STALE");
+     p.target_revision!==target.revision||p.scope_revision!==target.scope_revision||
+     new Date(p.expires_at).getTime()<=Date.now())fail(409,"PROFILE_VALIDATION_STALE_OR_EXPIRED");
    await requireReference(tx,targetId,p.credential_reference);
    const inv=(await tx.query("SELECT i.*,s.fingerprint FROM api_spec_inventories i JOIN api_specifications s ON s.id=i.specification_id AND s.tenant_id=i.tenant_id WHERE i.specification_id=$1 AND i.target_id=$2",[specId,targetId])).rows[0];
    if(!inv||inv.raw_fingerprint!==inv.fingerprint||inv.snapshot.normalizedFingerprint!==inv.normalized_fingerprint)fail(409,"IMMUTABLE_SPEC_INTEGRITY_FAILURE");

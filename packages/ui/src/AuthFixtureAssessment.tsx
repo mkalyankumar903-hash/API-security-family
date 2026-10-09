@@ -3,7 +3,7 @@ const BASE=(typeof import.meta.env==="object"&&import.meta.env.VITE_API_BASE)||"
 const NOTICE="SYNTHETIC AUTHENTICATED ASSESSMENT — NOT REAL HOST AUTHORIZATION OR CUSTOMER RUNTIME VERIFICATION.";
 type Version={specificationId:string;version:number;format:string};
 type Credential={id:string;reference:string;status:string};
-type Profile={id:string;specificationId:string;fixtureVersion:string;scheme:string;identityKey:string;role:string;revision:number;credentialReference:string;status:string;validationStatus:string};
+type Profile={id:string;specificationId:string;fixtureVersion:string;scheme:string;identityKey:string;role:string;revision:number;credentialReference:string;status:string;validationStatus:string;expiresAt:string;rotatedAt:string|null};
 type Assessment={id:string;status:string;errorCode?:string;fixtureVersion?:string};
 type Evaluation={id:string;ruleId:string;identity:string;role:string;operationKey:string;expected:string;observed:string;status:number;result:string;fingerprint:string};
 type Finding={id:string;ruleId:string;operationKey:string;explanation:string;remediation:string;evidenceId:string;evidence:Record<string,unknown>};
@@ -182,7 +182,7 @@ export function AuthFixtureAssessment({token,targetId,active,revision}:{token:st
    <option value="">Select test profile</option>{profiles.map(p=><option key={p.id} value={p.id}>{p.identityKey} · {p.scheme} · {p.fixtureVersion} · rev {p.revision} · {p.status}/{p.validationStatus}</option>)}
   </select></label>
   {selected&&<>
-   <p>Revision {selected.revision} · {selected.role} · {selected.status} · validation: {selected.validationStatus}</p>
+   <p>Revision {selected.revision} · {selected.role} · {selected.status} · validation: {selected.validationStatus} · expires {new Date(selected.expiresAt).toLocaleString()} {Date.parse(selected.expiresAt)<=Date.now()?"· EXPIRED":""}</p>
    <button disabled={busy||!active||selected.status!=="ACTIVE"} onClick={()=>void validate()}>Validate fixture readiness</button>
    <button className="secondary" disabled={busy||!active||selected.status!=="ACTIVE"} onClick={()=>void rotate()}>Rotate profile configuration</button>
    <button className="secondary" disabled={busy||selected.status!=="ACTIVE"} onClick={()=>void revoke()}>Revoke synthetic profile</button>

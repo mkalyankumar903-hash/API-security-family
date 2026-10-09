@@ -8,12 +8,12 @@ export async function processAuthFixtureJob(tenant:string,jobId:string,token:str
   throw new Error("SYNTHETIC_FIXTURE_PRODUCTION_DENIED");
  const state=await withWorkerTenant(tenant,async tx=>{
   const r=await tx.query(
-   "SELECT a.id,a.status,a.target_id,a.specification_id,a.inventory_version,a.inventory_raw_fingerprint,a.inventory_fingerprint,c.profile_id,c.profile_revision,c.fixture_version,c.target_revision,c.scope_revision,c.specification_version,c.declared_schemes,p.revision,p.scheme,p.status AS profile_status,p.validation_status,p.credential_reference,p.target_revision AS current_target_revision,p.scope_revision AS current_scope_revision,t.lifecycle,t.environment,t.revision AS target_revision_now,t.scope_revision AS target_scope_now,i.raw_fingerprint,i.normalized_fingerprint,s.fingerprint AS document_fingerprint FROM api_assessments a JOIN api_auth_assessment_configs c ON c.assessment_id=a.id AND c.tenant_id=a.tenant_id JOIN api_auth_profiles p ON p.id=c.profile_id AND p.tenant_id=a.tenant_id JOIN api_targets t ON t.id=a.target_id AND t.tenant_id=a.tenant_id JOIN api_spec_inventories i ON i.specification_id=a.specification_id AND i.tenant_id=a.tenant_id JOIN api_specifications s ON s.id=a.specification_id AND s.tenant_id=a.tenant_id WHERE a.id=$1 AND a.engine_version='auth-fixture-v1'",
+   "SELECT a.id,a.status,a.target_id,a.specification_id,a.inventory_version,a.inventory_raw_fingerprint,a.inventory_fingerprint,c.profile_id,c.profile_revision,c.fixture_version,c.target_revision,c.scope_revision,c.specification_version,c.declared_schemes,p.revision,p.expires_at,p.scheme,p.status AS profile_status,p.validation_status,p.credential_reference,p.target_revision AS current_target_revision,p.scope_revision AS current_scope_revision,t.lifecycle,t.environment,t.revision AS target_revision_now,t.scope_revision AS target_scope_now,i.raw_fingerprint,i.normalized_fingerprint,s.fingerprint AS document_fingerprint FROM api_assessments a JOIN api_auth_assessment_configs c ON c.assessment_id=a.id AND c.tenant_id=a.tenant_id JOIN api_auth_profiles p ON p.id=c.profile_id AND p.tenant_id=a.tenant_id JOIN api_targets t ON t.id=a.target_id AND t.tenant_id=a.tenant_id JOIN api_spec_inventories i ON i.specification_id=a.specification_id AND i.tenant_id=a.tenant_id JOIN api_specifications s ON s.id=a.specification_id AND s.tenant_id=a.tenant_id WHERE a.id=$1 AND a.engine_version='auth-fixture-v1'",
    [jobId]);
   if(!r.rowCount)throw new Error("AUTH04_CONFIG_MISSING");
   const x=r.rows[0];
   if(!["PROCESSING","QUEUED"].includes(x.status)||x.lifecycle!=="ACTIVE"||x.environment!=="SYNTHETIC"||
-   x.profile_status!=="ACTIVE"||x.validation_status!=="VALID"||x.revision!==x.profile_revision||
+   x.profile_status!=="ACTIVE"||x.validation_status!=="VALID"||new Date(x.expires_at).getTime()<=Date.now()||x.revision!==x.profile_revision||
    x.target_revision_now!==x.target_revision||x.target_scope_now!==x.scope_revision||
    x.current_target_revision!==x.target_revision||x.current_scope_revision!==x.scope_revision||
    x.specification_version!==x.inventory_version||x.raw_fingerprint!==x.inventory_raw_fingerprint||
@@ -40,9 +40,9 @@ export async function processAuthFixtureJob(tenant:string,jobId:string,token:str
   const guard=await tx.query("SELECT public.api_auth_fixture_lock_context($1,$2,$3,$4,$5,$6) AS permitted",
    [tenant,state.profile_id,state.profile_revision,state.target_id,state.target_revision,state.scope_revision]);
   if(guard.rows[0]?.permitted!==true)throw new Error("AUTH04_PUBLICATION_AUTHORIZATION_REVOKED");
-  const current=(await tx.query("SELECT p.revision,p.status,p.validation_status,p.credential_reference,t.lifecycle,t.environment,t.revision AS target_revision,t.scope_revision FROM api_auth_profiles p JOIN api_targets t ON t.id=p.target_id AND t.tenant_id=p.tenant_id WHERE p.id=$1",[state.profile_id])).rows[0];
+  const current=(await tx.query("SELECT p.revision,p.expires_at,p.status,p.validation_status,p.credential_reference,t.lifecycle,t.environment,t.revision AS target_revision,t.scope_revision FROM api_auth_profiles p JOIN api_targets t ON t.id=p.target_id AND t.tenant_id=p.tenant_id WHERE p.id=$1",[state.profile_id])).rows[0];
   if(!current||current.revision!==state.profile_revision||current.status!=="ACTIVE"||current.validation_status!=="VALID"||
-   current.lifecycle!=="ACTIVE"||current.environment!=="SYNTHETIC"||current.target_revision!==state.target_revision||
+   new Date(current.expires_at).getTime()<=Date.now()||current.lifecycle!=="ACTIVE"||current.environment!=="SYNTHETIC"||current.target_revision!==state.target_revision||
    current.scope_revision!==state.scope_revision||
    !(await tx.query("SELECT 1 FROM api_target_credentials WHERE target_id=$1 AND reference=$2",[state.target_id,current.credential_reference])).rowCount)
    throw new Error("AUTH04_PUBLICATION_AUTHORIZATION_REVOKED");
