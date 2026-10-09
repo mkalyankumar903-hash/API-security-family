@@ -130,11 +130,11 @@ jobs:
         run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
       - name: Frozen dependencies
         run: npm ci --no-audit --no-fund
-      - name: Initialize fresh isolated database 001-006
+      - name: Initialize fresh isolated database 001-007
         run: npm run migrate
       - name: React production build
         run: npm run build
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Real Chromium React Fastify PostgreSQL worker
-        run: npx playwright test tests/browser/phase4.spec.ts
+        run: npx playwright test tests/browser/assessment.spec.ts tests/browser/phase5.spec.ts
