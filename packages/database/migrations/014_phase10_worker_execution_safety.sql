@@ -37,6 +37,8 @@ CREATE TABLE public.api_worker_attempts(
  UNIQUE(claim_token),
  FOREIGN KEY(tenant_id,assessment_id) REFERENCES public.api_assessments(tenant_id,id)
 );
+-- Event attempt references cannot attribute an attempt from a different tenant.
+ALTER TABLE public.api_worker_attempts ADD CONSTRAINT api_worker_attempts_tenant_attempt UNIQUE(tenant_id,id);
 CREATE INDEX api_worker_attempts_history_v1 ON public.api_worker_attempts(tenant_id,assessment_id,started_at DESC);
 CREATE TABLE public.api_worker_events(
  id uuid PRIMARY KEY, tenant_id uuid NOT NULL, assessment_id uuid NOT NULL,
@@ -45,7 +47,7 @@ CREATE TABLE public.api_worker_events(
  code text NOT NULL CHECK(length(code) BETWEEN 1 AND 96),
  occurred_at timestamptz NOT NULL DEFAULT now(),
  FOREIGN KEY(tenant_id,assessment_id) REFERENCES public.api_assessments(tenant_id,id),
- FOREIGN KEY(attempt_id) REFERENCES public.api_worker_attempts(id)
+ FOREIGN KEY(tenant_id,attempt_id) REFERENCES public.api_worker_attempts(tenant_id,id)
 );
 CREATE INDEX api_worker_events_history_v1 ON public.api_worker_events(tenant_id,assessment_id,occurred_at DESC);
 CREATE TABLE public.api_worker_quarantine(
@@ -64,7 +66,11 @@ BEGIN
   EXECUTE format('CREATE POLICY tenant_scope ON public.%I USING (tenant_id=nullif(current_setting(''api.tenant_id'',true),'''')::uuid) WITH CHECK (tenant_id=nullif(current_setting(''api.tenant_id'',true),'''')::uuid)',tab);
  END LOOP;
 END $rls$;
-GRANT SELECT ON public.api_worker_attempts,public.api_worker_events,public.api_worker_quarantine TO api_family,api_family_queue;
+-- The application may never see the private claim token even with SQL access.
+GRANT SELECT ON public.api_worker_attempts TO api_family_queue;
+GRANT SELECT(id,tenant_id,assessment_id,claim_generation,state,started_at,last_heartbeat_at,finished_at,failure_code)
+ ON public.api_worker_attempts TO api_family;
+GRANT SELECT ON public.api_worker_events,public.api_worker_quarantine TO api_family,api_family_queue;
 GRANT INSERT,UPDATE(state,last_heartbeat_at,finished_at,failure_code) ON public.api_worker_attempts TO api_family_queue;
 GRANT INSERT ON public.api_worker_events,public.api_worker_quarantine TO api_family_queue;
 -- Audit records and terminal quarantine are append-only for every application/worker role.
