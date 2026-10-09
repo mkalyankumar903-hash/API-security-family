@@ -159,10 +159,10 @@ test("Phase08 populated Phase07 011 -> 012 upgrade preserves historic signed per
   }
   assert.equal((await clone.query("SELECT has_table_privilege('api_family','public.api_pt_detection_reports','INSERT') AS allowed")).rows[0].allowed,false);
   assert.equal((await clone.query("SELECT has_table_privilege('api_family_queue','public.api_pt_detection_reports','INSERT') AS allowed")).rows[0].allowed,true);
-  const oldPermitPersisted=await clone.query("SELECT claims,token_hash,signed_body FROM api_pt_permits");
-  assert.equal(oldPermitPersisted.rowCount,1);
+  const oldPermitPersisted=await clone.query("SELECT id,claims,token_hash,signed_body FROM api_pt_permits WHERE id=$1",[historicalPermit]);
+  assert.equal(oldPermitPersisted.rowCount,1,"populated Phase07 synthetic permit must retain its unique ID");
   const preserved=oldPermitPersisted.rows[0];
-  assert.ok(verifyStoredTestPermit(preserved.claims,preserved.token_hash,preserved.signed_body));
+  assert.deepEqual(verifyStoredTestPermit(preserved.claims,preserved.token_hash,preserved.signed_body),syntheticClaims);
   const assessmentEngine=await clone.query("SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conname='api_assessments_engine_version_check'");
   assert.match(assessmentEngine.rows[0].definition,/pt-detection-v1/);
   for(const [table,where,id] of [
@@ -179,7 +179,7 @@ test("Phase08 populated Phase07 011 -> 012 upgrade preserves historic signed per
   const kinds=await clone.query("SELECT engine_version FROM api_assessments WHERE id=$1",[assessment]);
   assert.equal(kinds.rows[0].engine_version,"legacy-v1");
   const pt=await clone.query("SELECT count(*)::int AS n FROM api_pt_permits");
-  assert.equal(pt.rows[0].n,1,"one explicitly seeded historical synthetic permit; no implicit new permission");
+  assert.equal(pt.rows[0].n,2,"Phase06 and Phase07 explicitly seeded synthetic permits must both survive 011->012; no implicit new permission");
   const security=await clone.query("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid='public.api_pt_permits'::regclass");
   assert.equal(security.rows[0].relrowsecurity,true);
   assert.equal(security.rows[0].relforcerowsecurity,true);
