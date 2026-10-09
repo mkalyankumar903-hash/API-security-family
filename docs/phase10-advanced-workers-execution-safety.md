@@ -29,7 +29,7 @@
 
 ## State model and checks
 
-Claiming occurs in one transaction through a non-blocking PostgreSQL claim gate, tenant fair ordering and `FOR UPDATE OF q SKIP LOCKED`. A private lease generation increments on each takeover. Attempt records use unique tenant/job/generation keys and record previous attempt as LOST before another is ACTIVE. This is **processing ownership**, never execution authorization.
+Claiming occurs in one transaction through a short PostgreSQL capacity-gate lock with a 1500ms lock timeout, tenant fair ordering and `FOR UPDATE OF q SKIP LOCKED`. A private lease generation increments on each takeover. Attempt records use unique tenant/job/generation keys and record previous attempt as LOST before another is ACTIVE. This is **processing ownership**, never execution authorization.
 
 Renewals require current token, current generation, nonterminal PROCESSING assessment, future lease and active tenant stop state, live target/scope/permit where applicable, and database clock caps. A 10-second best-effort heartbeat refreshes a 45-second lease. The original governor still independently serializes authorization at every fixture and publication boundary. A process crash may leave an ACTIVE attempt until a later takeover resolves it.
 
@@ -40,9 +40,9 @@ No customer route can force queue mutation or reissue permits. Customer view `GE
 ## Operational controls and limits
 
 - App pool: 12 connections; private worker pool: 5. Worker command retains bounded `drainQueue(max=100)` and existing 300ms idle poll interval.
-- Queue claims: two active per tenant in Phase10 worker scheduling; existing Phase06 customer/permit/target concurrency admission is unchanged.
+- Queue admission: up to 64 active/queued records per tenant, enforced atomically by a scoped SECURITY DEFINER function and tenant-specific transaction advisory lock; stable overload error HTTP 429. Worker claims: up to two active per tenant in Phase10 scheduling; existing Phase06 customer/permit/target concurrency admission is unchanged.
 - Worker lease: 45 seconds; best-effort renewal every 10 seconds, bounded by job and permit expiry where applicable.
-- Retry count: at most 3 retry schedules, with deterministic 2, 4 and 8 second delays; no jitter added to immutable fingerprints.
+- Retry count: at most 3 retry schedules, with deterministic 2, 4 and 8 second delays; no jitter added to immutable fingerprints. Poisoned offline inventory fingerprint failures are quarantined without replay.
 - Diagnostics: latest 1–25 attempts and events. All event metadata are bounded reason codes, not raw HTTP evidence.
 - Unsupported: production HA certification, real customer scanning, Host permit authority, API canonical vulnerabilities, VERIFIED_FIXED, unrestricted privileged operations.
 
@@ -51,8 +51,8 @@ No customer route can force queue mutation or reissue permits. Customer view `GE
 Workflow: `.github/workflows/phase10.yml`.
 
 - PR title without Phase10 marker → Fast: `npm ci --no-audit --no-fund && npm run lint && npm run typecheck && npm test`.
-- `[phase10-pg]` → PostgreSQL 16 service, separate principals, migration+targeted historical and Phase10 PG tests.
-- `[phase10-e2e]` → real Chromium with PostgreSQL and trusted synthetic test permit authority.
+- `[phase10-pg]` → PostgreSQL 16 service, separate principals, migration+targeted historical and Phase10 PG tests, including SIGKILL at claim/heartbeat/after fixture receipt/after durable orchestration stage, conservative retry exhaustion and queue capacity denial.
+- `[phase10-e2e]` → real Chromium with PostgreSQL and trusted synthetic test permit authority. Includes the existing Phase06–09 browser journeys plus Phase10 attempt-history journey.
 - `[phase10-full]` → exact SHA verification, complete unit/PG/Chromium/build regression commands. Ensure actual `full` job runs.
 
 **The existence of a workflow, green Fast CI, or prior-head success does not qualify the final Phase10 commit.** GitHub Actions job IDs, measured test totals, failed and skipped jobs must be read directly from actual logs and recorded in PR #11 only after verified.
