@@ -13,4 +13,10 @@ BEGIN
  THEN RAISE EXCEPTION 'PT_PERMIT_IMMUTABLE_OR_BUDGET' USING ERRCODE='42501'; END IF;
  RETURN NEW;
 END $$;
+-- Preserve the original *unsigned* base64url payload to avoid JSONB key-order
+-- changes; it is not a bearer and has no attached signature/MAC.
+ALTER TABLE public.api_pt_permits ADD COLUMN signed_body text;
+UPDATE public.api_pt_permits SET signed_body=split_part(signed_token,'.',2);
+ALTER TABLE public.api_pt_permits ALTER COLUMN signed_body SET NOT NULL;
+ALTER TABLE public.api_pt_permits ADD CONSTRAINT signed_body_bounded CHECK(length(signed_body) BETWEEN 1 AND 8192);
 ALTER TABLE public.api_pt_permits DROP COLUMN signed_token;
