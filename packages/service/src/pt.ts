@@ -4,7 +4,7 @@ import {withTenant,uuid} from "../../database/src/index.js";
 import {digest,enforcePermit,issueTestPermit,validateTestAuthority,verifyTestPermit,verifyStoredTestPermit,PermitError,PT_PROFILE,type PtClaims} from "../../pt/src/permit.js";
 import {FIXTURE_ID,fixtureOperation,fixtureOperationFor} from "../../pt/src/fixture.js";
 import {DETECTION_FIXTURE,PROFILES,isProfile} from "../../pt/src/security-fixture.js";
-import {RULES,planRules} from "../../pt/src/detection.js";
+import {RULES,planRules,planFingerprint} from "../../pt/src/detection.js";
 
 export class PtError extends Error {constructor(public statusCode:number,public code:string){super(code);}}
 const ID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -399,7 +399,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    const plannedRules=selected.map(x=>({id:x.id,revision:x.revision}));
    const plan={engineVersion:"pt-detection-v1",fixtureVersion:1,fixtureId:DETECTION_FIXTURE,
     profile,rules:plannedRules,evaluations,specFingerprint:s.spec_fingerprint,scopeId:s.id};
-   const fingerprint=digest(JSON.stringify(plan));
+   const fingerprint=planFingerprint(plan);
    const halted=await stop(tx,t);
    const existing=await tx.query("SELECT a.id,p.plan_fingerprint FROM api_assessments a JOIN api_pt_detection_plans p ON p.assessment_id=a.id AND p.tenant_id=a.tenant_id WHERE a.tenant_id=$1 AND a.idempotency_key=$2",[t,idem]);
    if(existing.rowCount){
