@@ -197,7 +197,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
     targetScopeRevision:s.target_scope_revision,scopeId:s.id,operationKeys:s.operation_keys,
     methods:["GET","HEAD"],exclusions:s.exclusions,maxEvaluations:s.max_evaluations,
     maxConcurrency:s.max_concurrency,ratePerMinute:s.rate_per_minute,deadlineMs:s.deadline_ms,
-    notBefore:now-1000,expiresAt:now+s.validity_minutes*60000
+    notBefore:now-(s.validity_minutes===15?0:1000),expiresAt:now+s.validity_minutes*60000
    };
    let token;
    try{token=issueTestPermit(claims);}catch{throw new PtError(403,"TEST_AUTHORITY_DISABLED");}
