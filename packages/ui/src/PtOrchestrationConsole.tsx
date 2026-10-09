@@ -13,6 +13,14 @@ type Report={status:string;observations:{ruleId:string;remediation:string;finger
  coverage:{passed:number;observed:number;unknown:number};
  accounting:{planned:number;executed:number;uncertain:number;notRun:number};limitations:string[]};
 type Safety={schemaVersion:string;warning:string;
+ execution:{
+  queueRecordId:string|null;currentAttemptId:string|null;lifecycle:string;deadline:string|null;
+  terminalReason:string|null;provenance:string;
+  authorization:{permitId:string;permitExpiresAt:string;status:string;
+   consumed:number;reserved:number;rateUsed:number}|null;
+  checkpoints:{stage_id:string;status:string;ordinal:number;reason:string|null}[];
+  receipts:{state:string;total:number}[];
+ };
  queue:{queueState:string;claimGeneration:number;retryCount:number;lockedUntil:string|null;
  nextEligibleAt:string|null;lastErrorCode:string|null}|null;
  attempts:{id:string;claim_generation:number;state:string;started_at:string;last_heartbeat_at:string;
@@ -188,6 +196,12 @@ export function PtOrchestrationConsole({token,targetId}:{token:string;targetId:s
    {safety.queue?.nextEligibleAt&&<p>Next eligible retry: {safety.queue.nextEligibleAt}</p>}
    {safety.queue?.lastErrorCode&&<p>Last infrastructure failure: {safety.queue.lastErrorCode}</p>}
    {safety.quarantine&&<p role="alert">Terminal quarantine: {safety.quarantine.reason_code} · attempts {safety.quarantine.attempts}. No automatic replay.</p>}
+   <h4>Governed execution and recovery</h4>
+   <p>Lifecycle: {safety.execution.lifecycle} · current attempt: {safety.execution.currentAttemptId??"none"}</p>
+   {safety.execution.deadline&&<p>Approved job deadline: {safety.execution.deadline}</p>}
+   {safety.execution.authorization&&<p>Permit status: {safety.execution.authorization.status} · permit expires: {safety.execution.authorization.permitExpiresAt} · consumed {safety.execution.authorization.consumed} · reserved {safety.execution.authorization.reserved} · rate used {safety.execution.authorization.rateUsed}</p>}
+   {safety.execution.receipts.length>0&&<p>Governed receipts: {safety.execution.receipts.map(r=>r.state+" "+r.total).join(" · ")}</p>}
+   {safety.execution.terminalReason&&<p role="alert">Terminal reason: {safety.execution.terminalReason}</p>}
    <h4>Persisted worker attempts</h4>
    {safety.attempts.length===0?<p>Not claimed by a worker yet.</p>:<ol>{safety.attempts.map(a=>
     <li key={a.id}>Generation {a.claim_generation} · {a.state} · started {a.started_at}
