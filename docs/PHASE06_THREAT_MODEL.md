@@ -42,3 +42,11 @@ Authorization is checked at initial admission, private worker claim, and before 
 7. Finalized plugin and cross-product integration contracts.
 
 These blockers must never be labelled implemented by the isolated test-only issuer. A CI PASS never means VERIFIED_FIXED, and missing findings do not mean SAFE.
+
+## Independent qualification boundaries and residual risks (Phase 06)
+
+- The signed synthetic permit is currently persisted as `signed_token` in a tenant-RLS table so the private worker can re-verify its MAC at every operation. It is **not** exposed in customer JSON responses or reports, but this is a larger sensitive-data persistence surface than the preferred ID/fingerprint-only design. It remains strictly non-production and must be replaced or isolated behind a dedicated key boundary before any future real permit model.
+- Synthetic signing and test-authority credentials are generated afresh per GitHub-hosted CI job; both exist in the isolated test process environment. The authority header is not a Main Platform authorization mechanism. Production use remains disabled.
+- The existing PostgreSQL race tests cover competing permits, duplicate job admission, worker budget contention, stop/admission serialization, lease replay protection and transaction fault recovery. These are executed database tests; individual failure scenarios not explicitly proven by these tests must not be reported as independently qualified.
+- This test-only control plane uses bounded synchronous in-process fixture interactions, not external network egress; stop/revoke linearizes at the authorization lock boundary and does not promise preemptive interruption of an already executing synchronous fixture.
+- Customer ownership, production identity, network egress, credential vault, canonical findings and RetestVerificationAuthority are unavailable Host dependencies, not features supplied by this synthetic test authority.
