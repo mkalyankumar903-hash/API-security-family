@@ -55,6 +55,21 @@ Migration 011 adds tenant-bound immutable plan/results/reports, ledgered evaluat
 
 React `PtDetectionConsole` is integrated into accepted Phase06 PT console; it selects imported spec, fixture profile, trusted rules, scope/permit and budget; views worker job/report, redacted fixture evidence, coverage, history, comparisons and JSON export.
 
+## Deterministic qualification scenarios and asynchronous admission recovery
+
+The Chromium journey MUST await the exact scope-bound `POST /v7/pt/scopes/:id/detections` HTTP response before invoking the in-process private worker test harness. A React button click alone only schedules asynchronous work; it does not prove HTTP admission, a database commit, or queue insertion. The browser test now asserts HTTP 201, returned job ID, matching persisted `scope_id`, and persisted `QUEUED` status before processing. This avoids a false-zero queue drain without bypassing admission controls or adding timing sleeps.
+
+The regression suite is structured to verify the following independently rather than relying on a catalog count:
+
+- Every rule: vulnerable trusted fixture positive, secure fixture negative, missing evidence INCONCLUSIVE, deterministic fingerprint, approved redacted evidence, fixed fixture-only semantics.
+- Every rule through real PostgreSQL worker: new separately authorized scope, private queue claim, actual governed fixture evaluation ledger, exactly one expected synthetic observation, zero customer network requests and no raw sensitive placeholder value.
+- Parallel same-key admission: real competing PostgreSQL transactions resolve to one immutable job, one queue row, one governed execution. Different-key concurrent admission within the same permit must obey max concurrency.
+- Permit absence/revocation, cancellation and emergency stop: no unauthorized fixture interaction, no completed report, no revival of a revoked permit after resume.
+- Chromium customer journey: genuine React/Fastify/PostgreSQL/worker positive and secure negative; permit denial, redacted receipt/report, history/comparison without VERIFIED_FIXED, customer UI cancellation, signed-authority stop, forbidden synthetic POST scope and no customer-host network request.
+- The existing Phase00–06 suites remain part of comprehensive qualification. Missing/failing/skipped CI is never interpreted as a passed assessment.
+
+Test-only `PT_TEST_AUTHORITY_ENABLED` and signing keys exist exclusively in the isolated CI environment. These tests cannot authorize customer scanning, production exploitation or Host findings.
+
 ## GitHub-hosted qualification (required, not assumed)
 
 Workflow `.github/workflows/phase07.yml` on `work/phase07-api-pt-detection-engine`:
