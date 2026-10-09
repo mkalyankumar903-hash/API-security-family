@@ -63,8 +63,10 @@ export async function processOneJob(): Promise<boolean> {
     const spec=inventoryBased?null:await parseAndValidateSpec(job.raw_spec);
     const observations=spec?assess(spec):[];
     await withWorkerTenant(tenant, async tx => {
-      const leaseCheck = await tx.query("SELECT claim_token FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
-      if (leaseCheck.rows[0]?.claim_token !== token) return;
+      const leaseCheck = await tx.query("SELECT claim_token,claim_generation,locked_until>clock_timestamp() AS lease_valid FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
+      if (leaseCheck.rows[0]?.claim_token !== token ||
+        Number(leaseCheck.rows[0]?.claim_generation)!==lease.claim_generation ||
+        leaseCheck.rows[0]?.lease_valid!==true) return;
       const state = await tx.query("SELECT status FROM api_assessments WHERE id=$1 FOR UPDATE",[jobId]);
       if (!state.rows[0] || state.rows[0].status !== "PROCESSING") {
         await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]); return;
@@ -130,8 +132,10 @@ export async function processOneJob(): Promise<boolean> {
     if(disposition==="RETRY_SCHEDULED"||disposition==="RETRY_EXHAUSTED")return true;
     // Failed work is auditable; never mark a failed assessment as successful.
     await withWorkerTenant(tenant, async tx => {
-      const leaseCheck = await tx.query("SELECT claim_token FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
-      if (leaseCheck.rows[0]?.claim_token !== token) return;
+      const leaseCheck = await tx.query("SELECT claim_token,claim_generation,locked_until>clock_timestamp() AS lease_valid FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
+      if (leaseCheck.rows[0]?.claim_token !== token ||
+        Number(leaseCheck.rows[0]?.claim_generation)!==lease.claim_generation ||
+        leaseCheck.rows[0]?.lease_valid!==true) return;
       await tx.query("UPDATE api_assessments SET status='FAILED',error_code='ASSESSMENT_ENGINE_FAILURE',completed_at=now() WHERE id=$1 AND status='PROCESSING'",[jobId]);
       await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,$3,$4)",[uuid(),tenant,"ASSESSMENT_FAILED",jobId]);
       await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]);
