@@ -65,6 +65,29 @@ test("Phase05 real Chromium: unified persisted assessment, findings, provenance,
  await workspace.getByRole("button",{name:"Compare persisted findings"}).click();
  await expect(workspace.getByRole("heading",{name:"Comparison results"})).toBeVisible();
  await expect(workspace.getByText(/No longer observed never means VERIFIED_FIXED/)).toBeVisible();
+
+ // Actual Chromium customer flow for new phase05-v2 on a newly imported specification.
+ await workspace.getByLabel("Assessment type").selectOption("inventory-v2");
+ await workspace.getByRole("button",{name:"Refresh imported specification versions"}).click();
+ const richSelect=workspace.getByLabel("Imported immutable specification");
+ await expect(richSelect.locator("option")).toHaveCount(2);
+ await richSelect.selectOption(version);
+ await workspace.getByRole("button",{name:"Start selected offline assessment"}).click();
+ await expect(workspace.getByText(/Queued assessment:/)).toBeVisible();
+ expect(await drainQueue()).toBe(1);
+ await workspace.getByRole("button",{name:"Refresh assessment history"}).click();
+ await expect(workspace.getByRole("button",{name:"Review run"})).toHaveCount(3);
+ await workspace.getByRole("button",{name:"Review run"}).first().click();
+ await expect(workspace.getByText(/inventory-v2/).first()).toBeVisible();
+ const richHistory=await request.get(host+"/v5/assessments?targetId="+tid+"&engineVersion=inventory-v2",{headers:header});
+ const richRows=await richHistory.json() as {id:string;engineVersion:string}[];
+ expect(richRows.length).toBe(1);
+ const richReport=await request.get(host+"/v5/assessments/"+richRows[0]!.id+"/report",{headers:header});
+ expect(richReport.status()).toBe(200);
+ const richPayload=await richReport.json() as {immutableReport:{engineVersion:string;coverage:{ruleId:string;status:string}[]};verifiedFixed:boolean};
+ expect(richPayload.immutableReport.engineVersion).toBe("inventory-v2");
+ expect(richPayload.immutableReport.coverage.find(x=>x.ruleId==="API03_AUTH_OVERRIDE_WEAKENS")?.status).toBe("EVALUATED");
+ expect(richPayload.verifiedFixed).toBe(false);
  const immutable=await request.get(host+"/v5/assessments/"+first+"/report",{headers:header});
  expect(await immutable.text()).toBe(await old.text());
  expect(unsafe).toEqual([]);
