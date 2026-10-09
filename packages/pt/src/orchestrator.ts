@@ -105,6 +105,10 @@ export function validateOrchestrationPlan(plan:OrchestrationPlan):void{
  assertBinding(plan.binding);
  if(!Object.prototype.hasOwnProperty.call(POLICIES,plan.policyId)||
   plan.policyVersion!==POLICIES[plan.policyId].version)return deny("POLICY_REVISION_CHANGED");
+ const expectedRules=RULES.filter(r=>(POLICIES[plan.policyId].ids as readonly string[]).includes(r.id))
+  .map(r=>({id:r.id,revision:r.revision}));
+ if(JSON.stringify(plan.rules)!==JSON.stringify(expectedRules))
+  return deny("RULE_REVISION_CHANGED");
  const ids=new Set<string>(),keys=new Set<string>();
  for(const stage of plan.stages){
   if(ids.has(stage.id)||stage.dependencies.some(d=>d===stage.id||!ids.has(d))||
@@ -115,8 +119,18 @@ export function validateOrchestrationPlan(plan:OrchestrationPlan):void{
  for(const e of plan.evaluations){
   if(keys.has(e.evaluationKey)||e.method!=="GET"||!plan.binding.operationKeys.includes(e.operationKey)||
    plan.binding.exclusions.includes(e.path))return deny("INVALID_PLANNED_EVALUATION");
+  const rule=RULES.find(r=>r.id===e.ruleId);
+  const testCase=rule?.cases.find(c=>c.caseId===e.caseId);
+  if(!rule||!testCase||e.evaluationKey!==e.ruleId+":"+e.caseId||
+   e.method!==testCase.method||e.path!==testCase.path||e.actor!==testCase.actor)
+   return deny("INVALID_PLANNED_EVALUATION");
   keys.add(e.evaluationKey);
  }
+ if(JSON.stringify(plan.evaluations.map(e=>e.evaluationKey))!==
+     JSON.stringify(plan.stages.flatMap(s=>s.evaluationKeys))||
+    JSON.stringify(plan.rules.map(r=>r.id))!==
+     JSON.stringify(plan.stages.flatMap(s=>s.rules)))
+  return deny("INVALID_STAGE_EVALUATION_OWNERSHIP");
  if(plan.maxEvaluations!==plan.evaluations.length||
   plan.stages.reduce((n,s)=>n+s.budget,0)!==plan.maxEvaluations||
   plan.maxEvaluations>plan.binding.maxEvaluations||plan.maxEvaluations>plan.binding.ratePerMinute)

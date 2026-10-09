@@ -42,3 +42,82 @@ test("Phase09 validates stage dependency identity and rejects duplicates",()=>{
  const duplicate=structuredClone(plan);duplicate.evaluations.push(duplicate.evaluations[0]!);
  assert.throws(()=>validateOrchestrationPlan(duplicate),/INVALID_PLANNED_EVALUATION/);
 });
+
+
+test("Phase09 scope revision and target identity changes affect signed canonical plan",()=>{
+ const original=orchestrationFingerprint(build());
+ for(const ctx of [
+  {...b,targetScopeRevision:2},
+  {...b,targetId:"77777777-7777-4777-8777-777777777777"},
+  {...b,tenantId:"88888888-8888-4888-8888-888888888888"}
+ ]){
+  assert.notEqual(orchestrationFingerprint(build(undefined,ctx)),original);
+ }
+});
+test("Phase09 unknown policy revision fails closed",()=>{
+ const p=structuredClone(build());p.policyVersion="0.0.0";
+ assert.throws(()=>validateOrchestrationPlan(p),/POLICY_REVISION_CHANGED/);
+});
+test("Phase09 unavailable fixture protocol revisions cannot be silently upgraded",()=>{
+ const p=structuredClone(build());
+ (p as unknown as {fixtureVersion:number}).fixtureVersion=2;
+ assert.throws(()=>validateOrchestrationPlan(p),/ORCHESTRATION_PLAN_INVALID/);
+});
+test("Phase09 explicitly forbidden POST method cannot enter a stage plan",()=>{
+ const altered=ops.map(x=>x.path==="/pt/admin"?{...x,method:"POST"}:x);
+ assert.throws(()=>build(undefined,b,altered),/ORCHESTRATION_OPERATION_NOT_AUTHORIZED/);
+});
+test("Phase09 missing required trusted operation prevents admission",()=>{
+ assert.throws(()=>build(undefined,b,ops.filter(x=>x.path!=="/pt/confidential")),/ORCHESTRATION_OPERATION_NOT_AUTHORIZED/);
+});
+test("Phase09 missing prerequisite stage identity is rejected",()=>{
+ const p=structuredClone(build());p.stages[1]!.dependencies=["missing-stage"];
+ assert.throws(()=>validateOrchestrationPlan(p),/INVALID_STAGE_DEPENDENCIES/);
+});
+test("Phase09 cycles and forward dependency edges cannot execute",()=>{
+ const p=structuredClone(build());p.stages[1]!.dependencies=["finalization"];
+ assert.throws(()=>validateOrchestrationPlan(p),/INVALID_STAGE_DEPENDENCIES/);
+});
+test("Phase09 unknown stage executor types fail closed",()=>{
+ const p=structuredClone(build());
+ (p.stages[1] as unknown as {type:string}).type="ARBITRARY_SCRIPT";
+ assert.throws(()=>validateOrchestrationPlan(p),/INVALID_STAGE_DEPENDENCIES/);
+});
+test("Phase09 duplicate stage IDs and stage budget duplication are rejected",()=>{
+ const p=structuredClone(build());p.stages[1]!.id="preflight";
+ assert.throws(()=>validateOrchestrationPlan(p),/INVALID_STAGE_DEPENDENCIES/);
+ const duplicate=structuredClone(build());duplicate.stages[2]!.evaluationKeys.push(duplicate.stages[1]!.evaluationKeys[0]!);
+ assert.throws(()=>validateOrchestrationPlan(duplicate),/INVALID_STAGE_EVALUATION_OWNERSHIP/);
+});
+test("Phase09 excess planned evaluations fail before permit admission",()=>{
+ assert.throws(()=>build(undefined,{...b,maxEvaluations:13}),/ORCHESTRATION_BUDGET_TOO_SMALL/);
+ const plan=structuredClone(build());plan.maxEvaluations=plan.maxEvaluations+1;
+ assert.throws(()=>validateOrchestrationPlan(plan),/INVALID_PLANNED_BUDGET/);
+});
+test("Phase09 rate and concurrency safety bounds cannot be increased",()=>{
+ assert.throws(()=>build(undefined,{...b,ratePerMinute:13}),/ORCHESTRATION_BUDGET_TOO_SMALL/);
+ assert.throws(()=>build(undefined,{...b,maxConcurrency:3}),/INVALID_AUTHORITY_BINDING/);
+});
+test("Phase09 duplicated or outdated canonical rule selection is rejected",()=>{
+ const a=structuredClone(build());a.rules.push({...a.rules[0]!});
+ assert.throws(()=>validateOrchestrationPlan(a),/RULE_REVISION_CHANGED/);
+ const outdated=structuredClone(build());outdated.rules[0]!.revision="0.9.0";
+ assert.throws(()=>validateOrchestrationPlan(outdated),/RULE_REVISION_CHANGED/);
+});
+test("Phase09 tampered trusted actor and evaluation cases cannot be substituted",()=>{
+ const p=structuredClone(build());p.evaluations[0]!.actor="admin";
+ assert.throws(()=>validateOrchestrationPlan(p),/INVALID_PLANNED_EVALUATION/);
+ const altered=structuredClone(build());altered.evaluations[0]!.caseId="unapproved";
+ assert.throws(()=>validateOrchestrationPlan(altered),/INVALID_PLANNED_EVALUATION/);
+});
+test("Phase09 unauthorized stage scope changes cannot acquire execution authority",()=>{
+ const p=structuredClone(build());
+ p.binding.operationKeys=["unauthorized-operation"];
+ assert.throws(()=>validateOrchestrationPlan(p),/INVALID_PLANNED_EVALUATION/);
+});
+test("Phase09 plan deadline and excessive stages are bounded",()=>{
+ assert.throws(()=>build(undefined,{...b,deadlineMs:60000}),/INVALID_AUTHORITY_BINDING/);
+ const p=structuredClone(build());
+ p.stages.push({...p.stages[5]!,id:"extra-stage"});
+ assert.throws(()=>validateOrchestrationPlan(p),/ORCHESTRATION_PLAN_INVALID/);
+});
