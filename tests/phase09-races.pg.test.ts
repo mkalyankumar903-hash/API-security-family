@@ -233,6 +233,187 @@ test("Phase09 independently coordinated PostgreSQL transaction and orchestration
    const p=await withTenant(A,tx=>tx.query("SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[s.permitId]));
    assert.equal(p.rows[0].consumed,0);assert.equal(p.rows[0].reserved,0);
   });
+
+  await t.test("stop-row transactional barrier serializes orchestrator admission and denies new stage authority",async()=>{
+   const s=await setup();
+   await withWorkerTenant(A,tx=>tx.query("INSERT INTO api_pt_stop(tenant_id) VALUES($1) ON CONFLICT DO NOTHING",[A]));
+   let entered=()=>{},release=()=>{};
+   const locked=new Promise<void>(resolve=>entered=resolve);
+   const gate=new Promise<void>(resolve=>release=resolve);
+   const stopping=withWorkerTenant(A,async tx=>{
+    await tx.query("SELECT enabled FROM api_pt_stop WHERE tenant_id=$1 FOR UPDATE",[A]);
+    entered();
+    await gate;
+    await tx.query("UPDATE api_pt_stop SET enabled=true,generation=generation+1 WHERE tenant_id=$1",[A]);
+   });
+   await locked;
+   const waiting=admit(s);
+   release();
+   await stopping;
+   const denied=await waiting;ok(denied,409);
+   assert.equal(denied.json().error,"EMERGENCY_STOP_ACTIVE");
+   assert.equal((await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt9_plans o JOIN api_pt_jobs j ON j.assessment_id=o.assessment_id WHERE j.scope_id=$1",[s.scopeId]))).rows[0].n,0);
+   ok(await call("POST","/v6/pt/test-authority/resume",{}, {authority:true}),200);
+  });
+  await t.test("expired job deadline prohibits first stage without spending signed permit budget",async()=>{
+   const s=await setup(),r=await admit(s);ok(r,201);
+   const jid=r.json().id as string;
+   await withWorkerTenant(A,tx=>tx.query("UPDATE api_pt_jobs SET job_deadline=now()-interval '1 second' WHERE assessment_id=$1",[jid]));
+   assert.equal(await processOneJob(),true);
+   await terminal(jid,"FAILED");
+   assert.equal((await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1",[jid]))).rows[0].n,0);
+   assert.equal((await withTenant(A,tx=>tx.query("SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[s.permitId]))).rows[0].consumed,0);
+   assert.equal((await call("GET","/v9/pt/orchestrations/"+jid+"/report")).statusCode,409);
+  });
+  await t.test("crash after reservation never replays RESERVED evaluation identity",async()=>{
+   const s=await setup(),r=await admit(s);ok(r,201);
+   const jid=r.json().id as string;
+   const ownerKey=s.ops.find(x=>x.includes("/pt/resources/bob"));assert.ok(ownerKey);
+   await withWorkerTenant(A,async tx=>{
+    await tx.query("UPDATE api_pt_permits SET reserved=reserved+1 WHERE id=$1",[s.permitId]);
+    await tx.query("INSERT INTO api_pt_detection_evaluations(id,tenant_id,assessment_id,permit_id,evaluation_key,operation_key,method,path,actor,state) VALUES($1,$2,$3,$4,'PT-BOLA-CROSS-USER:owner',$5,'GET','/pt/resources/bob','bob','RESERVED')",
+     [randomUUID(),A,jid,s.permitId,ownerKey]);
+   });
+   assert.equal(await processOneJob(),true);
+   await terminal(jid,"FAILED");
+   const ledger=await withTenant(A,tx=>tx.query("SELECT state FROM api_pt_detection_evaluations WHERE assessment_id=$1",[jid]));
+   assert.equal(ledger.rowCount,1);assert.equal(ledger.rows[0].state,"UNCERTAIN");
+   const p=await withTenant(A,tx=>tx.query("SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[s.permitId]));
+   assert.deepEqual([p.rows[0].consumed,p.rows[0].reserved],[1,0]);
+   const diag=await call("GET","/v9/pt/orchestrations/"+jid+"/terminal");ok(diag,200);
+   assert.equal((diag.json().accounting as Record<string,number>).uncertain,1);
+  });
+  await t.test("process death after persisted fixture response resumes from receipt without duplicate evaluation",async()=>{
+   const s=await setup(),r=await admit(s);ok(r,201);
+   const jid=r.json().id as string;
+   const old=await claimJob();assert.equal(old?.assessment_id,jid);
+   await withWorkerTenant(A,tx=>tx.query("UPDATE api_assessments SET status='PROCESSING' WHERE id=$1 AND status='QUEUED'",[jid]));
+   await processPtOrchestrationJob(A,jid,old!.claim_token,{afterEvaluation:async count=>{
+    if(count===1)throw new Error("PT9_ISOLATED_PROCESS_EXIT");
+   }});
+   const consumed=await withTenant(A,tx=>tx.query("SELECT state,count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1 GROUP BY state",[jid]));
+   assert.equal(consumed.rows.find(x=>x.state==="CONSUMED")?.n,1);
+   await withWorkerTenant(A,tx=>tx.query("UPDATE api_queue.api_assessment_queue SET locked_until=now()-interval '1 second' WHERE assessment_id=$1",[jid]));
+   const next=await claimJob();assert.equal(next?.assessment_id,jid);
+   await processPtOrchestrationJob(A,jid,next!.claim_token);
+   await terminal(jid,"COMPLETED");
+   const result=await withTenant(A,tx=>tx.query("SELECT evaluation_key,count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1 GROUP BY evaluation_key",[jid]));
+   assert.equal(result.rowCount,4);assert.ok(result.rows.every(x=>x.n===1));
+   const p=await withTenant(A,tx=>tx.query("SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[s.permitId]));
+   assert.deepEqual([p.rows[0].consumed,p.rows[0].reserved],[4,0]);
+  });
+  await t.test("fixture response persistence failure remains UNCERTAIN without replay or fabricated result",async()=>{
+   const s=await setup(),r=await admit(s);ok(r,201);
+   const jid=r.json().id as string;
+   try{
+    await admin.query("CREATE OR REPLACE FUNCTION public.pt09_inject_evidence_fault() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN IF NEW.state='CONSUMED' THEN RAISE EXCEPTION 'PT09_INJECT_EVIDENCE_FAULT'; END IF; RETURN NEW; END $");
+    await admin.query("CREATE TRIGGER pt09_evidence_inject BEFORE UPDATE ON public.api_pt_detection_evaluations FOR EACH ROW EXECUTE FUNCTION public.pt09_inject_evidence_fault()");
+    assert.equal(await processOneJob(),true);
+   }finally{
+    await admin.query("DROP TRIGGER IF EXISTS pt09_evidence_inject ON public.api_pt_detection_evaluations");
+    await admin.query("DROP FUNCTION IF EXISTS public.pt09_inject_evidence_fault()");
+   }
+   await terminal(jid,"FAILED");
+   const ledger=await withTenant(A,tx=>tx.query("SELECT state FROM api_pt_detection_evaluations WHERE assessment_id=$1",[jid]));
+   assert.equal(ledger.rowCount,1);assert.equal(ledger.rows[0].state,"UNCERTAIN");
+   const p=await withTenant(A,tx=>tx.query("SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[s.permitId]));
+   assert.deepEqual([p.rows[0].consumed,p.rows[0].reserved],[1,0]);
+   assert.equal((await call("GET","/v9/pt/orchestrations/"+jid+"/report")).statusCode,409);
+  });
+  await t.test("fault after rule receipt but before stage checkpoint retains consumed immutable evaluations",async()=>{
+   const s=await setup(),r=await admit(s);ok(r,201);
+   const jid=r.json().id as string;
+   try{
+    await admin.query("CREATE OR REPLACE FUNCTION public.pt09_inject_rule_fault() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'PT09_INJECT_RULE_FAULT'; END $");
+    await admin.query("CREATE TRIGGER pt09_rule_inject BEFORE INSERT ON public.api_pt_detection_results FOR EACH ROW EXECUTE FUNCTION public.pt09_inject_rule_fault()");
+    assert.equal(await processOneJob(),true);
+   }finally{
+    await admin.query("DROP TRIGGER IF EXISTS pt09_rule_inject ON public.api_pt_detection_results");
+    await admin.query("DROP FUNCTION IF EXISTS public.pt09_inject_rule_fault()");
+   }
+   await terminal(jid,"FAILED");
+   const p=await withTenant(A,tx=>tx.query("SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[s.permitId]));
+   assert.deepEqual([p.rows[0].consumed,p.rows[0].reserved],[4,0]);
+   assert.equal((await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt_detection_results WHERE assessment_id=$1",[jid]))).rows[0].n,0);
+   assert.equal((await call("GET","/v9/pt/orchestrations/"+jid+"/report")).statusCode,409);
+  });
+  await t.test("crash during atomic final report insertion rolls back any apparent success",async()=>{
+   const s=await setup(),r=await admit(s);ok(r,201);
+   const jid=r.json().id as string;
+   try{
+    await admin.query("CREATE OR REPLACE FUNCTION public.pt09_inject_publication_fault() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'PT09_INJECT_REPORT_FAULT'; END $");
+    await admin.query("CREATE TRIGGER pt09_publication_inject BEFORE INSERT ON public.api_pt9_reports FOR EACH ROW EXECUTE FUNCTION public.pt09_inject_publication_fault()");
+    assert.equal(await processOneJob(),true);
+   }finally{
+    await admin.query("DROP TRIGGER IF EXISTS pt09_publication_inject ON public.api_pt9_reports");
+    await admin.query("DROP FUNCTION IF EXISTS public.pt09_inject_publication_fault()");
+   }
+   await terminal(jid,"FAILED");
+   const state=await withTenant(A,tx=>tx.query("SELECT status FROM api_pt9_stages WHERE assessment_id=$1 AND stage_id='finalization'",[jid]));
+   assert.equal(state.rows[0].status,"FAILED");
+   assert.equal((await withTenant(A,tx=>tx.query("SELECT 1 FROM api_pt9_reports WHERE assessment_id=$1",[jid]))).rowCount,0);
+   assert.equal((await withTenant(A,tx=>tx.query("SELECT 1 FROM api_pt9_terminal WHERE assessment_id=$1",[jid]))).rowCount,1);
+  });
+  await t.test("customer cancellation after reconciliation but before atomic publication cannot publish success",async()=>{
+   const s=await setup(),r=await admit(s);ok(r,201);
+   const jid=r.json().id as string;
+   const lease=await claimJob();assert.equal(lease?.assessment_id,jid);
+   await withWorkerTenant(A,tx=>tx.query("UPDATE api_assessments SET status='PROCESSING' WHERE id=$1 AND status='QUEUED'",[jid]));
+   await processPtOrchestrationJob(A,jid,lease!.claim_token,{afterCheckpoint:async stageId=>{
+    if(stageId==="reconciliation"){
+     const cancel=await call("POST","/v9/pt/orchestrations/"+jid+"/cancel",{});ok(cancel,200);
+    }
+   }});
+   await terminal(jid,"CANCELLED");
+   assert.equal((await withTenant(A,tx=>tx.query("SELECT 1 FROM api_pt9_reports WHERE assessment_id=$1",[jid]))).rowCount,0);
+   const diagnostic=await call("GET","/v9/pt/orchestrations/"+jid+"/terminal");ok(diagnostic,200);
+   const accounting=diagnostic.json().accounting as {consumed:number;notRun:number};
+   assert.equal(accounting.consumed,4);assert.equal(accounting.notRun,0);
+  });
+  await t.test("foreign-tenant plan mutation is denied without altering plan fingerprint",async()=>{
+   const s=await setup(),r=await admit(s);ok(r,201);
+   const jid=r.json().id as string;
+   const before=await withTenant(A,tx=>tx.query("SELECT fingerprint FROM api_pt9_plans WHERE assessment_id=$1",[jid]));
+   const foreign=await withTenant(B,tx=>tx.query("SELECT 1 FROM api_pt9_plans WHERE assessment_id=$1",[jid]));
+   assert.equal(foreign.rowCount,0);
+   await assert.rejects(()=>withWorkerTenant(B,tx=>tx.query("UPDATE api_pt9_plans SET fingerprint=$2 WHERE assessment_id=$1",[jid,"b".repeat(64)])),
+    /permission denied/);
+   await assert.rejects(()=>admin.query("UPDATE public.api_pt9_plans SET fingerprint=$2 WHERE assessment_id=$1",[jid,"b".repeat(64)]),
+    /PHASE1_IMMUTABLE/);
+   assert.equal((await withTenant(A,tx=>tx.query("SELECT fingerprint FROM api_pt9_plans WHERE assessment_id=$1",[jid]))).rows[0].fingerprint,
+    before.rows[0].fingerprint);
+   assert.equal(await processOneJob(),true);
+  });
+  await t.test("concurrent final publication versus cancellation commits exactly one terminal authority",async()=>{
+   const s=await setup(),r=await admit(s);ok(r,201);
+   const jid=r.json().id as string;
+   const lease=await claimJob();assert.equal(lease?.assessment_id,jid);
+   await withWorkerTenant(A,tx=>tx.query("UPDATE api_assessments SET status='PROCESSING' WHERE id=$1 AND status='QUEUED'",[jid]));
+   let reached=()=>{},release=()=>{};
+   const atBoundary=new Promise<void>(resolve=>reached=resolve);
+   const gate=new Promise<void>(resolve=>release=resolve);
+   const execution=processPtOrchestrationJob(A,jid,lease!.claim_token,{afterCheckpoint:async stageId=>{
+    if(stageId==="reconciliation"){reached();await gate;}
+   }});
+   await atBoundary;
+   const competingCancel=call("POST","/v9/pt/orchestrations/"+jid+"/cancel",{});
+   release();
+   await execution;
+   const cancellation=await competingCancel;
+   assert.ok([200,409].includes(cancellation.statusCode),cancellation.body);
+   const status=await call("GET","/v9/pt/orchestrations/"+jid);ok(status,200);
+   const reports=await withTenant(A,tx=>tx.query("SELECT 1 FROM api_pt9_reports WHERE assessment_id=$1",[jid]));
+   const terminals=await withTenant(A,tx=>tx.query("SELECT 1 FROM api_pt9_terminal WHERE assessment_id=$1",[jid]));
+   assert.equal(reports.rowCount+terminals.rowCount,1,"atomic publication versus cancel must choose one result");
+   if(status.json().status==="COMPLETED"){
+    assert.equal(reports.rowCount,1);assert.equal(terminals.rowCount,0);
+    assert.equal(cancellation.statusCode,409);
+   }else{
+    assert.equal(status.json().status,"CANCELLED");
+    assert.equal(reports.rowCount,0);assert.equal(terminals.rowCount,1);
+    assert.equal(cancellation.statusCode,200);
+   }
+  });
  }finally{
   await app.close();await admin.end();await closeDatabase();
  }
