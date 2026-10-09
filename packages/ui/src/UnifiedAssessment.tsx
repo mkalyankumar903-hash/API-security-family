@@ -88,7 +88,7 @@ export function UnifiedAssessment({token,targetId}:{token:string;targetId:string
   </div>
   <button className="secondary" disabled={busy||loading} onClick={()=>void run(refresh)}>Refresh assessment history</button>
   {loading&&<p role="status">Loading persisted assessment history…</p>}
-  {error&&<p role="alert">{error}</p>}
+  {error&&!["PERMISSION_DENIED","UNAUTHORIZED"].includes(error)&&<p role="alert">{error}</p>}
   {!loading&&runs.length===0&&<p>No persisted assessments match these filters.</p>}
   <div style={{overflowX:"auto"}}><table><thead><tr><th>Target</th><th>Specification</th><th>Assessment engine</th><th>Status</th><th>Open</th></tr></thead>
    <tbody>{runs.map(item=><tr key={item.id}><td>{item.targetName}</td><td>v{item.specificationVersion??"legacy"} / {item.format}</td><td>{item.engineVersion}</td>
