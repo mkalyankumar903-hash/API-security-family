@@ -77,6 +77,8 @@ GRANT SELECT,INSERT ON public.api_auth_profile_events TO api_family;
 GRANT SELECT,INSERT ON public.api_auth_assessment_configs TO api_family;
 GRANT SELECT ON public.api_auth_evaluations TO api_family;
 GRANT SELECT ON public.api_auth_profiles,public.api_auth_assessment_configs TO api_family_queue;
+-- Read-only existence check for Phase01 opaque reference (never secret retrieval).
+GRANT SELECT ON public.api_target_credentials TO api_family_queue;
 GRANT SELECT,INSERT ON public.api_auth_profile_events,public.api_auth_evaluations TO api_family_queue;
 CREATE INDEX api_auth_profile_target ON public.api_auth_profiles(tenant_id,target_id,updated_at DESC);
 CREATE INDEX api_auth_evaluation_assessment ON public.api_auth_evaluations(tenant_id,assessment_id,rule_id);

@@ -56,7 +56,7 @@ test("Phase04 populated Phase03 → forward-only 006 preserves legacy+inventory 
   }finally{check.release();}
   const r=await owner.query("SELECT version FROM api_schema_migrations ORDER BY version");
   assert.deepEqual(r.rows.map(x=>x.version),["001","002","003","004","005","006"]);
-  const policies=await owner.query("SELECT tablename,rowsecurity,forcerowsecurity FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'api_auth_%'");
+  const policies=await owner.query("SELECT c.relname AS tablename,c.relrowsecurity AS rowsecurity,c.relforcerowsecurity AS forcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname LIKE 'api_auth_%' AND c.relkind='r'");
   assert.equal(policies.rowCount,4);
   assert.ok(policies.rows.every(x=>x.rowsecurity&&x.forcerowsecurity));
   const privileges=await owner.query("SELECT has_table_privilege('api_family','public.api_auth_evaluations','INSERT') AS can_insert,has_table_privilege('api_family_queue','public.api_auth_evaluations','INSERT') AS worker_insert");
