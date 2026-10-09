@@ -37,6 +37,7 @@ export async function migrate(): Promise<void> {
   const onboarding = resolve(fileURLToPath(new URL("../migrations/003_phase1_target_onboarding.sql", import.meta.url)));
   const discovery = resolve(fileURLToPath(new URL("../migrations/004_phase2_offline_discovery.sql", import.meta.url)));
   const phase3 = resolve(fileURLToPath(new URL("../migrations/005_phase3_deterministic_detection.sql", import.meta.url)));
+  const phase4 = resolve(fileURLToPath(new URL("../migrations/006_phase4_authenticated_fixture.sql", import.meta.url)));
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -72,6 +73,11 @@ export async function migrate(): Promise<void> {
     if(!p3.rowCount){
       await owner.query(readFileSync(phase3,"utf8"));
       await owner.query("INSERT INTO api_schema_migrations(version) VALUES('005')");
+    }
+    const p4=await owner.query("SELECT version FROM api_schema_migrations WHERE version='006'");
+    if(!p4.rowCount){
+      await owner.query(readFileSync(phase4,"utf8"));
+      await owner.query("INSERT INTO api_schema_migrations(version) VALUES('006')");
     }
     await owner.query("COMMIT");
   } catch(error) {await owner.query("ROLLBACK"); throw error;}
