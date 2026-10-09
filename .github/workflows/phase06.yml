@@ -1,7 +1,7 @@
 name: Phase 06 API PT Authorization and Safe Execution Qualification
 on:
   push:
-    branches: ["work/phase06-complete-api-assessment"]
+    branches: ["work/phase06-api-pt-authorization-safe-execution"]
 env:
   PT_TEST_AUTHORITY_ENABLED: "true"
   PT_TEST_SIGNING_KEY: "PHASE06_TEST_ONLY_6d61f35cadbdf4f668a12c8c9e51c1f52c4e42f2d2bb"
