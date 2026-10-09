@@ -2,7 +2,7 @@
  * No external networking or new permit authority. */
 import type {PoolClient} from "pg";
 import {withWorkerTenant,uuid} from "../../database/src/index.js";
-import {planFingerprint,evaluateRule,getRule,type RuleId} from "../../pt/src/detection.js";
+import {planFingerprint,evaluateRule,getRule} from "../../pt/src/detection.js";
 import {type Evidence} from "../../pt/src/security-fixture.js";
 import {type OrchestrationPlan,ORCHESTRATOR_ENGINE,buildOrchestrationPlan,
  orchestrationFingerprint,validateOrchestrationPlan} from "../../pt/src/orchestrator.js";
