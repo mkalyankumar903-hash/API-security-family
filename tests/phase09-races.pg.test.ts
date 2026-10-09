@@ -306,7 +306,7 @@ test("Phase09 independently coordinated PostgreSQL transaction and orchestration
    const s=await setup(),r=await admit(s);ok(r,201);
    const jid=r.json().id as string;
    try{
-    await admin.query("CREATE OR REPLACE FUNCTION public.pt09_inject_evidence_fault() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN IF NEW.state='CONSUMED' THEN RAISE EXCEPTION 'PT09_INJECT_EVIDENCE_FAULT'; END IF; RETURN NEW; END $");
+    await admin.query("CREATE OR REPLACE FUNCTION public.pt09_inject_evidence_fault() RETURNS trigger LANGUAGE plpgsql AS $pt9$ BEGIN IF NEW.state='CONSUMED' THEN RAISE EXCEPTION 'PT09_INJECT_EVIDENCE_FAULT'; END IF; RETURN NEW; END $pt9$pt9$");
     await admin.query("CREATE TRIGGER pt09_evidence_inject BEFORE UPDATE ON public.api_pt_detection_evaluations FOR EACH ROW EXECUTE FUNCTION public.pt09_inject_evidence_fault()");
     assert.equal(await processOneJob(),true);
    }finally{
@@ -324,7 +324,7 @@ test("Phase09 independently coordinated PostgreSQL transaction and orchestration
    const s=await setup(),r=await admit(s);ok(r,201);
    const jid=r.json().id as string;
    try{
-    await admin.query("CREATE OR REPLACE FUNCTION public.pt09_inject_rule_fault() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'PT09_INJECT_RULE_FAULT'; END $");
+    await admin.query("CREATE OR REPLACE FUNCTION public.pt09_inject_rule_fault() RETURNS trigger LANGUAGE plpgsql AS $pt9$ BEGIN RAISE EXCEPTION 'PT09_INJECT_RULE_FAULT'; END $pt9$");
     await admin.query("CREATE TRIGGER pt09_rule_inject BEFORE INSERT ON public.api_pt_detection_results FOR EACH ROW EXECUTE FUNCTION public.pt09_inject_rule_fault()");
     assert.equal(await processOneJob(),true);
    }finally{
@@ -341,7 +341,7 @@ test("Phase09 independently coordinated PostgreSQL transaction and orchestration
    const s=await setup(),r=await admit(s);ok(r,201);
    const jid=r.json().id as string;
    try{
-    await admin.query("CREATE OR REPLACE FUNCTION public.pt09_inject_publication_fault() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN RAISE EXCEPTION 'PT09_INJECT_REPORT_FAULT'; END $");
+    await admin.query("CREATE OR REPLACE FUNCTION public.pt09_inject_publication_fault() RETURNS trigger LANGUAGE plpgsql AS $pt9$ BEGIN RAISE EXCEPTION 'PT09_INJECT_REPORT_FAULT'; END $pt9$");
     await admin.query("CREATE TRIGGER pt09_publication_inject BEFORE INSERT ON public.api_pt9_reports FOR EACH ROW EXECUTE FUNCTION public.pt09_inject_publication_fault()");
     assert.equal(await processOneJob(),true);
    }finally{
