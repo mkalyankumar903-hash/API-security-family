@@ -8,6 +8,7 @@ for(const signal of ["SIGTERM","SIGINT"] as const){
  process.on(signal,()=>stopping.abort());
 }
 try{
+ if(process.env.NODE_ENV==="test")process.send?.({kind:"READY"});
  while(!stopping.signal.aborted){
   const didWork=await processOneJob({signal:stopping.signal}).catch((error:unknown)=>{
    console.error("worker error",error instanceof Error?error.name:"unknown");
