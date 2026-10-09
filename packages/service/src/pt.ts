@@ -235,13 +235,16 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
   const idem=key(req),newJob=uuid();
   const result=await withTenant(t,async tx=>{
    const s=await scope(tx,sid);
+   // Serialize ALL admission and replay lookups per tenant on the shared stop row.
+   // Otherwise competing equal idempotency keys can both pass an unguarded SELECT.
+   const halted=await stop(tx,t);
    const previous=await tx.query("SELECT j.*,a.idempotency_key FROM api_pt_jobs j JOIN api_assessments a ON a.id=j.assessment_id WHERE j.tenant_id=$1 AND a.idempotency_key=$2",[t,idem]);
    if(previous.rowCount){
     const old=previous.rows[0];
     if(old.scope_id!==sid||JSON.stringify(old.operation_keys)!==JSON.stringify(operations))throw new PtError(409,"IDEMPOTENCY_CONFLICT");
     return {id:old.assessment_id,status:"QUEUED_OR_PROCESSING",created:false};
    }
-   if(await stop(tx,t))return denied(tx,t,sid,"EMERGENCY_STOP_ACTIVE");
+   if(halted)return denied(tx,t,sid,"EMERGENCY_STOP_ACTIVE");
    const targetNow=await target(tx,s.target_id,true);
    const p=await permit(tx,sid,true);
    if(!p)return denied(tx,t,sid,"AUTHORIZATION_MISSING");
