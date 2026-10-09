@@ -1,5 +1,6 @@
 import YAML from "yaml";
 import {createHash} from "node:crypto";
+import {canonical} from "../../assessment-engine/src/inventory.js";
 import type {Inventory} from "./index.js";
 
 /** phase05-v2 is additive; Phase02-v1 normalization is never mutated or rewritten.
@@ -8,7 +9,7 @@ import type {Inventory} from "./index.js";
 type Dict=Record<string,unknown>;
 const o=(v:unknown):Dict=>v&&typeof v==="object"&&!Array.isArray(v)?v as Dict:{};
 const a=(v:unknown):unknown[]=>Array.isArray(v)?v:[];
-const hash=(v:unknown)=>createHash("sha256").update(JSON.stringify(v)).digest("hex");
+const hash=(v:unknown)=>createHash("sha256").update(canonical(v)).digest("hex");
 export type RichOperation={
  key:string;pointer:string;
  weakensInherited:boolean|null;unknownOAuthScopes:boolean|null;unboundedStrings:number|null;
