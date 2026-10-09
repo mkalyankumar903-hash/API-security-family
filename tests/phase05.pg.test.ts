@@ -68,8 +68,7 @@ test("Phase05 real PostgreSQL: unified cross-engine history, immutable export, c
   const faultId=injected.json().id as string;
   const admin=new Pool({connectionString:process.env.MIGRATION_DATABASE_URL,max:1});
   try{
-    await admin.query("CREATE FUNCTION public.phase05_test_fault() RETURNS trigger LANGUAGE plpgsql AS $ BEGIN IF NEW.assessment_id = '"+faultId+"'::uuid THEN RAISE EXCEPTION 'PHASE05_INJECTED_PUBLICATION_FAILURE'; END IF; RETURN NEW; END $");
-    await admin.query("CREATE TRIGGER phase05_inject BEFORE INSERT ON public.api_reports FOR EACH ROW EXECUTE FUNCTION public.phase05_test_fault()");
+    await admin.query("ALTER TABLE public.api_reports ADD CONSTRAINT phase05_test_fault CHECK (false) NOT VALID");
     assert.equal(await processOneJob(),true);
     assert.equal((await call("GET","/v5/assessments/"+faultId)).json().status,"FAILED");
     const outputs=await withTenant(A,async tx=>Promise.all([
@@ -81,8 +80,7 @@ test("Phase05 real PostgreSQL: unified cross-engine history, immutable export, c
     assert.deepEqual(outputs.map(x=>x.rows[0].n),[0,0,0,0],"publication must be atomic");
     assert.equal((await withWorkerTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[faultId]))).rows[0].n,0);
   }finally{
-    await admin.query("DROP TRIGGER IF EXISTS phase05_inject ON public.api_reports");
-    await admin.query("DROP FUNCTION IF EXISTS public.phase05_test_fault()");
+    await admin.query("ALTER TABLE public.api_reports DROP CONSTRAINT IF EXISTS phase05_test_fault");
     await admin.end();
   }
   const recovery=await call("POST","/v5/targets/"+tid+"/assessments",v2Body,"local-test-token-alpha","recovered-"+randomUUID());
