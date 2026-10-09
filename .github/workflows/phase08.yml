@@ -2,8 +2,6 @@ name: Phase 08 Complete Isolated Synthetic API PT Product Qualification
 on:
   push:
     branches: ["work/phase08-complete-api-pt-product"]
-  pull_request:
-    branches: ["work/phase08-api-pt-detection-engine"]
 env:
   PT_TEST_AUTHORITY_ENABLED: "true"
 permissions:

@@ -157,6 +157,14 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  expect((await cancelled).status()).toBe(200);
  expect((await (await request.get(url+"/v7/pt/jobs/"+cancelledId,{headers:auth})).json() as {status:string}).status).toBe("CANCELLED");
  expect((await request.get(url+"/v7/pt/jobs/"+cancelledId+"/report",{headers:auth})).status()).toBe(409);
+ const diagnostic=await request.get(url+"/v8/pt/jobs/"+cancelledId+"/terminal-coverage",{headers:auth});
+ expect(diagnostic.status()).toBe(200);
+ const terminal=await diagnostic.json() as {assessmentComplete:boolean;verifiedFixed:boolean;rules:{status:string}[]};
+ expect(terminal.assessmentComplete).toBe(false);
+ expect(terminal.verifiedFixed).toBe(false);
+ expect(terminal.rules[0]?.status).toBe("NOT_RUN");
+ await panel.getByRole("button",{name:"Refresh detection results"}).click();
+ await expect(panel.getByText(/Assessment incomplete — some security checks/)).toBeVisible();
  expect((await (await request.get(url+"/v7/pt/jobs/"+cancelledId+"/evaluations",{headers:auth})).json() as unknown as unknown[]).length).toBe(0);
  const stopScope=await additionalScope();
  await authorizeAdditional(stopScope);
@@ -167,6 +175,7 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  })).status()).toBe(200);
  expect((await (await request.get(url+"/v7/pt/jobs/"+stoppedId,{headers:auth})).json() as {status:string}).status).toBe("CANCELLED");
  expect((await request.get(url+"/v7/pt/jobs/"+stoppedId+"/report",{headers:auth})).status()).toBe(409);
+ expect((await request.get(url+"/v8/pt/jobs/"+stoppedId+"/terminal-coverage",{headers:auth})).status()).toBe(200);
  expect((await (await request.get(url+"/v7/pt/jobs/"+stoppedId+"/evaluations",{headers:auth})).json() as unknown as unknown[]).length).toBe(0);
  expect((await request.post(url+"/v6/pt/test-authority/resume",{
   headers:{...auth,"x-pt-authority-key":signer},data:{}

@@ -55,7 +55,10 @@ async function fail(tenant:string,id:string,token:string,code:string):Promise<vo
   await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[id,token]);
  });
 }
-export async function processPtDetectionJob(tenant:string,id:string,token:string):Promise<void>{
+/** Test-only in-process qualification barrier, never accessible from customer/API routes. */
+export type Pt8QualificationBarriers={afterEvaluation?:(completed:number)=>Promise<void>};
+export async function processPtDetectionJob(tenant:string,id:string,token:string,barriers?:Pt8QualificationBarriers):Promise<void>{
+ let completedEvaluations=0;
  let failed=false;
  try{
   const data=await withWorkerTenant(tenant,async tx=>{
@@ -71,6 +74,8 @@ export async function processPtDetectionJob(tenant:string,id:string,token:string
     method:planned.method,path:planned.path,actor:planned.actor,profile:data.snapshot.fixture_profile};
    const result=await governedPtDetectionInteraction(tenant,id,token,input);
    if(result.status!=="CONSUMED"){failed=true;break;}
+   completedEvaluations++;
+   if(barriers?.afterEvaluation)await barriers.afterEvaluation(completedEvaluations);
   }
   if(failed){await fail(tenant,id,token,"PT7_INCOMPLETE_OR_DENIED");return;}
   const finalized=await withGovernedPtDetectionPublication(tenant,id,token,async tx=>{
