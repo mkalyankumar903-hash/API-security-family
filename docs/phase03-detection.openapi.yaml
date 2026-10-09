@@ -66,6 +66,14 @@ paths:
   /v3/assessments/{id}/findings:
     parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
     get:
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
+        - {name: impact, in: query, schema: {type: string, enum: [INFORMATIONAL, LOW, MEDIUM, HIGH]}}
+        - {name: confidence, in: query, schema: {type: string, enum: [HIGH, MEDIUM, LOW]}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: ruleId, in: query, schema: {type: string}}
+        - {name: operationKey, in: query, schema: {type: string}}
       responses:
         '200': {description: Paginated findings}
   /v3/assessments/{id}/findings/{findingId}:
