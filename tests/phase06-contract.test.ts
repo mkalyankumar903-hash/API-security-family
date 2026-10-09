@@ -2,7 +2,7 @@ import {test} from "node:test";
 import {blockedMainHostPtAdapterV1,HOST_PT_CONTRACT_VERSION,PT_ENGINE_CONTRACT_VERSION} from "../packages/pt/src/contracts-v1.js";
 import assert from "node:assert/strict";
 import {createHmac} from "node:crypto";
-import {digest,enforcePermit,issueTestPermit,verifyTestPermit,validateTestAuthority,PT_ISSUER,PT_AUDIENCE,PT_PROFILE,type PtClaims} from "../packages/pt/src/permit.js";
+import {digest,enforcePermit,issueTestPermit,verifyTestPermit,verifyStoredTestPermit,validateTestAuthority,PT_ISSUER,PT_AUDIENCE,PT_PROFILE,type PtClaims} from "../packages/pt/src/permit.js";
 import {fixtureOperation,evaluateFixture} from "../packages/pt/src/fixture.js";
 const key="PHASE06_TEST_ONLY_6d61f35cadbdf4f668a12c8c9e51c1f52c4e42f2d2bb";
 const admin="PHASE06_SEPARATE_TEST_AUTHORITY_aa99bb88cc77dd66ee55ff44gg33";
@@ -110,4 +110,11 @@ test("Phase06 real Main Platform Host remains deliberately unavailable and fail-
  await assert.rejects(()=>blockedMainHostPtAdapterV1.requestAuthorization({targetId:claimInput.targetId,specificationId:claimInput.specificationId,scopeFingerprint:claimInput.specFingerprint}),{code:"REAL_MAIN_HOST_CONTRACT_NOT_FROZEN"});
  await assert.rejects(()=>blockedMainHostPtAdapterV1.verifyAtOperation("test-permit","GET /status","GET"),{code:"REAL_MAIN_HOST_CONTRACT_NOT_FROZEN"});
  await assert.rejects(()=>blockedMainHostPtAdapterV1.revokePermit("test-permit","revoked"),{code:"REAL_MAIN_HOST_CONTRACT_NOT_FROZEN"});
+});
+
+test("Phase06 persisted claims are MAC-bound to ephemeral synthetic key",()=>{
+ const bearer=issueTestPermit(claimInput),claims=verifyTestPermit(bearer),fingerprint=digest(bearer);
+ assert.deepEqual(verifyStoredTestPermit(claims,fingerprint),claims);
+ assert.throws(()=>verifyStoredTestPermit({...claims,maxEvaluations:20},fingerprint),{code:"PERMIT_INTEGRITY_MISMATCH"});
+ assert.throws(()=>verifyStoredTestPermit(claims,"0".repeat(64)),{code:"PERMIT_INTEGRITY_MISMATCH"});
 });
