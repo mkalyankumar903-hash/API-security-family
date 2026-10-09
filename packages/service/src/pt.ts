@@ -201,7 +201,8 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    };
    let token;
    try{token=issueTestPermit(claims);}catch{throw new PtError(403,"TEST_AUTHORITY_DISABLED");}
-   const c=verifyTestPermit(token);
+   let c:PtClaims;
+   try{c=verifyTestPermit(token);}catch(e){throw new PtError(409,e instanceof PermitError?e.code:"TEST_PERMIT_VERIFICATION_FAILED");}
    await tx.query("INSERT INTO api_pt_permits(id,tenant_id,scope_id,token_hash,claims,signed_body,issued_at,expires_at) VALUES($1,$2,$3,$4,$5::jsonb,$6,to_timestamp($7::double precision/1000),to_timestamp($8::double precision/1000))",
     [pid,t,sid,digest(token),JSON.stringify(c),token.split(".")[1],now,c.expiresAt]);
    await record(tx,t,pid,"TEST_ONLY_PERMIT_ISSUED",{scopeId:sid,tokenHash:digest(token)});
