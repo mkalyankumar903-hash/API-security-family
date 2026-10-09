@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {makeApp} from "../packages/service/src/app.js";
-import {migrate,pool,withTenant,withWorkerTenant,closeDatabase} from "../packages/database/src/index.js";
+import {migrate,pool,withTenant,withWorkerTenant,closeDatabase,claimJob} from "../packages/database/src/index.js";
 import {processOneJob,drainQueue} from "../packages/worker/src/index.js";
+import {settlePtDetectionReservations} from "../packages/worker/src/pt.js";
 import {RULES} from "../packages/pt/src/detection.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const AUTH="local-test-token-alpha",SIGNER=process.env.PT_TEST_AUTHORITY_KEY??"";
@@ -215,6 +216,39 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
    assert.equal((evals.json() as unknown as unknown[]).length,2,"no duplicated governed evaluations");
    const report=await call("GET","/v7/pt/jobs/"+first+"/report");
    assert.equal((report.json().observations as unknown[]).length,1);
+  });
+  await t.test("reclaimed PT7 lease refuses stale-worker settlement and conservatively settles only by current owner",async()=>{
+   const fresh=await scope(s,[RULES[4]!.id]);await permit(fresh);
+   const r=await start(fresh,"CROSS_USER_ACCESS_WEAKNESS",[RULES[4]!.id]);
+   assert.equal(r.statusCode,201,r.body);
+   const jid=r.json().id as string;
+   const old=await claimJob();
+   assert.equal(old?.assessment_id,jid);
+   const currentToken=randomUUID();
+   await withWorkerTenant(A,async tx=>{
+    const q=await tx.query("SELECT p.evaluations,j.permit_id FROM api_pt_detection_plans p JOIN api_pt_jobs j ON j.assessment_id=p.assessment_id WHERE p.assessment_id=$1",[jid]);
+    assert.equal(q.rowCount,1);
+    const cases=q.rows[0].evaluations as {evaluationKey:string;operationKey:string;method:string;path:string;actor:string}[];
+    const e=cases[0]!;
+    await tx.query("UPDATE api_pt_permits SET reserved=reserved+1 WHERE id=$1",[q.rows[0].permit_id]);
+    await tx.query("INSERT INTO api_pt_detection_evaluations(id,tenant_id,assessment_id,permit_id,evaluation_key,operation_key,method,path,actor,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'RESERVED')",[
+     randomUUID(),A,jid,q.rows[0].permit_id,e.evaluationKey,e.operationKey,e.method,e.path,e.actor
+    ]);
+    await tx.query("UPDATE api_queue.api_assessment_queue SET claim_token=$2 WHERE assessment_id=$1",[jid,currentToken]);
+   });
+   assert.equal(await settlePtDetectionReservations(A,jid,old!.claim_token),false,
+    "expired/replaced claim must not touch the later owner's RESERVED evaluation");
+   const before=await withWorkerTenant(A,tx=>tx.query(
+    "SELECT state FROM api_pt_detection_evaluations WHERE assessment_id=$1",[jid]));
+   assert.equal(before.rows[0].state,"RESERVED");
+   assert.equal(await settlePtDetectionReservations(A,jid,currentToken),true);
+   const after=await withWorkerTenant(A,tx=>tx.query(
+    "SELECT state,reason,evidence FROM api_pt_detection_evaluations WHERE assessment_id=$1",[jid]));
+   assert.equal(after.rows[0].state,"UNCERTAIN");
+   assert.equal(after.rows[0].reason,"CONSERVATIVE_NO_REPLAY");
+   assert.equal(after.rows[0].evidence,null);
+   assert.equal((await call("POST","/v6/pt/jobs/"+jid+"/cancel",{})).statusCode,200);
+   assert.equal((await call("GET","/v7/pt/jobs/"+jid+"/report")).statusCode,409);
   });
   await t.test("signed-authority emergency stop cancels queued PT7 job without fixture execution or report",async()=>{
    const fresh=await scope(s,[RULES[0]!.id]);await permit(fresh);
