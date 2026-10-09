@@ -153,7 +153,7 @@ async function finalize(tenant:string,id:string,token:string):Promise<void>{
    skipped:rows.rows.filter(x=>x.decision==="SKIPPED").length};
   const report={schemaVersion:"pt-fixture-report-v1",assessmentId:id,scopeId:s.scope_id,permitId:s.permit_id,
    targetId:s.target_id,specificationId:s.specification_id,specificationVersion:s.specification_version,
-   fixtureId:FIXTURE_ID,profile:"SYNTHETIC_PT_READ_ONLY",status:ok?"COMPLETED":"FAILED",
+   fixtureId:FIXTURE_ID,profile:"SYNTHETIC_PT_READ_ONLY",mode:"SYNTHETIC_PT_FIXTURE",status:ok?"COMPLETED":"FAILED",
    counts,budgetConsumed:s.consumed,budgetReserved:s.reserved,results:rows.rows,customerNetworkRequests:0,
    confirmedCustomerVulnerabilities:[],verifiedFixed:false,syntheticOnly:true,runtimeCustomerValidation:false,
    limitations:["Only trusted in-memory Fastify GET/HEAD fixtures evaluated","Main Platform Host permits not available",
