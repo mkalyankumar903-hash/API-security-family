@@ -227,4 +227,4 @@ jobs:
       - name: Initialize fresh isolated database 001-014
         run: npm run migrate
       - name: Real PostgreSQL Phase09 and Phase10 real PostgreSQL safety regressions
-        run: node --import tsx --test --test-concurrency=1 tests/ui.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09-upgrade.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09-races.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase10.pg.test.ts tests/phase10-upgrade.pg.test.ts
+        run: node --import tsx --test --test-concurrency=1 tests/ui.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09-upgrade.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09-races.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase10.pg.test.ts tests/phase10-retry.pg.test.ts tests/phase10-upgrade.pg.test.ts
