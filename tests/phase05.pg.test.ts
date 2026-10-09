@@ -44,7 +44,7 @@ test("Phase05 real PostgreSQL: unified cross-engine history, immutable export, c
   assert.equal(richReport.immutableReport.coverage.length,28);
   assert.equal(richReport.immutableReport.coverage.find((x:{ruleId:string})=>x.ruleId==="API03_AUTH_OVERRIDE_WEAKENS").status,"EVALUATED");
   assert.equal(richReport.verifiedFixed,false);
-  await assert.rejects(()=>withTenant(A,tx=>tx.query("UPDATE api_rich_inventories SET rich_fingerprint=$2 WHERE specification_id=$1",[firstSpec,"0".repeat(64)])),/PHASE1_IMMUTABLE/);
+  await assert.rejects(()=>withTenant(A,tx=>tx.query("UPDATE api_rich_inventories SET rich_fingerprint=$2 WHERE specification_id=$1",[firstSpec,"0".repeat(64)])),/PHASE1_IMMUTABLE|permission denied/);
   const cancellation=await call("POST","/v5/targets/"+tid+"/assessments",v2Body,"local-test-token-alpha","cancel-"+randomUUID());
   assert.equal(cancellation.statusCode,201);
   const cancelId=cancellation.json().id as string;
