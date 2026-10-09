@@ -1,7 +1,7 @@
-name: Phase 05 Authenticated Fixture Qualification
+name: Phase 05 Complete API Assessment Qualification
 on:
   push:
-    branches: ["work/phase05-authenticated-api-assessment"]
+    branches: ["work/phase05-complete-api-assessment"]
 permissions:
   contents: read
 concurrency:
