@@ -61,7 +61,7 @@ test("Phase04 real PostgreSQL 16: fixture profiles, actual worker eval, immutabl
   assert.equal(item.validationLevel,"SYNTHETIC_AUTH_FIXTURE");
   assert.equal((await invoke("GET","/v4/assessments/"+b.jobId+"/evidence/"+item.evidenceId)).statusCode,200);
   const text=b.body+JSON.stringify(item);
-  assert.ok(!/Bearer [A-Za-z0-9_-]{20,}|fixture_session=|Basic [A-Za-z0-9+\/=]{10,}/.test(text));
+  assert.ok(!/Bearer [A-Za-z0-9_-]{20,}|fixture_session=|Basic [A-Za-z0-9+/=]{10,}/.test(text));
   const cmp=await invoke("POST","/v4/targets/"+targetId+"/assessments/compare",{fromAssessmentId:a.jobId,toAssessmentId:b.jobId});
   assert.equal(cmp.statusCode,200,cmp.body);assert.equal(cmp.json().newlyObserved.length,1);
   assert.equal((await invoke("GET","/v4/assessments/"+a.jobId+"/report")).body,a.body);

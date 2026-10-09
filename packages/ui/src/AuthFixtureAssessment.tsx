@@ -64,7 +64,7 @@ export function AuthFixtureAssessment({token,targetId,active,revision}:{token:st
  },[targetId,token]);
  useEffect(()=>{
   let alive=true;setDeclared([]);
-  if(specId)void api<{name:string;type:string;scheme?:string}[]>(token,"/v2/specifications/"+specId+"/schemes")
+  if(specId)void api<{name:string;type:string;scheme?:string}[]|Record<string,{type:string;scheme?:string}>>(token,"/v2/specifications/"+specId+"/schemes")
    .then(r=>{if(alive)setDeclared(Array.isArray(r)?r:Object.entries(r).map(([name,v])=>({name,...v})));})
    .catch(e=>{if(alive)setError((e as Error).message);});
   return()=>{alive=false;};
@@ -188,7 +188,7 @@ export function AuthFixtureAssessment({token,targetId,active,revision}:{token:st
    <button className="secondary" disabled={busy||selected.status!=="ACTIVE"} onClick={()=>void revoke()}>Revoke synthetic profile</button>
   </>}
   <h3>4. Trusted authorization policy</h3><p>user-a and user-b can read their own records; admin can read both and perform admin actions. All others are denied. The broken fixture deliberately permits user-b to read user-a's record. These policies are not inferred from the customer specification.</p>
-  <button disabled={busy||!active||selected?.validationStatus!=="VALID"||selected.status!=="ACTIVE"||selected.specificationId!==specId} onClick={()=>void start()}>
+  <button disabled={busy||!active||selected?.validationStatus!=="VALID"||selected?.status!=="ACTIVE"||selected.specificationId!==specId} onClick={()=>void start()}>
    Start isolated authenticated assessment</button>
   {job&&<><p role="status">Authenticated assessment status: <strong>{job.status}</strong> {job.errorCode??""}</p>
    {["QUEUED","PROCESSING"].includes(job.status)&&<button className="secondary" onClick={()=>void cancel()}>Cancel authenticated assessment</button>}
@@ -198,7 +198,7 @@ export function AuthFixtureAssessment({token,targetId,active,revision}:{token:st
    <option value="">Select previous run</option>{history.filter(h=>h.status==="COMPLETED").map(h=><option key={h.id} value={h.id}>{h.id.slice(0,8)} · {h.status}</option>)}
   </select></label>
   <button className="secondary" disabled={busy||!compareId} onClick={()=>void view()}>Open persisted historical report</button>
-  <button className="secondary" disabled={busy||!compareId||job?.status!=="COMPLETED"||job.id===compareId} onClick={()=>void compare()}>Compare historical runs</button>
+  <button className="secondary" disabled={busy||!compareId||job?.status!=="COMPLETED"||job?.id===compareId} onClick={()=>void compare()}>Compare historical runs</button>
   {comparison&&<p>New fixture observations: {comparison.newlyObserved.length} · Resolved in fixture: {comparison.noLongerObserved.length} · Unchanged: {comparison.stillObserved.length}. Customer status remains UNKNOWN.</p>}
   {report&&<>
    <h3>6. Immutable evidence-backed synthetic report</h3>

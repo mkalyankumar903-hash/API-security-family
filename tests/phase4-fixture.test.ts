@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {evaluateAuthFixture,SCHEMES,FIXTURES,policyFor,declaredSchemeCoverage} from "../packages/assessment-engine/src/auth-fixture.js";
+import {evaluateAuthFixture,SCHEMES,policyFor,declaredSchemeCoverage} from "../packages/assessment-engine/src/auth-fixture.js";
 const tenant="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",target="aaaaaaaa-bbbb-4aaa-8aaa-aaaaaaaaaaaa";
 for(const scheme of SCHEMES){
  test("Phase04 actual Fastify.inject "+scheme+" secure and deliberately broken auth state matrix",async()=>{
