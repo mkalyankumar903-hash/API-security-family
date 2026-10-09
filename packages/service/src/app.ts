@@ -10,6 +10,7 @@ import {registerDetectionRoutes,DetectionError} from "./detection.js";
 import {registerAuthFixtureRoutes,AuthFixtureError} from "./auth-fixture.js";
 import {registerUnifiedRoutes,UnifiedError} from "./unified.js";
 import {registerPtRoutes,PtError} from "./pt.js";
+import {registerPtProductRoutes} from "./pt-product.js";
 
 class ApiError extends Error { constructor(public statusCode: number, public code: string) { super(code); } }
 const sessions = new WeakMap<FastifyRequest,string>();
@@ -182,5 +183,6 @@ export async function makeApp(): Promise<FastifyInstance> {
   await registerAuthFixtureRoutes(app,tenant);
   await registerUnifiedRoutes(app,tenant);
   registerPtRoutes(app,tenant);
+  registerPtProductRoutes(app,tenant);
   return app;
 }
