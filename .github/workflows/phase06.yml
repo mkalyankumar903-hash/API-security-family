@@ -222,4 +222,4 @@ jobs:
       - name: Initialize fresh isolated database 001-009
         run: npm run migrate
       - name: Real PostgreSQL Phase06 rich and historical regressions
-        run: node --import tsx --test --test-concurrency=1 tests/phase06.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase06-upgrade.pg.test.ts
+        run: node --import tsx --test --test-concurrency=1 tests/phase06.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase06-upgrade.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase06-races.pg.test.ts
