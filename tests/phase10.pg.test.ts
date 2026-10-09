@@ -33,7 +33,7 @@ test("Phase10 PostgreSQL: atomic claims, generations, tenant read-only status an
   assert.equal(before.statusCode,200,before.body);
   assert.equal(before.json().schemaVersion,"pt-worker-safety-v1");
   assert.equal(before.json().queue.queueState,"QUEUED");
-  await assert.rejects(()=>withTenant(A,tx=>tx.query("SELECT assessment_id FROM api_queue.api_assessment_queue LIMIT 1"))),
+  await assert.rejects(()=>withTenant(A,tx=>tx.query("SELECT assessment_id FROM api_queue.api_assessment_queue LIMIT 1")),
    /permission denied/i,"application role must not read the private queue");
   const concurrent=await Promise.all([claimJob(),claimJob()]);
   const owners=concurrent.filter(x=>x?.assessment_id===id);
