@@ -99,5 +99,5 @@ test("real browser expiry and unauthorized request fail closed",async({page,requ
  });
  expect(reuse.status()).toBe(409);
  await page.getByLabel("Synthetic development token (never a production login)").fill("forged-unauthorized-token");
- await expect(page.getByRole("alert")).toContainText("Access denied: PERMISSION_DENIED");
+ await expect(page.getByRole("alert").filter({hasText:"Access denied: PERMISSION_DENIED"})).toHaveCount(1);
 });
