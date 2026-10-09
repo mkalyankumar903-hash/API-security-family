@@ -113,6 +113,16 @@ export async function registerUnifiedRoutes(app:FastifyInstance,tenant:(req:Fast
       engineVersion:record.engine_version,targetId,specificationId,mode:"SPEC_ONLY",
       maxRequests:0,methods:[],networkRequestsAuthorized:0});
   });
+  app.post("/v5/assessments/:id/cancel",async req=>withTenant(tenant(req),async tx=>{
+    const id=param(req,"id");
+    const row=await tx.query("SELECT engine_version FROM api_assessments WHERE id=$1",[id]);
+    if(!row.rowCount)fail(404,"ASSESSMENT_NOT_FOUND");
+    if(!["inventory-v1","inventory-v2"].includes(row.rows[0].engine_version))
+      fail(409,"ENGINE_SPECIFIC_CANCEL_REQUIRED");
+    const result=await tx.query("SELECT public.api_cancel_assessment($1) AS cancelled",[id]);
+    if(!result.rows[0].cancelled)fail(409,"NOT_CANCELLABLE");
+    return {id,status:"CANCELLED",verifiedFixed:false};
+  }));
   app.get("/v5/assessments",async req=>{
     const q=query(req),p=page(q),targetId=optionalId(q.targetId),specificationId=optionalId(q.specificationId);
     const engine=choice(q.engineVersion,engines),status=choice(q.status,states);
