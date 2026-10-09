@@ -42,8 +42,28 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  expect(signed.status()).toBe(201);
  await panel.getByRole("button",{name:"Refresh detection permit"}).click();
  await expect(panel.getByText("TEST-ONLY PERMIT ISSUED")).toBeVisible();
- await panel.getByRole("button",{name:"Start governed detection assessment"}).click();
+ // The React click launches an asynchronous POST; a Playwright click does not await its commit.
+ // Synchronize on the exact scope-bound admission response before draining the private queue.
+ const submitDetection=async(scopeId:string):Promise<string>=>{
+  const admitted=page.waitForResponse(r=>r.request().method()==="POST"&&
+   r.url()===url+"/v7/pt/scopes/"+scopeId+"/detections");
+  await panel.getByRole("button",{name:"Start governed detection assessment"}).click();
+  const response=await admitted;
+  const payload=await response.json() as {id?:string;status?:string;error?:string};
+  expect(response.status(),JSON.stringify({scopeId,status:response.status(),error:payload.error})).toBe(201);
+  expect(payload.status).toBe("QUEUED");
+  expect(payload.id).toMatch(/^[a-f0-9-]{36}$/i);
+  const persisted=await request.get(url+"/v7/pt/jobs/"+payload.id,{headers:auth});
+  expect(persisted.status()).toBe(200);
+  const state=await persisted.json() as {id:string;scope_id:string;status:string};
+  expect(state.id).toBe(payload.id);
+  expect(state.scope_id).toBe(scopeId);
+  expect(state.status).toBe("QUEUED");
+  return payload.id!;
+ };
+ const vulnerableId=await submitDetection(sid);
  expect(await drainQueue(1)).toBe(1);
+ expect((await (await request.get(url+"/v7/pt/jobs/"+vulnerableId,{headers:auth})).json() as {status:string}).status).toBe("COMPLETED");
  await panel.getByRole("button",{name:"Refresh detection results"}).click();
  await expect(panel.getByText(/Synthetic observations 1/)).toBeVisible();
  await expect(panel.getByText(/PT-BOLA-CROSS-USER · HIGH · HIGH/)).toBeVisible();
@@ -70,8 +90,9 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  expect((await request.post(url+"/v6/pt/test-authority/scopes/"+newScope+"/issue",
   {headers:{...auth,"x-pt-authority-key":signer},data:{}})).status()).toBe(201);
  await panel.getByRole("button",{name:"Refresh detection permit"}).click();
- await panel.getByRole("button",{name:"Start governed detection assessment"}).click();
+ const secureId=await submitDetection(newScope);
  expect(await drainQueue(1)).toBe(1);
+ expect((await (await request.get(url+"/v7/pt/jobs/"+secureId,{headers:auth})).json() as {status:string}).status).toBe("COMPLETED");
  await panel.getByRole("button",{name:"Refresh detection results"}).click();
  await expect(panel.getByText(/Synthetic observations 0/)).toBeVisible();
  await expect(panel.getByText(/No synthetic weakness observed/)).toBeVisible();
