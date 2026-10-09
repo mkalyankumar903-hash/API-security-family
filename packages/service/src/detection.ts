@@ -75,12 +75,17 @@ export async function registerDetectionRoutes(app:FastifyInstance,tenant:(req:Fa
  app.get("/v3/assessments/:id/findings",async req=>{
   const assessmentId=part(req,"id"),p=page(req),query=req.query as Record<string,unknown>;
   const category=typeof query.category==="string"?query.category:null,impact=typeof query.impact==="string"?query.impact:null;
+  const confidence=typeof query.confidence==="string"?query.confidence:null,ruleId=typeof query.ruleId==="string"?query.ruleId:null;
+  const operationKey=typeof query.operationKey==="string"?query.operationKey:null;
   if(category&&(!/^[A-Z_]{1,32}$/.test(category)))fail(400,"INVALID_CATEGORY");
   if(impact&&!["INFORMATIONAL","LOW","MEDIUM","HIGH"].includes(impact))fail(400,"INVALID_IMPACT");
+  if(confidence&&!["HIGH","MEDIUM","LOW"].includes(confidence))fail(400,"INVALID_CONFIDENCE");
+  if(ruleId&&!/^API03_[A-Z0-9_]{2,80}$/.test(ruleId))fail(400,"INVALID_RULE_FILTER");
+  if(operationKey&&(operationKey.length>512||/[\x00-\x1f]/.test(operationKey)))fail(400,"INVALID_OPERATION_FILTER");
   return withTenant(tenant(req),async tx=>{
    if(!(await tx.query("SELECT 1 FROM api_assessments WHERE id=$1 AND engine_version='inventory-v1'",[assessmentId])).rowCount)fail(404,"ASSESSMENT_NOT_FOUND");
-   return (await tx.query('SELECT f.id,f.rule_id AS "ruleId",f.rule_version AS "ruleRevision",f.stable_fingerprint AS "fingerprint",f.correlation_key AS "correlationKey",f.operation_key AS "operationKey",f.category,f.severity AS impact,f.evidence_confidence AS confidence,f.potential_impact AS "potentialImpact",f.explanation,f.remediation,f.validation_level AS "validationLevel",f.review_required AS "reviewRequired",f.evidence_id AS "evidenceId",e.pointer,e.content_json AS evidence FROM api_findings f JOIN api_evidence e ON e.id=f.evidence_id AND e.tenant_id=f.tenant_id WHERE f.assessment_id=$1 AND ($2::text IS NULL OR f.category=$2) AND ($3::text IS NULL OR f.severity=$3) ORDER BY f.rule_id,f.operation_key,f.stable_fingerprint LIMIT $4 OFFSET $5',
-    [assessmentId,category,impact,p.limit,p.offset])).rows;
+   return (await tx.query('SELECT f.id,f.rule_id AS "ruleId",f.rule_version AS "ruleRevision",f.stable_fingerprint AS "fingerprint",f.correlation_key AS "correlationKey",f.operation_key AS "operationKey",f.category,f.severity AS impact,f.evidence_confidence AS confidence,f.potential_impact AS "potentialImpact",f.explanation,f.remediation,f.validation_level AS "validationLevel",f.review_required AS "reviewRequired",f.evidence_id AS "evidenceId",e.pointer,e.content_json AS evidence FROM api_findings f JOIN api_evidence e ON e.id=f.evidence_id AND e.tenant_id=f.tenant_id WHERE f.assessment_id=$1 AND ($2::text IS NULL OR f.category=$2) AND ($3::text IS NULL OR f.severity=$3) AND ($4::text IS NULL OR f.evidence_confidence=$4) AND ($5::text IS NULL OR f.rule_id=$5) AND ($6::text IS NULL OR f.operation_key=$6) ORDER BY f.rule_id,f.operation_key,f.stable_fingerprint LIMIT $7 OFFSET $8',
+    [assessmentId,category,impact,confidence,ruleId,operationKey,p.limit,p.offset])).rows;
   });
  });
  app.get("/v3/assessments/:id/findings/:findingId",async req=>{

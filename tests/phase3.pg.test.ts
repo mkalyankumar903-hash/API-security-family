@@ -56,6 +56,13 @@ test("real PostgreSQL Phase03 four-format persisted queue, evidence, immutable r
    assert.equal(findings.json().length,runResult.report.observationCount);
    if(findings.json().length){
     const item=findings.json()[0];
+    const selection=new URLSearchParams({confidence:item.confidence,ruleId:item.ruleId});
+    if(item.operationKey)selection.set("operationKey",item.operationKey);
+    const matching=await req("GET","/v3/assessments/"+runResult.jid+"/findings?"+selection.toString());
+    assert.equal(matching.statusCode,200,matching.body);
+    assert.ok(matching.json().length>0);
+    assert.ok(matching.json().every((f:{confidence:string;ruleId:string;operationKey:string|null})=>f.confidence===item.confidence&&f.ruleId===item.ruleId&&(item.operationKey===null||f.operationKey===item.operationKey)));
+    assert.equal((await req("GET","/v3/assessments/"+runResult.jid+"/findings?confidence=IMPOSSIBLE")).statusCode,400);
     const detail=await req("GET","/v3/assessments/"+runResult.jid+"/findings/"+item.id);
     assert.equal(detail.statusCode,200,detail.body);assert.equal(detail.json().fingerprint,item.fingerprint);
     assert.match(detail.json().pointer,/^\//);

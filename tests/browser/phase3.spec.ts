@@ -31,6 +31,9 @@ test("real Chromium: imported OpenAPI 3.0 → queued real worker → evidence �
  await expect(detection.getByText("Runtime verification not performed.",{exact:false})).toBeVisible();
  await detection.getByRole("button",{name:"Inspect evidence"}).first().click();
  await expect(detection.getByRole("heading",{name:/Evidence detail/})).toBeVisible();
+ await detection.getByLabel("Evidence confidence").selectOption("HIGH");
+ await expect(detection.getByLabel("Evidence confidence")).toHaveValue("HIGH");
+ await detection.getByLabel("Evidence confidence").selectOption("");
  console.log("PHASE3_E2E_STEP evidence_visible");
  await expect(detection.getByText(/Source pointer:/)).toBeVisible();
  await expect(detection.getByRole("button",{name:"Download immutable JSON report"})).toBeVisible();

@@ -24,7 +24,8 @@ export function InventoryDetection({token,targetId,active}:{token:string;targetI
  const [rules,setRules]=useState<Rule[]>([]),[history,setHistory]=useState<Job[]>([]),[job,setJob]=useState<Job|null>(null);
  const [findings,setFindings]=useState<Finding[]>([]),[report,setReport]=useState<Report|null>(null);
  const [coverage,setCoverage]=useState<Coverage[]>([]),[detail,setDetail]=useState<Finding|null>(null);
- const [impact,setImpact]=useState(""),[category,setCategory]=useState(""),[search,setSearch]=useState("");
+ const [impact,setImpact]=useState(""),[category,setCategory]=useState(""),[confidence,setConfidence]=useState("");
+ const [ruleKey,setRuleKey]=useState(""),[operationKey,setOperationKey]=useState(""),[search,setSearch]=useState("");
  const [offset,setOffset]=useState(0),[from,setFrom]=useState(""),[to,setTo]=useState("");
  const [comparison,setComparison]=useState<Comparison|null>(null);
  const [busy,setBusy]=useState(false),[error,setError]=useState(""),[loading,setLoading]=useState(true);
@@ -59,17 +60,18 @@ export function InventoryDetection({token,targetId,active}:{token:string;targetI
   }return()=>{live=false;};
  },[job?.id,job?.status,token]);
  useEffect(()=>{if(!job||job.status!=="COMPLETED")return;let live=true;
-  const q=new URLSearchParams({limit:"100",offset:String(offset)});if(impact)q.set("impact",impact);if(category)q.set("category",category);
+  const q=new URLSearchParams({limit:"100",offset:String(offset)});if(impact)q.set("impact",impact);if(category)q.set("category",category);if(confidence)q.set("confidence",confidence);
+  if(ruleKey)q.set("ruleId",ruleKey);if(operationKey)q.set("operationKey",operationKey);
   void api<Finding[]>(token,"/v3/assessments/"+job.id+"/findings?"+q).then(r=>{if(live)setFindings(r);}).catch(e=>{if(live)setError(e.message);});
   return()=>{live=false;};
- },[job?.id,job?.status,impact,category,offset,token]);
+ },[job?.id,job?.status,impact,category,confidence,ruleKey,operationKey,offset,token]);
  async function run(fn:()=>Promise<void>){setBusy(true);setError("");try{await fn();}catch(e){setError(e instanceof Error?e.message:"UNKNOWN_ERROR");}finally{setBusy(false);}}
  async function start(){
   if(!selected||!active)return;
   await run(async()=>{
    const j=await api<Job>(token,"/v3/targets/"+targetId+"/assessments","POST",
     {specificationId:selected,mode:"SPEC_ONLY",engineVersion:"inventory-v1"},{"idempotency-key":"detection-"+crypto.randomUUID()});
-   setJob(j);setComparison(null);setImpact("");setCategory("");setOffset(0);await refresh();setFrom(history[0]?.id??"");setTo(j.id);
+   setJob(j);setComparison(null);setImpact("");setCategory("");setConfidence("");setRuleKey("");setOperationKey("");setOffset(0);await refresh();setFrom(history[0]?.id??"");setTo(j.id);
   });
  }
  async function openFinding(f:Finding){
@@ -90,6 +92,8 @@ export function InventoryDetection({token,targetId,active}:{token:string;targetI
   link.click();URL.revokeObjectURL(url);
  }
  const visible=findings.filter(f=>!search||[f.ruleId,f.operationKey??"",f.category].some(x=>x.toLowerCase().includes(search.toLowerCase())));
+ const ruleChoices=[...new Set((report?.observations??[]).map(f=>f.ruleId))].sort();
+ const operationChoices=[...new Set((report?.observations??[]).map(f=>f.operationKey).filter((v):v is string=>!!v))].sort();
  return <section aria-label="Deterministic API detection">
   <h2>Phase 3 · Deterministic API security detection</h2>
   <p>Real persisted SPEC_ONLY observations from imported inventory. No API traffic, live vulnerability verification or Host authority.</p>
@@ -127,6 +131,9 @@ export function InventoryDetection({token,targetId,active}:{token:string;targetI
    <div className="formgrid">
     <label>Severity / potential impact<select value={impact} onChange={e=>{setImpact(e.target.value);setOffset(0);}}><option value="">All</option>{["INFORMATIONAL","LOW","MEDIUM","HIGH"].map(x=><option key={x}>{x}</option>)}</select></label>
     <label>Category<select value={category} onChange={e=>{setCategory(e.target.value);setOffset(0);}}><option value="">All</option>{["AUTH","REQUEST","RESPONSE","TRANSPORT","METADATA"].map(x=><option key={x}>{x}</option>)}</select></label>
+    <label>Evidence confidence<select value={confidence} onChange={e=>{setConfidence(e.target.value);setOffset(0);}}><option value="">All</option>{["HIGH","MEDIUM","LOW"].map(x=><option key={x}>{x}</option>)}</select></label>
+    <label>Detection rule<select value={ruleKey} onChange={e=>{setRuleKey(e.target.value);setOffset(0);}}><option value="">All</option>{ruleChoices.map(x=><option key={x}>{x}</option>)}</select></label>
+    <label>Operation<select value={operationKey} onChange={e=>{setOperationKey(e.target.value);setOffset(0);}}><option value="">All</option>{operationChoices.map(x=><option key={x}>{x}</option>)}</select></label>
     <label>Rule or operation search<input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rule ID or operation"/></label>
    </div>
    <table><thead><tr><th>Rule</th><th>Operation</th><th>Impact</th><th>Confidence</th><th>Evidence</th></tr></thead><tbody>{visible.map(f=><tr key={f.id}>
