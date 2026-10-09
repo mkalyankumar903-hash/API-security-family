@@ -78,6 +78,10 @@ Test-only `PT_TEST_AUTHORITY_ENABLED` and signing keys exist exclusively in the 
 
 The target registration and both scope proposals in the Chromium test wait for exact committed HTTP responses; the browser never infers a successful scope from a click or an arbitrary sleep. The secure and vulnerable comparison journeys verify separate permit/scope binding and persistence before queue processing.
 
+## Accepted Phase06 customer UI compatibility
+
+The existing Phase06 authorization and safe execution region retains its accessible `API Penetration Testing` heading. The nested Phase07 detection console uses a distinct heading, avoiding duplicate locator matches and ambiguity for assistive technologies. `tests/browser/phase7.spec.ts` verifies the original heading remains uniquely addressable. Targeted Chromium qualification executes **both** accepted `phase6.spec.ts` and new `phase7.spec.ts` as separate Playwright processes so old and new customer flows are tested without shared database-pool teardown conflicts.
+
 ## GitHub-hosted qualification (required, not assumed)
 
 Workflow `.github/workflows/phase07.yml` on `work/phase07-api-pt-detection-engine`:
