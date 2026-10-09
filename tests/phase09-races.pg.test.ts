@@ -172,10 +172,9 @@ test("Phase09 independently coordinated PostgreSQL transaction and orchestration
     assert.equal((await tx.query("SELECT 1 FROM api_pt9_plans WHERE assessment_id=$1",[jid])).rowCount,0);
     assert.equal((await tx.query("SELECT 1 FROM api_pt9_stages WHERE assessment_id=$1",[jid])).rowCount,0);
    });
-   await assert.rejects(()=>withWorkerTenant(B,tx=>tx.query(
-    "UPDATE api_pt9_stages SET status='CANCELLED',reason='CROSS_TENANT',finished_at=now() WHERE assessment_id=$1",[jid])),
-    /permission denied|tenant|row-level security|PT9_STAGE_TRANSITION/i).catch(()=>Promise.resolve());
-   // RLS-filtered UPDATE is also safe when the database returns an affected-row count of zero.
+   const forbidden=await withWorkerTenant(B,tx=>tx.query(
+    "UPDATE api_pt9_stages SET status='CANCELLED',reason='CROSS_TENANT',finished_at=now() WHERE assessment_id=$1",[jid]));
+   assert.equal(forbidden.rowCount,0,"FORCE RLS must filter foreign-tenant stage mutations");
    assert.equal(await processOneJob(),true);
    assert.equal((await call("GET","/v9/pt/orchestrations/"+jid,undefined,{token:"local-test-token-beta"})).statusCode,404);
   });
