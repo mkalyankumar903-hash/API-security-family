@@ -4,7 +4,7 @@ import {randomUUID} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {makeApp} from "../packages/service/src/app.js";
 import {migrate,pool,withTenant,withWorkerTenant,closeDatabase} from "../packages/database/src/index.js";
-import {processOneJob} from "../packages/worker/src/index.js";
+import {processOneJob,drainQueue} from "../packages/worker/src/index.js";
 import {RULES} from "../packages/pt/src/detection.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const AUTH="local-test-token-alpha",SIGNER=process.env.PT_TEST_AUTHORITY_KEY??"";
@@ -99,7 +99,7 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
    const r=await start(await (async()=>{const other=await scope(s);await permit(other);return other;})(),"SECURE_BASELINE",RULES.map(x=>x.id),idem);
    assert.equal(r.statusCode,201,r.body);
    assert.equal((await start((await call("GET","/v7/pt/jobs/"+(r.json().id as string))).json().scope_id as string,"SECURE_BASELINE",RULES.map(x=>x.id),idem)).statusCode,200);
-   assert.equal(await processOneJob(),true);
+   assert.equal(await drainQueue(2),2);
    const detail=await call("GET","/v7/pt/jobs/"+job);
    assert.equal(detail.statusCode,200,detail.body);assert.equal(detail.json().status,"COMPLETED");
    const report=await call("GET","/v7/pt/jobs/"+job+"/report");
@@ -118,8 +118,6 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
    await assert.rejects(()=>withTenant(A,tx=>tx.query("UPDATE api_pt_detection_reports SET projection='{}'::jsonb WHERE assessment_id=$1",[job])),/immutable|permission denied|PHASE1/i);
    await assert.rejects(()=>withTenant(A,tx=>tx.query("UPDATE api_pt_detection_results SET status='PASS' WHERE assessment_id=$1",[job])),/immutable|permission denied|PHASE1/i);
    assert.equal((await withWorkerTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1 AND state='RESERVED'",[job]))).rows[0].n,0);
-   // Process the idempotency-created additional queued secure run.
-   assert.equal(await processOneJob(),true);
    const secureReport=await call("GET","/v7/pt/jobs/"+(r.json().id as string)+"/report");
    assert.equal(secureReport.statusCode,200,secureReport.body);
    assert.equal((secureReport.json().observations as unknown[]).length,0);
