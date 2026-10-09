@@ -45,7 +45,7 @@ test("real Chromium Phase04 full trusted fixture workflow, secure vs BOLA, evide
  await region.getByRole("button",{name:"Create synthetic identity profile"}).click();
  await expect(region.getByText(/validation: PENDING/)).toBeVisible();
  await region.getByRole("button",{name:"Validate fixture readiness"}).click();
- await expect(region.getByRole("status")).toContainText("Fixture-ready");
+ await expect(region.getByRole("status").filter({hasText:"Fixture-ready"})).toContainText("Fixture-ready");
  await region.getByRole("button",{name:"Start isolated authenticated assessment"}).click();
  await expect(region.getByRole("status").filter({hasText:"Authenticated assessment status:"})).toContainText("QUEUED");
  expect(await drainQueue()).toBe(1);
