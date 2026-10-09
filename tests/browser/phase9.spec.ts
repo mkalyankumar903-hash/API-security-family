@@ -66,6 +66,7 @@ test("Phase09 real Chromium: complete six-stage governed automatic journey with 
  await expect(panel.getByRole("listitem").filter({hasText:"FINALIZATION"}).first()).toBeVisible();
  await panel.getByRole("button",{name:"Start authorized orchestration"}).click();
  await expect(panel.getByText("Persisted orchestration progress")).toBeVisible();
+ await expect(panel.getByText("Persisted orchestration progress")).toBeVisible();
  expect(await processOneJob()).toBe(true);
  await expect(panel.getByText("Immutable completed synthetic report")).toBeVisible({timeout:30000});
  await expect(panel.getByText("8 PASS", {exact:false})).toBeVisible();
@@ -90,6 +91,7 @@ test("Phase09 real Chromium: signed synthetic revocation blocks downstream stage
  await panel.getByLabel("Trusted policy profile").selectOption("SYNTHETIC_PT_AUTHORIZATION_FOCUSED");
  await expect(panel.getByText("Planned evaluations: 4",{exact:false})).toBeVisible();
  await panel.getByRole("button",{name:"Start authorized orchestration"}).click();
+ await expect(panel.getByText("Persisted orchestration progress")).toBeVisible();
  const history=await request.get(API+"/v9/pt/targets/"+tid+"/history",{headers:tenant});
  const runs=await history.json() as {id:string}[];
  const jid=runs[0]!.id;
@@ -112,6 +114,7 @@ test("Phase09 Chromium: scoped policy selection executes four actual authorized 
  await expect(panel.getByText("Planned evaluations: 4",{exact:false})).toBeVisible();
  await expect(panel.getByRole("listitem").filter({hasText:"AUTHENTICATION"})).toHaveCount(0);
  await panel.getByRole("button",{name:"Start authorized orchestration"}).click();
+ await expect(panel.getByText("Persisted orchestration progress")).toBeVisible();
  expect(await processOneJob()).toBe(true);
  await expect(panel.getByText("Immutable completed synthetic report")).toBeVisible({timeout:30000});
  const h=await request.get(API+"/v9/pt/targets/"+tid+"/history",{headers:tenant});
@@ -142,6 +145,7 @@ test("Phase09 Chromium: cancel after one governed evaluation preserves terminal 
  await panel.getByLabel("Approved synthetic scope").selectOption(scopeId);
  await panel.getByLabel("Trusted policy profile").selectOption("SYNTHETIC_PT_AUTHORIZATION_FOCUSED");
  await panel.getByRole("button",{name:"Start authorized orchestration"}).click();
+ await expect(panel.getByText("Persisted orchestration progress")).toBeVisible();
  const h=await request.get(API+"/v9/pt/targets/"+tid+"/history",{headers:tenant});
  const jid=(await h.json() as {id:string}[])[0]!.id;
  const lease=await claimJob();expect(lease?.assessment_id).toBe(jid);
@@ -168,6 +172,7 @@ test("Phase09 Chromium: existing test-authority emergency stop cancels queued au
  await panel.getByLabel("Approved synthetic scope").selectOption(scopeId);
  await panel.getByLabel("Trusted policy profile").selectOption("SYNTHETIC_PT_AUTHORIZATION_FOCUSED");
  await panel.getByRole("button",{name:"Start authorized orchestration"}).click();
+ await expect(panel.getByText("Persisted orchestration progress")).toBeVisible();
  const h=await request.get(API+"/v9/pt/targets/"+tid+"/history",{headers:tenant});
  const jid=(await h.json() as {id:string}[])[0]!.id;
  try{
@@ -190,6 +195,7 @@ test("Phase09 Chromium: stale-worker takeover resumes durable completed stage wi
  await panel.getByLabel("Approved synthetic scope").selectOption(scopeId);
  await panel.getByLabel("Trusted policy profile").selectOption("SYNTHETIC_PT_AUTHORIZATION_FOCUSED");
  await panel.getByRole("button",{name:"Start authorized orchestration"}).click();
+ await expect(panel.getByText("Persisted orchestration progress")).toBeVisible();
  const h=await request.get(API+"/v9/pt/targets/"+tid+"/history",{headers:tenant});
  const jid=(await h.json() as {id:string}[])[0]!.id;
  const old=await claimJob();expect(old?.assessment_id).toBe(jid);
