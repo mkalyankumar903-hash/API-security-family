@@ -1,0 +1,100 @@
+openapi: 3.1.0
+info:
+  title: LumicSec Phase 03 Inventory Detection API (synthetic testing only)
+  version: 3.0.0
+components:
+  securitySchemes:
+    TestBearer:
+      type: http
+      scheme: bearer
+      description: Synthetic test authority only; no production identity.
+  schemas:
+    AssessmentRequest:
+      type: object
+      additionalProperties: false
+      required: [specificationId, mode, engineVersion]
+      properties:
+        specificationId: {type: string, format: uuid}
+        mode: {const: SPEC_ONLY}
+        engineVersion: {const: inventory-v1}
+security:
+  - TestBearer: []
+paths:
+  /v3/detection/engines:
+    get:
+      responses:
+        '200': {description: Engine capabilities}
+  /v3/detection/capabilities:
+    get:
+      responses:
+        '200': {description: Coverage and formats}
+  /v3/detection/rules:
+    get:
+      responses:
+        '200': {description: Rule catalog}
+  /v3/detection/rules/{ruleId}:
+    get:
+      parameters: [{name: ruleId, in: path, required: true, schema: {type: string}}]
+      responses:
+        '200': {description: Rule details}
+        '404': {description: No such rule}
+  /v3/targets/{id}/assessments:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      parameters: [{name: idempotency-key, in: header, required: true, schema: {type: string, minLength: 8}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AssessmentRequest'}
+      responses:
+        '201': {description: Assessment queued}
+        '200': {description: Idempotent replay}
+    get:
+      responses:
+        '200': {description: Assessment history}
+  /v3/assessments/{id}:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      responses:
+        '200': {description: Job status}
+  /v3/assessments/{id}/coverage:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      responses:
+        '200': {description: Persisted rule execution results}
+  /v3/assessments/{id}/findings:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
+        - {name: impact, in: query, schema: {type: string, enum: [INFORMATIONAL, LOW, MEDIUM, HIGH]}}
+        - {name: confidence, in: query, schema: {type: string, enum: [HIGH, MEDIUM, LOW]}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: ruleId, in: query, schema: {type: string}}
+        - {name: operationKey, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Paginated findings}
+  /v3/assessments/{id}/findings/{findingId}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: findingId, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      responses:
+        '200': {description: Finding evidence}
+  /v3/assessments/{id}/report:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    get:
+      responses:
+        '200': {description: Immutable report projection}
+  /v3/assessments/{id}/cancel:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      responses:
+        '200': {description: Cancellation state}
+  /v3/targets/{id}/assessments/compare:
+    parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+    post:
+      responses:
+        '200': {description: Documentation observation comparison; not VERIFIED_FIXED}
