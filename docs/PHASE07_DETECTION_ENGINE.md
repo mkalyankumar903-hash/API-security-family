@@ -70,6 +70,14 @@ The regression suite is structured to verify the following independently rather 
 
 Test-only `PT_TEST_AUTHORITY_ENABLED` and signing keys exist exclusively in the isolated CI environment. These tests cannot authorize customer scanning, production exploitation or Host findings.
 
+## Populated upgrade, worker claim fencing and conservative no-replay
+
+`tests/phase07-upgrade.pg.test.ts` constructs a separate populated Phase06 migration-010 PostgreSQL database including a previously issued real HMAC-bound test-only permit, historical inventory, evidence and immutable reports. It applies additive migration 011 transactionally and verifies preservation of prior rows, permit validation without a persisted bearer, the new four FORCE RLS tables, separated app/worker privileges, and the new engine-version constraint. This is separate from the fresh 001–011 migration qualification.
+
+`tests/phase07.pg.test.ts` exercises all eight detector rules end-to-end through actual private PostgreSQL queue claims and the governor; competing same-key admission is exactly-once and distinct-key permit admission respects concurrency limits. It additionally verifies that a replaced worker claim cannot settle reservations owned by a later claimant, and that a terminal cancellation which deletes the queue record may settle stranded evaluation budget only as `UNCERTAIN`, never replay or mark the assessment completed. A missing queue row on an active assessment does not grant settlement authority.
+
+The target registration and both scope proposals in the Chromium test wait for exact committed HTTP responses; the browser never infers a successful scope from a click or an arbitrary sleep. The secure and vulnerable comparison journeys verify separate permit/scope binding and persistence before queue processing.
+
 ## GitHub-hosted qualification (required, not assumed)
 
 Workflow `.github/workflows/phase07.yml` on `work/phase07-api-pt-detection-engine`:
