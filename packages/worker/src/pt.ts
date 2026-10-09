@@ -167,8 +167,28 @@ async function finalize(tenant:string,id:string,token:string):Promise<void>{
   await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[id,token]);
  });
 }
+/** Conservatively settle any reservation stranded by cancellation, stop or lease
+ * invalidation. Never refund a possibly executed fixture, never replay it. */
+async function settleOrphaned(tenant:string,id:string):Promise<void>{
+ await withWorkerTenant(tenant,async tx=>{
+  const state=await context(tx,tenant,id,true);
+  if(!state)return;
+  const rows=await tx.query("SELECT operation_key FROM api_pt_ledger WHERE assessment_id=$1 AND state='RESERVED' FOR UPDATE",[id]);
+  for(const row of rows.rows){
+   await tx.query("UPDATE api_pt_ledger SET state='UNCERTAIN',settled_at=now() WHERE assessment_id=$1 AND operation_key=$2 AND state='RESERVED'",[id,row.operation_key]);
+   await tx.query("UPDATE api_pt_permits SET reserved=reserved-1,consumed=consumed+1 WHERE id=$1 AND reserved>0",[state.permit_id]);
+  }
+  if(rows.rowCount)await audit(tx,tenant,id,"PT_ORPHANED_RESERVATIONS_SETTLED",String(rows.rowCount));
+ });
+}
+/** Optional test-only asynchronous barriers; no production/customer entry point. */
+export type PtQualificationBarriers={
+ afterReservation?:()=>Promise<void>;
+ beforePublication?:()=>Promise<void>;
+};
 /** Phase06 uses the existing private assessment queue. No parallel PT scheduler. */
-export async function processPtJob(tenant:string,id:string,token:string):Promise<void>{
+export async function processPtJob(tenant:string,id:string,token:string,barriers?:PtQualificationBarriers):Promise<void>{
+ if(barriers&&process.env.NODE_ENV!=="test")throw new Error("PT_TEST_BARRIERS_DISABLED");
  try{
   const operations=await withWorkerTenant(tenant,async tx=>{
    const r=await tx.query("SELECT j.operation_keys FROM api_pt_jobs j WHERE j.assessment_id=$1",[id]);
@@ -177,11 +197,19 @@ export async function processPtJob(tenant:string,id:string,token:string):Promise
   if(!operations)throw new Error("PT_JOB_CONFIG_NOT_FOUND");
   for(const k of operations){
    const admission=await reserve(tenant,id,token,k);
-   if(admission.decision==="LEASE_LOST")return;
-   if(admission.decision==="RESERVED"&&!await execute(tenant,id,token,admission))return;
+   if(admission.decision==="LEASE_LOST"){await settleOrphaned(tenant,id);return;}
+   if(admission.decision==="RESERVED"){
+    if(barriers?.afterReservation)await barriers.afterReservation();
+    if(!await execute(tenant,id,token,admission)){
+     await settleOrphaned(tenant,id);
+     return;
+    }
+   }
   }
+  if(barriers?.beforePublication)await barriers.beforePublication();
   await finalize(tenant,id,token);
  }catch{
+  await settleOrphaned(tenant,id);
   await withWorkerTenant(tenant,async tx=>{
    const q=await tx.query("SELECT claim_token FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[id]);
    if(q.rows[0]?.claim_token!==token)return;
