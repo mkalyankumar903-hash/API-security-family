@@ -90,7 +90,7 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
   document.body.appendChild(element);element.click();element.remove();URL.revokeObjectURL(objectUrl);
  });
  return <section aria-label="API PT deterministic detection assessment" role="region">
-  <h2>API Penetration Testing → Detection Assessment</h2>
+  <h2>Deterministic API PT Detection Assessment</h2>
   <p><strong>ISOLATED SYNTHETIC API PENETRATION TESTING — NOT CUSTOMER PRODUCTION VULNERABILITY VERIFICATION.</strong></p>
   <p>Versioned engine pt-detection-v1 · Trusted fixture pt-security-v1 · GET-only detection requests · Real Host authorization BLOCKED.</p>
   {error&&<p role="alert" className="error">{error}</p>}
