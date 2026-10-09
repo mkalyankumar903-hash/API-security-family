@@ -16,7 +16,7 @@
     "dev": "vite --host 127.0.0.1",
     "migrate": "node --env-file-if-exists=.env --import tsx packages/database/src/migrate.ts",
     "lint": "eslint packages apps tests vite.config.ts playwright.config.ts",
-    "test:browser": "playwright test tests/browser/assessment.spec.ts && playwright test tests/browser/phase1.spec.ts && playwright test tests/browser/phase2.spec.ts && playwright test tests/browser/phase3.spec.ts && playwright test tests/browser/phase4.spec.ts && playwright test tests/browser/phase5.spec.ts && playwright test tests/browser/phase6.spec.ts && playwright test tests/browser/phase7.spec.ts"
+    "test:browser": "playwright test tests/browser/assessment.spec.ts && playwright test tests/browser/phase1.spec.ts && playwright test tests/browser/phase2.spec.ts && playwright test tests/browser/phase3.spec.ts && playwright test tests/browser/phase4.spec.ts && playwright test tests/browser/phase5.spec.ts && playwright test tests/browser/phase6.spec.ts && playwright test tests/browser/phase7.spec.ts && playwright test tests/browser/phase8.spec.ts"
   },
   "dependencies": {
     "@fastify/cors": "11.0.1",
