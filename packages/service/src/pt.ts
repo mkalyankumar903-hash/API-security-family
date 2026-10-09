@@ -5,6 +5,7 @@ import {digest,enforcePermit,issueTestPermit,validateTestAuthority,verifyTestPer
 import {FIXTURE_ID,fixtureOperationFor} from "../../pt/src/fixture.js";
 import {DETECTION_FIXTURE,PROFILES,isProfile} from "../../pt/src/security-fixture.js";
 import {RULES,planRules,planFingerprint} from "../../pt/src/detection.js";
+import {persistTerminalCoverage} from "../../pt/src/terminal-coverage.js";
 
 export class PtError extends Error {constructor(public statusCode:number,public code:string){super(code);}}
 const ID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -327,6 +328,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    if(!j.rowCount)throw new PtError(404,"PT_JOB_NOT_FOUND");
    const c=await tx.query("SELECT public.api_cancel_assessment($1) AS success",[jid]);
    if(!c.rows[0]?.success)throw new PtError(409,"PT_JOB_NOT_CANCELLABLE");
+   await persistTerminalCoverage(tx,t,jid);
    await record(tx,t,jid,"PT_JOB_CANCELLED");
    return {id:jid,status:"CANCELLED"};
   });
@@ -345,7 +347,10 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    await tx.query("UPDATE api_pt_stop SET enabled=true,updated_at=now(),generation=generation+1 WHERE tenant_id=$1",[t]);
    await tx.query("UPDATE api_pt_permits SET revoked_at=now() WHERE tenant_id=$1 AND revoked_at IS NULL",[t]);
    const jobs=await tx.query("SELECT j.assessment_id FROM api_pt_jobs j JOIN api_assessments a ON a.id=j.assessment_id WHERE j.tenant_id=$1 AND a.status IN('QUEUED','PROCESSING')",[t]);
-   for(const j of jobs.rows)await tx.query("SELECT public.api_cancel_assessment($1)",[j.assessment_id]);
+   for(const j of jobs.rows){
+    await tx.query("SELECT public.api_cancel_assessment($1)",[j.assessment_id]);
+    await persistTerminalCoverage(tx,t,j.assessment_id as string);
+   }
    await record(tx,t,t,"PT_EMERGENCY_STOP",{cancelledJobs:jobs.rowCount});
    return {enabled:true,cancelledJobs:jobs.rowCount};
   });
@@ -473,6 +478,17 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    const present=await tx.query("SELECT 1 FROM api_pt_detection_plans WHERE assessment_id=$1",[jid]);
    if(!present.rowCount)throw new PtError(404,"DETECTION_JOB_NOT_FOUND");
    return (await tx.query("SELECT rule_id,rule_revision,status,code,fingerprint FROM api_pt_detection_results WHERE assessment_id=$1 ORDER BY rule_id",[jid])).rows;
+  });
+ });
+ app.get("/v8/pt/jobs/:id/terminal-coverage",async req=>{
+  const t=identity(req),jid=params(req);
+  return withTenant(t,async tx=>{
+   const present=await tx.query("SELECT a.status FROM api_pt_detection_plans p JOIN api_assessments a ON a.id=p.assessment_id AND a.tenant_id=p.tenant_id WHERE p.assessment_id=$1",[jid]);
+   if(!present.rowCount)throw new PtError(404,"DETECTION_JOB_NOT_FOUND");
+   if(!["FAILED","CANCELLED"].includes(present.rows[0].status))throw new PtError(409,"TERMINAL_COVERAGE_NOT_READY");
+   const found=await tx.query("SELECT projection FROM api_pt8_terminal_coverage WHERE assessment_id=$1",[jid]);
+   if(!found.rowCount)throw new PtError(409,"TERMINAL_COVERAGE_UNAVAILABLE");
+   return found.rows[0].projection;
   });
  });
  app.get("/v7/pt/jobs/:id/report",async req=>{
