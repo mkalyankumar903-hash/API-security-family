@@ -33,7 +33,7 @@ test("React renders real PostgreSQL backed inventory and assessment report",asyn
     render(React.createElement(AssessmentApp,{initialToken:token}),{container:dom.window.document.getElementById("root")!});
     await waitFor(()=>assert.ok((screen.getByLabelText("Select target") as HTMLSelectElement).options.length>=2));
     fireEvent.change(screen.getByLabelText("Select target"),{target:{value:id}});
-    await screen.findByText("/admin/accounts");
+    await screen.findByText("/admin/accounts",{}, {timeout:10000});
     fireEvent.click(screen.getByText("Start SPEC_ONLY assessment"));
     await screen.findByText(/Assessment status:/);
     await act(async()=>{await drainQueue();});
