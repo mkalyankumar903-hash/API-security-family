@@ -2,7 +2,9 @@ import type {FastifyInstance,FastifyRequest} from "fastify";
 import type {PoolClient} from "pg";
 import {withTenant,uuid} from "../../database/src/index.js";
 import {digest,enforcePermit,issueTestPermit,validateTestAuthority,verifyTestPermit,verifyStoredTestPermit,PermitError,PT_PROFILE,type PtClaims} from "../../pt/src/permit.js";
-import {FIXTURE_ID,fixtureOperation} from "../../pt/src/fixture.js";
+import {FIXTURE_ID,fixtureOperation,fixtureOperationFor} from "../../pt/src/fixture.js";
+import {DETECTION_FIXTURE,PROFILES,isProfile} from "../../pt/src/security-fixture.js";
+import {RULES,planRules} from "../../pt/src/detection.js";
 
 export class PtError extends Error {constructor(public statusCode:number,public code:string){super(code);}}
 const ID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -37,7 +39,7 @@ function authority(req:FastifyRequest):void{
 type Scope={
  id:string;tenant_id:string;target_id:string;specification_id:string;specification_version:number;
  spec_fingerprint:string;target_verification_version:number;target_scope_revision:number;
- environment:"SYNTHETIC";fixture_id:"billing-safe-v1";profile:typeof PT_PROFILE;
+ environment:"SYNTHETIC";fixture_id:"billing-safe-v1"|"pt-security-v1";profile:typeof PT_PROFILE;
  operation_keys:string[];exclusions:string[];max_evaluations:number;max_concurrency:number;
  rate_per_minute:number;deadline_ms:number;validity_minutes:number;
 };
@@ -100,14 +102,14 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
   strict(b,["specificationId","operationKeys","exclusions","maxEvaluations","maxConcurrency","ratePerMinute","deadlineMs","validityMinutes","fixtureId"]);
   const sid=id(b.specificationId),operationKeys=names(b.operationKeys,"OPERATIONS");
   const exclusions=b.exclusions===undefined?[]:Array.isArray(b.exclusions)?b.exclusions:null;
-  if(!exclusions||exclusions.length>20||exclusions.some(x=>typeof x!=="string"||!["/bills","/status"].includes(x))||
+  if(!exclusions||exclusions.length>20||exclusions.some(x=>typeof x!=="string"||!(b.fixtureId===DETECTION_FIXTURE?["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"]:["/bills","/status"]).includes(x))||
     new Set(exclusions).size!==exclusions.length)throw new PtError(400,"INVALID_EXCLUSIONS");
   const budget=number(b.maxEvaluations,1,30,"MAX_EVALUATIONS");
   const concurrency=number(b.maxConcurrency,1,2,"CONCURRENCY");
   const rate=number(b.ratePerMinute,1,20,"RATE");
   const deadline=number(b.deadlineMs,1000,30000,"DEADLINE");
   const validMinutes=number(b.validityMinutes,1,15,"VALIDITY");
-  if(b.fixtureId!==FIXTURE_ID)throw new PtError(400,"FIXTURE_NOT_SUPPORTED");
+  if(b.fixtureId!==FIXTURE_ID&&b.fixtureId!==DETECTION_FIXTURE)throw new PtError(400,"FIXTURE_NOT_SUPPORTED");
   const idempotency=key(req),newId=uuid();
   const result=await withTenant(t,async tx=>{
    const previous=await tx.query("SELECT * FROM api_pt_scopes WHERE target_id=$1 AND idempotency_key=$2",[tid,idempotency]);
@@ -129,11 +131,11 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
     const op=operations.get(k);
     if(!op)throw new PtError(409,"OPERATION_OUT_OF_SCOPE");
     if(op.method!=="GET"&&op.method!=="HEAD")throw new PtError(409,"METHOD_DENIED");
-    if(!fixtureOperation(op.method,op.path))throw new PtError(409,"FIXTURE_OPERATION_NOT_ALLOWED");
+    if(!fixtureOperationFor(b.fixtureId as string,op.method,op.path))throw new PtError(409,"FIXTURE_OPERATION_NOT_ALLOWED");
    }
    await tx.query("INSERT INTO api_pt_scopes(id,tenant_id,target_id,specification_id,specification_version,spec_fingerprint,target_verification_version,target_scope_revision,environment,fixture_id,profile,operation_keys,exclusions,max_evaluations,max_concurrency,rate_per_minute,deadline_ms,validity_minutes,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'SYNTHETIC',$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,$18)",
     [newId,t,tid,sid,i.rows[0].version_number,i.rows[0].raw_fingerprint,a.verification_version,a.scope_revision,
-     FIXTURE_ID,PT_PROFILE,JSON.stringify(operationKeys),JSON.stringify(exclusions),budget,concurrency,rate,deadline,validMinutes,idempotency]);
+     b.fixtureId,PT_PROFILE,JSON.stringify(operationKeys),JSON.stringify(exclusions),budget,concurrency,rate,deadline,validMinutes,idempotency]);
    await record(tx,t,newId,"PT_SCOPE_PROPOSED",{specificationId:sid,fixtureId:FIXTURE_ID,mode:PT_PROFILE});
    return {id:newId,status:"CUSTOMER_PROPOSED",created:true};
   });
@@ -186,10 +188,10 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    const now=Date.now(),pid=uuid();
    const operations=await tx.query("SELECT operation_key,method,path FROM api_inventory_operations WHERE specification_id=$1",[s.specification_id]);
    const selected=(operations.rows as {operation_key:string;method:string;path:string}[]).filter(x=>s.operation_keys.includes(x.operation_key));
-   if(selected.length!==s.operation_keys.length||selected.some(x=>!fixtureOperation(x.method,x.path)))
+   if(selected.length!==s.operation_keys.length||selected.some(x=>!fixtureOperationFor(s.fixture_id,x.method,x.path)))
     throw new PtError(409,"SCOPE_OPERATIONS_STALE");
    const claims:Omit<PtClaims,"v"|"issuer"|"audience"|"profile"|"nonce">={
-    permitId:pid,tenantId:t,targetId:s.target_id,environment:"SYNTHETIC",fixtureId:FIXTURE_ID,
+    permitId:pid,tenantId:t,targetId:s.target_id,environment:"SYNTHETIC",fixtureId:s.fixture_id,
     specificationId:s.specification_id,specificationVersion:s.specification_version,
     specFingerprint:s.spec_fingerprint,targetVerificationVersion:s.target_verification_version,
     targetScopeRevision:s.target_scope_revision,scopeId:s.id,operationKeys:s.operation_keys,
@@ -235,6 +237,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
   const idem=key(req),newJob=uuid();
   const result=await withTenant(t,async tx=>{
    const s=await scope(tx,sid);
+   if(s.fixture_id!==FIXTURE_ID)throw new PtError(409,"USE_PHASE07_DETECTION_ROUTE");
    // Serialize ALL admission and replay lookups per tenant on the shared stop row.
    // Otherwise competing equal idempotency keys can both pass an unguarded SELECT.
    const halted=await stop(tx,t);
@@ -258,7 +261,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    if(operations.some(x=>!s.operation_keys.includes(x)))return denied(tx,t,sid,"OPERATION_OUT_OF_SCOPE");
    const r=await tx.query("SELECT operation_key,method,path FROM api_inventory_operations WHERE specification_id=$1 AND operation_key=ANY($2::text[])",[s.specification_id,operations]);
    if(r.rowCount!==operations.length)return denied(tx,t,sid,"OPERATION_STALE");
-   if(r.rows.some(x=>!fixtureOperation(x.method,x.path)))return denied(tx,t,sid,"METHOD_OR_FIXTURE_DENIED");
+   if(r.rows.some(x=>!fixtureOperationFor(s.fixture_id,x.method,x.path)))return denied(tx,t,sid,"METHOD_OR_FIXTURE_DENIED");
    if(r.rows.some(x=>s.exclusions.includes(x.path)))return denied(tx,t,sid,"PATH_EXCLUDED");
    if(p.consumed+p.reserved>=s.max_evaluations)return denied(tx,t,sid,"PERMIT_BUDGET_EXHAUSTED");
    const active=await tx.query("SELECT count(*)::int AS tenant_active,count(*) FILTER(WHERE j.target_id=$1)::int AS target_active,count(*) FILTER(WHERE j.permit_id=$2)::int AS permit_active FROM api_pt_jobs j JOIN api_assessments a ON a.id=j.assessment_id WHERE j.tenant_id=$3 AND a.status IN('QUEUED','PROCESSING')",[s.target_id,p.id,t]);
