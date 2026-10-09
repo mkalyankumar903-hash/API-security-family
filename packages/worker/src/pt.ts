@@ -303,8 +303,17 @@ export async function settlePtDetectionReservations(tenant:string,id:string,clai
   // A stale worker MUST NOT settle reservations belonging to a later claimant.
   // Follow the governor lock order (scope/permit then private queue lease).
   const lease=await tx.query("SELECT claim_token,locked_until FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[id]);
-  if(lease.rows[0]?.claim_token!==claimToken||!lease.rows[0]?.locked_until||
-   new Date(lease.rows[0].locked_until).getTime()<=Date.now())return false;
+  if(lease.rowCount){
+   // A replaced or expired claimant cannot mutate another worker's reservations.
+   if(lease.rows[0].claim_token!==claimToken||!lease.rows[0].locked_until||
+    new Date(lease.rows[0].locked_until).getTime()<=Date.now())return false;
+  }else{
+   // Cancellation/emergency stop deletes the queue row. Once the assessment is
+   // irreversibly terminal, nobody can reclaim it; settle uncertain resources
+   // without replay. A missing queue row on a live assessment is never authority.
+   const state=await tx.query("SELECT status FROM api_assessments WHERE id=$1 FOR UPDATE",[id]);
+   if(!["CANCELLED","FAILED"].includes(state.rows[0]?.status))return false;
+  }
   const rows=await tx.query("SELECT evaluation_key FROM api_pt_detection_evaluations WHERE assessment_id=$1 AND state='RESERVED' FOR UPDATE",[id]);
   for(const row of rows.rows){
    await tx.query("UPDATE api_pt_detection_evaluations SET state='UNCERTAIN',reason='CONSERVATIVE_NO_REPLAY',settled_at=now() WHERE assessment_id=$1 AND evaluation_key=$2",[id,row.evaluation_key]);
