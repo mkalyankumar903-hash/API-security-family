@@ -21,6 +21,8 @@ CREATE UNIQUE INDEX api_phase03_unique_observation ON public.api_findings(tenant
  WHERE stable_fingerprint IS NOT NULL;
 CREATE INDEX api_phase03_assessment_engine ON public.api_assessments(tenant_id,target_id,engine_version,created_at DESC);
 CREATE INDEX api_phase03_finding_correlation ON public.api_findings(tenant_id,assessment_id,correlation_key);
+-- Dedicated worker must read immutable normalized inventory using tenant RLS. Grant SELECT only, never INSERT/UPDATE/DELETE.
+GRANT SELECT ON public.api_spec_inventories TO api_family_queue;
 -- Reports, findings and supporting evidence are irrevocable snapshots after publication.
 CREATE TRIGGER immutable_assessment_report BEFORE UPDATE OR DELETE ON public.api_reports
  FOR EACH ROW EXECUTE FUNCTION public.api_phase1_immutable_audit();
