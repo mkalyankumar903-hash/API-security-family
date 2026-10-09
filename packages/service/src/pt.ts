@@ -6,6 +6,7 @@ import {FIXTURE_ID,fixtureOperationFor} from "../../pt/src/fixture.js";
 import {DETECTION_FIXTURE,PROFILES,isProfile} from "../../pt/src/security-fixture.js";
 import {RULES,planRules,planFingerprint} from "../../pt/src/detection.js";
 import {persistTerminalCoverage} from "../../pt/src/terminal-coverage.js";
+import {persistOrchestrationTerminal} from "../../pt/src/orchestration-terminal.js";
 
 export class PtError extends Error {constructor(public statusCode:number,public code:string){super(code);}}
 const ID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -329,6 +330,8 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    const c=await tx.query("SELECT public.api_cancel_assessment($1) AS success",[jid]);
    if(!c.rows[0]?.success)throw new PtError(409,"PT_JOB_NOT_CANCELLABLE");
    await persistTerminalCoverage(tx,t,jid);
+   await persistOrchestrationTerminal(tx,t,jid,"CANCELLED","CUSTOMER_CANCELLED");
+   await tx.query("UPDATE api_pt9_stages SET status='CANCELLED',reason='CUSTOMER_CANCELLED',finished_at=now() WHERE assessment_id=$1 AND status IN('PENDING','RUNNING')",[jid]);
    await record(tx,t,jid,"PT_JOB_CANCELLED");
    return {id:jid,status:"CANCELLED"};
   });
@@ -350,6 +353,8 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    for(const j of jobs.rows){
     await tx.query("SELECT public.api_cancel_assessment($1)",[j.assessment_id]);
     await persistTerminalCoverage(tx,t,j.assessment_id as string);
+    await persistOrchestrationTerminal(tx,t,j.assessment_id as string,"CANCELLED","EMERGENCY_STOP");
+    await tx.query("UPDATE api_pt9_stages SET status='CANCELLED',reason='EMERGENCY_STOP',finished_at=now() WHERE assessment_id=$1 AND status IN('PENDING','RUNNING')",[j.assessment_id]);
    }
    await record(tx,t,t,"PT_EMERGENCY_STOP",{cancelledJobs:jobs.rowCount});
    return {enabled:true,cancelledJobs:jobs.rowCount};
