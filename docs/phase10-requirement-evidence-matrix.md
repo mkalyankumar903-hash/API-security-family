@@ -23,7 +23,7 @@
 | 13. Per-tenant queue admission | 014 `api_enqueue_assessment`, 64-queue cap | `phase10-capacity.pg.test.ts` | IMPLEMENTED_AND_TARGETED_TESTED |
 | 14. Fair tenant scheduling | `api_worker_tenant_schedule`, last-successful-claim ordering | `phase10-lifecycle.pg.test.ts` 7:1 tenants / independent claims | IMPLEMENTED_AND_TARGETED_TESTED; no production fairness guarantee |
 | 15. Capacity/backpressure | Worker pool max 5, app max 12, 2 active per tenant, 64 queued, max batch100 | `phase10-capacity.pg.test.ts`, `phase10-lifecycle.pg.test.ts` | IMPLEMENTED_AND_TARGETED_TESTED |
-| 16. Poison classification | Worker offline engine check, terminal attempt trigger, immutable plan denial | `phase09-races.pg.test.ts`, Phase10 negative audit | IMPLEMENTED_BUT_INCOMPLETE — needs independent poison injection verification |
+| 16. Poison classification | Worker offline engine check, terminal attempt trigger, immutable plan denial | `phase09-races.pg.test.ts`, Phase10 negative audit | IMPLEMENTED_AND_TARGETED_TESTED — real constraint-valid poison and competing workers in `phase10-interleavings.pg.test.ts` |
 | 17. Quarantine/dead-letter | 014 terminal immutable quarantine, retry-exhausted record | `phase10-retry.pg.test.ts`, Chromium E | IMPLEMENTED_AND_TARGETED_TESTED |
 | 18. Transactional finalization | Accepted immutable report publication, 014 terminal-attempt trigger | `phase10-fault.pg.test.ts` after-report SIGKILL | IMPLEMENTED; final-head execution pending |
 | 19. Failure timeline/observability | `api_worker_attempts`, `api_worker_events`, queue metadata | `phase10.pg.test.ts`, Chromium A–G | IMPLEMENTED_AND_TARGETED_TESTED |
@@ -31,7 +31,7 @@
 | 21. Real React lifecycle UI | `ui/src/PtOrchestrationConsole.tsx` | Chromium Phase10 A–G; existing Phase09 journeys | IMPLEMENTED_AND_TARGETED_TESTED |
 | 22. Safe operator actions | Test-only stop/revoke and customer cancellation inherited; no replay button | Phase06/09 authenticated actions and security negatives | IMPLEMENTED_WITH_RESTRICTION — no new privileged Host operator API |
 | 23. Least privilege and FORCE RLS | 014 restricted claim-token visibility; tenant FK; forced RLS | `phase10.pg.test.ts`, `phase10-upgrade.pg.test.ts` | IMPLEMENTED; final-head verification pending |
-| 24. Independent PostgreSQL races | Existing multi-session PG race suites, Phase10 atomic claims and fairness | `phase09-races.pg.test.ts`, Phase10 PG suites | PARTIALLY_QUALIFIED — exact Phase10 25-case matrix below |
+| 24. Independent PostgreSQL races | Existing multi-session PG race suites, Phase10 atomic claims, fairness, poison, retry/cancel | `phase09-races.pg.test.ts`, `phase10-interleavings.pg.test.ts` and other Phase10 PG suites | PARTIALLY_QUALIFIED — exact Phase10 25-case matrix below |
 | 25. Genuine worker process faults | Disposable Node child SIGKILL after claim/heartbeat/evaluation/stage/report | `phase10.pg.test.ts`, `phase10-fault.pg.test.ts`, Chromium B | IMPLEMENTED; final-head verification pending |
 | 26. Historical compatibility | 014 forward migration, unchanged predecessors, old-engine dispatcher | `phase10-upgrade.pg.test.ts`, Phase01–09 PG regressions | PARTIALLY_QUALIFIED — population breadth of 013→014 limited |
 | 27. Real browser journeys | Existing Phase00–09 journeys plus Phase10 A–G | `tests/browser/phase10.spec.ts`, `phase10-recovery.spec.ts` | IMPLEMENTED_AND_TARGETED_TESTED; final-head recheck pending |
@@ -55,13 +55,13 @@ Classifications: `P10_DIRECT` = distinct Phase10 source test; `PREDECESSOR_RACE`
 | 8 | Stale queue deletion | Chromium D with old token and generation | P10_DIRECT |
 | 9 | Old worker vs renewed lease | `phase10.pg.test.ts` | BOUNDARY_ONLY |
 | 10 | Lease renewal vs expiry | `phase10.pg.test.ts` expired claimant denial | BOUNDARY_ONLY |
-| 11 | Renewal vs cancellation | `phase10-authority.pg.test.ts` | BOUNDARY_ONLY |
+| 11 | Renewal vs cancellation | `phase10-interleavings.pg.test.ts` concurrent app and worker sessions | P10_DIRECT |
 | 12 | Renewal vs emergency stop | `phase10-authority.pg.test.ts` | BOUNDARY_ONLY |
 | 13 | Renewal vs deadline | `phase10-authority.pg.test.ts` | BOUNDARY_ONLY |
-| 14 | Retry vs cancellation | No independent interleaving at retry commit | NOT_VERIFIED |
+| 14 | Retry vs cancellation | `phase10-interleavings.pg.test.ts` independent app/worker sessions | P10_DIRECT |
 | 15 | Retry vs permit revocation | `phase10-authority.pg.test.ts` | BOUNDARY_ONLY |
 | 16 | Retry exhaustion vs terminal | `phase10-retry.pg.test.ts` | BOUNDARY_ONLY |
-| 17 | Poison vs claim | No actual competing SQL sessions at poison transition | NOT_VERIFIED |
+| 17 | Poison vs claim | `phase10-interleavings.pg.test.ts` three concurrent worker claims, terminal poison | P10_DIRECT |
 | 18 | Tenant queue imbalance | `phase10-lifecycle.pg.test.ts` seven-to-one load | P10_DIRECT |
 | 19 | Worker capacity saturation | `phase10-capacity.pg.test.ts` concurrent 429 | P10_DIRECT |
 | 20 | Budget reservation competition | `phase06-races.pg.test.ts`, `phase09-races.pg.test.ts` | PREDECESSOR_RACE |
@@ -81,7 +81,7 @@ Classifications: `P10_DIRECT` = distinct Phase10 source test; `PREDECESSOR_RACE`
 | After heartbeat | same disposable worker and real OS termination | TARGETED_PASS |
 | After governed receipt | `phase10-pt-process.ts` + `phase10-fault.pg.test.ts` | TARGETED_PASS |
 | After stage checkpoint | same helper and independent worker recovery | TARGETED_PASS |
-| After report commit/before process acknowledgment | `phase10-fault.pg.test.ts`; 014 atomic terminal attempt trigger | NEW — final-head verification pending |
+| After report commit/before process acknowledgment | `phase10-fault.pg.test.ts`; 014 atomic terminal attempt trigger | TARGETED_PASS — PG #37995876469 |
 | Before queue claim | signal-aborted `processOneJob`; no process crash | BOUNDARY_ONLY |
 | SIGTERM idle worker | `phase10-lifecycle.pg.test.ts` real worker exit | TARGETED_PASS |
 | After reservation / during fixture / before receipt | accepted UNCERTAIN governor rules; no new genuine OS fault in Phase10 for each distinct point | NOT_VERIFIED |
@@ -116,3 +116,9 @@ Actual Chromium Phase10 A uses React→Fastify→PostgreSQL→worker→governor�
 The API Family product currently uses synthetic development bearer mappings, not the future Host login/SSO. JSON export and immutable synthetic reports are supported; a PDF report generator / future Host RetestVerificationAuthority is **outside Phase10** and must not be fabricated. Independent production identity, PDF and repeat-assessment guarantees cannot be inferred solely from worker tests.
 
 **Security release gate:** All incomplete independently executable items remain review blockers until demonstrated. A green Full CI proves exactly the tests executed, not the unimplemented fault-matrix scenarios. Do not merge or begin Phase11 absent independent security acceptance.
+
+## Most recent targeted evidence (source before this documentation update)
+
+- [Phase10 PostgreSQL race, authority and migration targeted run #37995876469](https://github.com/mkalyankumar903-hash/API-security-family/actions/runs/37995876469): actual `postgres-targeted` job SUCCESS at `f7a233bdd3c4241ed4cc4c56a1bd0c1e941c0a35`. Includes the after-report SIGKILL, real poison competing workers, retry/cancel and renewal/cancel claims plus predecessor Phase09 faults. This is not a comprehensive Full CI and does not justify all 25 independent Phase10 races.
+- [Phase10 Chromium targeted run #37994221844](https://github.com/mkalyankumar903-hash/API-security-family/actions/runs/37994221844): actual `browser-targeted` SUCCESS at earlier head, including Phase10 A–G and Phase06–09 journeys. A source change since then requires comprehensive exact-final-head requalification.
+- The accepted Phase09 security governor and migrations 001–013 are unchanged; this document does not certify any untested Host capability or production high availability.
