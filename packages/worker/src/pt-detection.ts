@@ -5,7 +5,7 @@ import {governedPtDetectionInteraction,settlePtDetectionReservations,withGoverne
  type DetectionEvaluationInput} from "./pt.js";
 
 type PlanRule={id:RuleId;revision:string};
-type PlanEval=DetectionEvaluationInput&{ruleId:RuleId;caseId:string};
+type PlanEval=Omit<DetectionEvaluationInput,"profile">&{ruleId:RuleId;caseId:string};
 type Snapshot={assessment_id:string;tenant_id:string;fixture_version:number;fixture_profile:Profile;
  engine_version:string;rules:PlanRule[];evaluations:PlanEval[];plan_fingerprint:string;
  scope_id:string;fixture_id:string;spec_fingerprint:string;operation_keys:string[];
@@ -28,7 +28,7 @@ function validatePlan(s:Snapshot,operations:readonly {operation_key:string;metho
   if(!operation)throw new Error("DETECTION_PLAN_OUT_OF_SCOPE");
   for(const c of rule.cases)expected.push({
    evaluationKey:rule.id+":"+c.caseId,ruleId:rule.id,caseId:c.caseId,
-   operationKey:operation.operation_key,path:c.path,actor:c.actor,method:"GET",profile:s.fixture_profile
+   operationKey:operation.operation_key,path:c.path,actor:c.actor,method:"GET"
   });
  }
  if(expected.length!==s.evaluations.length)throw new Error("DETECTION_PLAN_EVALUATION_MISMATCH");
