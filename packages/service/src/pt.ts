@@ -374,7 +374,13 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
   strict(b,["profile","ruleIds"]);
   if(!isProfile(b.profile))throw new PtError(400,"UNSUPPORTED_TRUSTED_PROFILE");
   const profile=b.profile;
-  const selected=planRules(names(b.ruleIds,"RULES",RULES.length));
+  let selected:ReturnType<typeof planRules>;
+  try{selected=planRules(names(b.ruleIds,"RULES",RULES.length));}
+  catch(error){
+   if(error instanceof Error&&["INVALID_DETECTION_RULE_SELECTION","UNKNOWN_DETECTION_RULE"].includes(error.message))
+    throw new PtError(400,error.message);
+   throw error;
+  }
   const idem=key(req),newJob=uuid();
   const result=await withTenant(t,async tx=>{
    const s=await scope(tx,sid);
