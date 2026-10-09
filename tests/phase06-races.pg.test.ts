@@ -61,7 +61,7 @@ test("Phase06 true competing PostgreSQL transactions: permit admission, budget, 
    assert.equal(result.filter(x=>x.statusCode===200).length,7);
    const ids=new Set(result.map(x=>x.json().id));
    assert.equal(ids.size,1);
-   assert.equal((await withTenant(TENANT,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt_jobs WHERE assessment_id=$1",[...ids][0]))).rows[0].n,1);
+   assert.equal((await withTenant(TENANT,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt_jobs WHERE assessment_id=$1",[[...ids][0]]))).rows[0].n,1);
    assert.equal(await processOneJob(),true);
   });
   await t.test("two worker processes contend for a single evaluation budget: no overspending",async()=>{
