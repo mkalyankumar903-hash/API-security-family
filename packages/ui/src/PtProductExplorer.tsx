@@ -41,7 +41,6 @@ export function PtProductExplorer({token,targetId}:{token:string;targetId:string
   setItems([]);setSelected(null);setReport(null);setTerminal(null);setHistory([]);setOffset(0);
   if(token&&targetId)void load(0).catch(e=>setError(e instanceof Error?e.message:String(e)));
  // Search controls are submitted explicitly to avoid repeated scanning/projection requests.
- // eslint-disable-next-line react-hooks/exhaustive-deps
  },[token,targetId]);
  const detail=(id:string)=>work(async()=>{
   setSelected(await api<Finding>(token,"/v8/pt/findings/"+id));
