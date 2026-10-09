@@ -28,7 +28,8 @@ test("Phase10 independent worker race: poison integrity cannot become a report o
   // This valid historical inventory engine identifier with missing signed
   // immutable inventory is a deliberately poisoned queue payload.
   await withWorkerTenant(A,tx=>tx.query(
-   "UPDATE api_assessments SET engine_version='inventory-v1' WHERE id=$1 AND status='QUEUED'",[id]));
+   "UPDATE api_assessments SET engine_version='inventory-v1',inventory_version=1,inventory_raw_fingerprint=$2,inventory_fingerprint=$3 WHERE id=$1 AND status='QUEUED'",
+   [id,"a".repeat(64),"b".repeat(64)]));
   const [a,b,c]=await Promise.all([processOneJob(),processOneJob(),processOneJob()]);
   assert.equal([a,b,c].filter(Boolean).length,1,"one independently claimed worker may terminalize poisoned job");
   const state=await api("GET","/v1/assessments/"+id);
