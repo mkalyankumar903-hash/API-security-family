@@ -132,7 +132,7 @@ async function publish(tenant:string,id:string,token:string,plan:OrchestrationPl
    stageId:"finalization",results:result.map(x=>({id:x.rule_id,fingerprint:x.fingerprint}))});
   await tx.query("UPDATE api_pt9_stages SET status='COMPLETED',finished_at=now(),evidence_fingerprint=$2,reason='IMMUTABLE_REPORT_PUBLISHED' WHERE assessment_id=$1 AND stage_id='finalization'",
    [id,finishedFingerprint]);
-  const stageOutcomes=stages.map((x,i)=>i===stages.length-1?
+  const stageOutcomes=stages.map(({claim_token:_claimToken,...x},i)=>i===stages.length-1?
    {...x,status:"COMPLETED",evidence_fingerprint:finishedFingerprint}:x);
   const report={schemaVersion:"pt-orchestration-report-v1",orchestrationId:id,engineVersion:ORCHESTRATOR_ENGINE,
    policyId:plan.policyId,policyVersion:plan.policyVersion,planFingerprint:orchestrationFingerprint(plan),
@@ -203,6 +203,6 @@ export async function processPtOrchestrationJob(tenant:string,id:string,token:st
   // Production errors must always fail closed and settle conservatively.
   if(process.env.NODE_ENV==="test"&&barriers&&e instanceof Error&&e.message==="PT9_ISOLATED_PROCESS_EXIT")return;
   const code=e instanceof Error?e.message:"PT9_UNEXPECTED_ENGINE_FAILURE";
-  await fail(tenant,id,token,code.slice(0,110).replace(/[^A-Z0-9_]/g,"_"));
+  await fail(tenant,id,token,code.slice(0,110).toUpperCase().replace(/[^A-Z0-9_]/g,"_"));
  }
 }

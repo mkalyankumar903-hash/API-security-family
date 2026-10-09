@@ -227,9 +227,9 @@ export function registerOrchestratorRoutes(app:FastifyInstance,identity:(req:Fas
    if(!found.rowCount)throw new PtError(404,"ORCHESTRATION_NOT_FOUND");
    const result=await tx.query("SELECT public.api_cancel_assessment($1) AS cancelled",[jid]);
    if(!result.rows[0]?.cancelled)throw new PtError(409,"ORCHESTRATION_NOT_CANCELLABLE");
+   await tx.query("UPDATE api_pt9_stages SET status='CANCELLED',reason='CUSTOMER_CANCELLED',finished_at=now() WHERE assessment_id=$1 AND status IN('PENDING','RUNNING')",[jid]);
    await persistTerminalCoverage(tx,t,jid);
    await persistOrchestrationTerminal(tx,t,jid,"CANCELLED","CUSTOMER_CANCELLED");
-   await tx.query("UPDATE api_pt9_stages SET status='CANCELLED',reason='CUSTOMER_CANCELLED',finished_at=now() WHERE assessment_id=$1 AND status IN('PENDING','RUNNING')",[jid]);
    return {id:jid,status:"CANCELLED",customerNetworkRequests:0};
   });
  });
