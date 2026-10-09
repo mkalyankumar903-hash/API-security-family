@@ -6,6 +6,7 @@ import {FIXTURE_ID,fixtureOperationFor} from "../../pt/src/fixture.js";
 import {DETECTION_FIXTURE,PROFILES,isProfile} from "../../pt/src/security-fixture.js";
 import {RULES,planRules,planFingerprint} from "../../pt/src/detection.js";
 import {persistTerminalCoverage} from "../../pt/src/terminal-coverage.js";
+import {persistOrchestrationTerminal} from "../../pt/src/orchestration-terminal.js";
 
 export class PtError extends Error {constructor(public statusCode:number,public code:string){super(code);}}
 const ID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -328,7 +329,9 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    if(!j.rowCount)throw new PtError(404,"PT_JOB_NOT_FOUND");
    const c=await tx.query("SELECT public.api_cancel_assessment($1) AS success",[jid]);
    if(!c.rows[0]?.success)throw new PtError(409,"PT_JOB_NOT_CANCELLABLE");
+   await tx.query("UPDATE api_pt9_stages SET status='CANCELLED',reason='CUSTOMER_CANCELLED',finished_at=now() WHERE assessment_id=$1 AND status IN('PENDING','RUNNING')",[jid]);
    await persistTerminalCoverage(tx,t,jid);
+   await persistOrchestrationTerminal(tx,t,jid,"CANCELLED","CUSTOMER_CANCELLED");
    await record(tx,t,jid,"PT_JOB_CANCELLED");
    return {id:jid,status:"CANCELLED"};
   });
@@ -349,7 +352,9 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    const jobs=await tx.query("SELECT j.assessment_id FROM api_pt_jobs j JOIN api_assessments a ON a.id=j.assessment_id WHERE j.tenant_id=$1 AND a.status IN('QUEUED','PROCESSING')",[t]);
    for(const j of jobs.rows){
     await tx.query("SELECT public.api_cancel_assessment($1)",[j.assessment_id]);
+    await tx.query("UPDATE api_pt9_stages SET status='CANCELLED',reason='EMERGENCY_STOP',finished_at=now() WHERE assessment_id=$1 AND status IN('PENDING','RUNNING')",[j.assessment_id]);
     await persistTerminalCoverage(tx,t,j.assessment_id as string);
+    await persistOrchestrationTerminal(tx,t,j.assessment_id as string,"CANCELLED","EMERGENCY_STOP");
    }
    await record(tx,t,t,"PT_EMERGENCY_STOP",{cancelledJobs:jobs.rowCount});
    return {enabled:true,cancelledJobs:jobs.rowCount};
