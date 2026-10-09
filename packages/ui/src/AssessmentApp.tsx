@@ -2,6 +2,7 @@ import {SpecDiscoveryExplorer} from "./SpecDiscoveryExplorer.js";
 import {InventoryDetection} from "./InventoryDetection.js";
 import {AuthFixtureAssessment} from "./AuthFixtureAssessment.js";
 import {TargetOnboarding} from "./TargetOnboarding.js";
+import {UnifiedAssessment} from "./UnifiedAssessment.js";
 import React, { useEffect, useState } from "react";
 const API_BASE = (typeof import.meta.env === "object" && import.meta.env.VITE_API_BASE) || "http://127.0.0.1:3001";
 type Target = {id:string;name:string;base_url:string;environment:string;lifecycle:string;revision:number;ownership_status:string};
@@ -112,7 +113,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
     await attempt(async()=>{const r=await call<Job>(token,"/v1/assessments/"+job.id+"/cancel",{method:"POST"});setJob({...job,status:r.status});});
   }
   return <main className="container">
-    <header><div><small>LUMICSEC / API SECURITY FAMILY</small><h1>API Security Assessment</h1><p>Evidence-based OpenAPI analysis · SPEC_ONLY · No live network scanning</p></div><strong className="tag">Phase 2 · Offline specification discovery · No Host authority</strong></header>
+    <header><div><small>LUMICSEC / API SECURITY FAMILY</small><h1>API Security Assessment</h1><p>Evidence-based OpenAPI analysis · SPEC_ONLY · No live network scanning</p></div><strong className="tag">Phase 05 · Unified offline and synthetic assessment · No Host authority</strong></header>
     <section><label htmlFor="devtoken">Synthetic development token (never a production login)</label><input id="devtoken" value={token} onChange={e=>setToken(e.target.value)} type="password" autoComplete="off" placeholder="Local development token"/></section>
     {loading && <p role="status">Loading targets…</p>}
     {error && <p role="alert" className="error">{error === "PERMISSION_DENIED" || error === "UNAUTHORIZED" ? "Access denied: "+error : error}</p>}
@@ -128,6 +129,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
       <label htmlFor="target">Select target</label><select id="target" value={targetId} onChange={e=>setTargetId(e.target.value)}><option value="">Select an authorized API target</option>{targets.map(t=><option key={t.id} value={t.id}>{t.name} · {t.environment}</option>)}</select>
       <form onSubmit={e=>void createTarget(e)}><div className="formgrid"><label>Target name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)} placeholder="Payments API"/></label><label>HTTPS base URL<input required type="url" value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="https://api.example.invalid"/></label><label>Environment<select value={environment} onChange={e=>setEnvironment(e.target.value)}><option>SYNTHETIC</option><option>STAGING</option><option>PRODUCTION</option></select></label></div><button disabled={busy||!token} type="submit">Register target</button></form>
     </section>
+    <UnifiedAssessment token={token} targetId={targetId}/>
     {targetId&&<TargetOnboarding key={targetId+token} token={token} targetId={targetId} onChanged={reloadTargets}/>}
     {targetId&&<SpecDiscoveryExplorer key={"discovery-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"} onSelected={async id=>{
       const updated=await call<Specification[]>(token,"/v1/targets/"+targetId+"/specifications");
