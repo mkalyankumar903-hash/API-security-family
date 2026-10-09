@@ -25,13 +25,13 @@ const choice=(x:unknown,values:readonly string[]):string|null=>{
 const term=(x:unknown,max=160):string=>{
   if(x===undefined)return "";
   if(typeof x!=="string"||x.length>max||/[^\x20-\x7e]/.test(x))fail(400,"INVALID_SEARCH");
-  return x;
+  return x as string;
 };
 const date=(x:unknown):string|null=>{
   if(x===undefined)return null;
   if(typeof x!=="string"||! /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(x)||!Number.isFinite(Date.parse(x)))
     fail(400,"INVALID_DATE");
-  return x;
+  return x as string;
 };
 const engines=["legacy-v1","inventory-v1","auth-fixture-v1"] as const;
 const states=["QUEUED","PROCESSING","COMPLETED","FAILED","CANCELLED"] as const;
