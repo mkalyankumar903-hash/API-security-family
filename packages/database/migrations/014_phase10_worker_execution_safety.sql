@@ -72,3 +72,29 @@ CREATE TRIGGER immutable_worker_event BEFORE UPDATE OR DELETE ON public.api_work
  FOR EACH ROW EXECUTE FUNCTION public.api_phase1_immutable_audit();
 CREATE TRIGGER immutable_worker_quarantine BEFORE UPDATE OR DELETE ON public.api_worker_quarantine
  FOR EACH ROW EXECUTE FUNCTION public.api_phase1_immutable_audit();
+
+-- Minimal SECURITY DEFINER read-only projection: no customer-facing queue privileges.
+CREATE FUNCTION public.api_worker_safe_queue_status(p_assessment uuid) RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,api_queue AS $$
+ SELECT jsonb_build_object(
+  'queueState',CASE
+   WHEN q.claim_token IS NOT NULL AND q.locked_until>clock_timestamp() THEN 'LEASED'
+   WHEN q.next_eligible_at>clock_timestamp() THEN 'RETRY_DELAYED'
+   WHEN q.claim_token IS NOT NULL AND q.locked_until<=clock_timestamp() THEN 'EXPIRED'
+   ELSE 'QUEUED' END,
+  'claimGeneration',q.claim_generation,
+  'lockedUntil',q.locked_until,
+  'lastHeartbeatAt',q.last_heartbeat_at,
+  'nextEligibleAt',q.next_eligible_at,
+  'retryCount',q.retry_count,
+  'lastErrorCode',q.last_error_code,
+  'queuedAt',q.created_at)
+ FROM api_queue.api_assessment_queue q
+ WHERE q.assessment_id=p_assessment
+ AND q.tenant_id=nullif(current_setting('api.tenant_id',true),'')::uuid
+ AND EXISTS(SELECT 1 FROM public.api_assessments a
+  WHERE a.id=q.assessment_id AND a.tenant_id=q.tenant_id)
+$$;
+ALTER FUNCTION public.api_worker_safe_queue_status(uuid) OWNER TO api_family_queue;
+REVOKE ALL ON FUNCTION public.api_worker_safe_queue_status(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.api_worker_safe_queue_status(uuid) TO api_family;
