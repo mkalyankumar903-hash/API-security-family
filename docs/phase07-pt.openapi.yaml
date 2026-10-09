@@ -1,0 +1,186 @@
+openapi: 3.0.3
+info:
+  title: LumicSec Phase 07 Synthetic API PT Detection
+  version: 7.0.0
+  description: >-
+    ISOLATED SYNTHETIC API PENETRATION TESTING — NOT CUSTOMER PRODUCTION
+    VULNERABILITY VERIFICATION. All execution remains in-memory, GET/HEAD only,
+    test-only signed permits. No arbitrary customer URL or Host authorization.
+servers:
+  - url: http://127.0.0.1:3001
+security:
+  - syntheticTenantBearer: []
+components:
+  securitySchemes:
+    syntheticTenantBearer:
+      type: http
+      scheme: bearer
+      description: Isolated test-only synthetic tenant identity; production Host unavailable.
+  schemas:
+    Rule:
+      type: object
+      required: [id, revision, category, path, evaluations]
+      properties:
+        id: {type: string}
+        revision: {type: string, enum: ['1.0.0']}
+        category: {type: string}
+        path: {type: string}
+        evaluations: {type: integer, minimum: 1, maximum: 2}
+        requiredIdentities: {type: array, items: {type: string}}
+        impact: {type: string}
+        description: {type: string}
+        remediation: {type: string}
+    DetectionRequest:
+      type: object
+      additionalProperties: false
+      required: [profile, ruleIds]
+      properties:
+        profile:
+          type: string
+          enum: [SECURE_BASELINE, MISSING_AUTH_ENFORCEMENT, CROSS_USER_ACCESS_WEAKNESS, ROLE_RESTRICTION_WEAKNESS, SENSITIVE_RESPONSE_EXPOSURE, INSECURE_CACHE_POLICY]
+        ruleIds:
+          type: array
+          minItems: 1
+          maxItems: 8
+          uniqueItems: true
+          items: {type: string}
+    DetectionObservation:
+      type: object
+      required: [ruleId, status, code, fingerprint, evidence, syntheticOnly, runtimeCustomerVerification]
+      properties:
+        ruleId: {type: string}
+        revision: {type: string}
+        status: {type: string, enum: [PASS, OBSERVED, INCONCLUSIVE, SKIPPED]}
+        code: {type: string}
+        fingerprint: {type: string, nullable: true}
+        evidence:
+          type: array
+          items: {type: object}
+        syntheticOnly: {type: boolean, enum: [true]}
+        runtimeCustomerVerification: {type: boolean, enum: [false]}
+  parameters:
+    JobId:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ScopeId:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    TargetId:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+paths:
+  /v7/pt/rules:
+    get:
+      summary: Read trusted versioned synthetic PT detection rule catalog
+      responses:
+        '200':
+          description: Fixed repository-owned supported rule metadata
+  /v7/pt/fixtures:
+    get:
+      summary: Read trusted fixture profiles, identities and read-only operations
+      responses:
+        '200':
+          description: Version 1 allowlisted synthetic fixture capabilities
+  /v7/pt/scopes/{id}/detections:
+    post:
+      summary: Admit immutable governed synthetic detection assessment
+      parameters:
+        - $ref: '#/components/parameters/ScopeId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 8, maxLength: 128}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DetectionRequest'}
+      responses:
+        '201':
+          description: Governed detection assessment queued
+        '200':
+          description: Idempotent replay of identical immutable plan
+        '400':
+          description: Invalid trusted profile, rule selection or request body
+        '404':
+          description: Tenant-owned scope not found
+        '409':
+          description: Missing or invalid permit, budget or policy denial
+  /v7/pt/jobs/{id}:
+    get:
+      summary: Persistent detection job state and execution counters
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200': {description: Detection assessment state and immutable plan snapshot}
+        '404': {description: Job absent for authenticated tenant}
+  /v7/pt/jobs/{id}/evaluations:
+    get:
+      summary: List persisted governed fixture evaluations and redacted metadata
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': {description: Bounded fixture evaluation records, never raw credentials or payloads}
+  /v7/pt/jobs/{id}/findings:
+    get:
+      summary: List synthetic fixture-only security observations
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': {description: Only OBSERVED synthetic results with redacted evidence}
+  /v7/pt/jobs/{id}/coverage:
+    get:
+      summary: Inspect persisted per-rule PASS OBSERVED SKIPPED INCONCLUSIVE status
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200': {description: Rule execution coverage records}
+  /v7/pt/jobs/{id}/report:
+    get:
+      summary: Retrieve immutable synthetic PT detection report
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200': {description: Complete immutable report projection, no real Host findings}
+        '409': {description: Report not available for incomplete or denied job}
+  /v7/pt/jobs/{id}/export:
+    get:
+      summary: Download the authoritative immutable report as JSON
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200': {description: application/json immutable detection report snapshot}
+        '409': {description: Report not yet available}
+  /v7/pt/targets/{id}/history:
+    get:
+      summary: Browse tenant-scoped detection assessments for a target
+      parameters:
+        - $ref: '#/components/parameters/TargetId'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': {description: Bounded detection history}
+  /v7/pt/jobs/{id}/compare/{otherId}:
+    get:
+      summary: Compare two completed compatible synthetic detection reports
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - name: otherId
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200': {description: Compatibility and new/still/evidence-changed/disappeared synthetic observations, never VERIFIED_FIXED}
+        '409': {description: Missing complete report for comparison}
