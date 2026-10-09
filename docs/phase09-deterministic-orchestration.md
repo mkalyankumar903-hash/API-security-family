@@ -46,3 +46,27 @@ Status remains **NOT VERIFIED / INCOMPLETE** until actual PostgreSQL, Chromium a
 UNKNOWN ≠ SAFE; NO EVIDENCE ≠ SAFE; FIX APPLIED ≠ VERIFIED_FIXED; CI PASS ≠ VERIFIED_FIXED; AUTONOMOUS PLAN ≠ AUTHORIZATION; UNCERTAIN ≠ SUCCESS; SYNTHETIC OBSERVATION ≠ CONFIRMED CUSTOMER FINDING. Only an eventual independent Host RetestVerificationAuthority may set VERIFIED_FIXED.
 
 No Phase10 implementation is included.
+
+## Exact-state qualification evidence (9 October 2026)
+
+Preserved Phase08 accepted base: `8cfd9697af8bb93d4656484c20cb86b5f429bf92`. Phase09 existing Draft PR is #10; keep it DRAFT/UNMERGED. No Phase10 and no Host canonical verification.
+
+- Fast CI [#37974887916](https://github.com/mkalyankumar903-hash/API-security-family/actions/runs/37974887916): SUCCESS at `63385c7635a02555c56a41c8038b35cdd32a8bdf`; actual lint, TypeScript and unit/security suites executed.
+- Targeted PG16 [#37974448743](https://github.com/mkalyankumar903-hash/API-security-family/actions/runs/37974448743): SUCCESS at `689e8dc45c221a3d41529202b5e94e2317ded53c`; 25 independently coordinated race/fault subtests PASS, one parent suite PASS, populated 012→013 migration and worker/Governor integration PASS.
+- Targeted real Chromium [#37973824172](https://github.com/mkalyankumar903-hash/API-security-family/actions/runs/37973824172): SUCCESS at `e9bd678032c2405f63b3f43eb85dfb2e56ed946b`; phase6–phase9 browser suites executed with actual PostgreSQL 16 and private worker.
+- Final-head comprehensive GitHub-hosted Full CI MUST pass its **full job**, including full predecessor regressions, migration 001–013, all Phase09 planner tests, the 25 real PG fault/concurrency subtests, React build and Chromium E2E. Partial or skipped jobs do not qualify.
+
+### Phase09 requirement-to-evidence matrix
+
+| Requirement | Code / independently runnable gate |
+| --- | --- |
+| Deterministic versioned trusted plans; no arbitrary stage code | `packages/pt/src/orchestrator.ts` and `tests/phase09-planner.test.ts` via `npm test` |
+| Signed authorization, stable scope/target/spec binding and no production egress | `packages/service/src/orchestrator.ts`, `packages/worker/src/pt.ts`; Phase09 PG and browser suites |
+| Budget, rate, concurrency and stop/revocation race safety | `tests/phase09-races.pg.test.ts` — 25 separate subtests, `npm run test:pg` |
+| Stage dependencies, exact evaluation ownership and lease takeover | `packages/worker/src/pt-orchestrator.ts`, `tests/phase09-planner.test.ts`, PG and Chromium recovery tests |
+| Immutable plan/evidence; stable terminal truth; no forged successful publication | Migration 013, `orchestration-terminal.ts`, PG real fault-injection tests |
+| Additive 012→013 upgrade with historical signed permit preservation | `tests/phase09-upgrade.pg.test.ts` |
+| Tenant isolation, idempotent admission and customer-visible product surfaces | Fastify `/v9/pt` routes, React `PtOrchestrationConsole`, PostgreSQL + Chromium |
+| Synthetic-only wording, report/export, history/comparison, FAILED/CANCELLED uncertainty | Fastify routes, `docs/phase09-openapi.yaml`, Chromium tests |
+
+**Interpretation:** a successfully completed isolated synthetic PT run is never a confirmed customer vulnerability, Host authorization, production scanning permission or VERIFIED_FIXED. No evidence ≠ safe. A failed or cancelled run publishes diagnostic terminal evidence rather than a successful report.
