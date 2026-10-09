@@ -404,7 +404,7 @@ test("Phase09 independently coordinated PostgreSQL transaction and orchestration
    const status=await call("GET","/v9/pt/orchestrations/"+jid);ok(status,200);
    const reports=await withTenant(A,tx=>tx.query("SELECT 1 FROM api_pt9_reports WHERE assessment_id=$1",[jid]));
    const terminals=await withTenant(A,tx=>tx.query("SELECT 1 FROM api_pt9_terminal WHERE assessment_id=$1",[jid]));
-   assert.equal(reports.rowCount+terminals.rowCount,1,"atomic publication versus cancel must choose one result");
+   assert.equal((reports.rowCount??0)+(terminals.rowCount??0),1,"atomic publication versus cancel must choose one result");
    if(status.json().status==="COMPLETED"){
     assert.equal(reports.rowCount,1);assert.equal(terminals.rowCount,0);
     assert.equal(cancellation.statusCode,409);
