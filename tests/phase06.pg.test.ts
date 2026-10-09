@@ -60,7 +60,7 @@ test("Phase06 real PostgreSQL: full isolated PT workflow and transaction content
   await t.test("fresh version 009, FORCE RLS, least privilege and preserved migration lineage",async()=>{
    assert.equal((await pool.query("SELECT count(*)::int AS n FROM api_schema_migrations WHERE version IN('001','002','003','004','005','006','007','008','009','010')")).rows[0].n,10);
    const r=await pool.query("SELECT c.relname,c.relrowsecurity,c.relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname LIKE 'api_pt_%' AND c.relkind='r'");
-   assert.equal(r.rowCount,14,"Phase06 ten preserved tables plus four additive Phase07 tables");
+   assert.equal(r.rowCount,15,"Phase06 ten preserved tables, four Phase07 tables and one additive Phase08 table");
    assert.ok(r.rows.every(x=>x.relrowsecurity&&x.relforcerowsecurity));
    await assert.rejects(()=>pool.query("SELECT * FROM api_queue.api_assessment_queue"),/permission denied/);
    const state=await withTenant(TENANT,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt_permits"));
