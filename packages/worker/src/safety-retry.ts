@@ -16,9 +16,9 @@ export async function scheduleConservativeRetry(claim:WorkerClaim,error:unknown)
  if(classifyWorkerFailure(error)!=="TRANSIENT_PRE_EXECUTION")return "NOT_RETRYABLE";
  const code=(error as {code:string}).code;
  return withWorkerTenant(claim.tenant_id,async tx=>{
-  const q=await tx.query("SELECT claim_token,claim_generation,locked_until,retry_count FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[claim.assessment_id]);
+  const q=await tx.query("SELECT claim_token,claim_generation,locked_until>clock_timestamp() AS lease_valid,retry_count FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[claim.assessment_id]);
   if(q.rows[0]?.claim_token!==claim.claim_token||Number(q.rows[0]?.claim_generation)!==claim.claim_generation||
-   !q.rows[0]?.locked_until||new Date(q.rows[0].locked_until).getTime()<=Date.now())return "STALE";
+   q.rows[0]?.lease_valid!==true)return "STALE";
   const status=await tx.query("SELECT status FROM api_assessments WHERE id=$1 FOR UPDATE",[claim.assessment_id]);
   if(status.rows[0]?.status!=="PROCESSING")return "STALE";
   // No retry at any boundary where a synthetic fixture might have been called.
