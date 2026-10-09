@@ -4,7 +4,7 @@ import {readFileSync} from "node:fs";
 import {randomUUID} from "node:crypto";
 import {Pool} from "pg";
 
-test("Phase06 populated Phase05 -> migration009 upgrade preserves targets, inventory-v2, evidence, findings and immutable reports",async()=>{
+test("Phase06 populated Phase05 -> migration009 and hardening010 upgrade preserves targets, inventory-v2, evidence, findings and immutable reports",async()=>{
  const root=process.env.MIGRATION_DATABASE_URL;
  if(!root)throw new Error("MIGRATION_DATABASE_URL_REQUIRED");
  const admin=new Pool({connectionString:root,max:1});
@@ -50,6 +50,8 @@ test("Phase06 populated Phase05 -> migration009 upgrade preserves targets, inven
   try{
    await clone.query(migrate9);
    await clone.query("INSERT INTO api_schema_migrations(version) VALUES('009')");
+   await clone.query(readFileSync(new URL("../packages/database/migrations/010_phase6_permit_storage_hardening.sql",import.meta.url),"utf8"));
+   await clone.query("INSERT INTO api_schema_migrations(version) VALUES('010')");
    await clone.query("COMMIT");
   }catch(e){await clone.query("ROLLBACK");throw e;}
   for(const [table,where,id] of [
@@ -71,7 +73,7 @@ test("Phase06 populated Phase05 -> migration009 upgrade preserves targets, inven
   assert.equal(security.rows[0].relrowsecurity,true);
   assert.equal(security.rows[0].relforcerowsecurity,true);
   await assert.rejects(()=>clone.query("UPDATE api_reports SET projection='{}'::jsonb WHERE id=$1",[report]),/PHASE1_IMMUTABLE/);
-  assert.equal((await clone.query("SELECT count(*)::int AS n FROM api_schema_migrations")).rows[0].n,9);
+  assert.equal((await clone.query("SELECT count(*)::int AS n FROM api_schema_migrations")).rows[0].n,10);
  }finally{
   await clone.end();
   if(created)await admin.query("DROP DATABASE "+name);
