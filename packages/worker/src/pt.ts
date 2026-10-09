@@ -58,8 +58,15 @@ async function opFor(tx:PoolClient,specId:string,key:string):Promise<Op>{
 async function receipt(tx:PoolClient,tenant:string,id:string,pid:string,op:Op,
  decision:"ALLOWED"|"DENIED"|"SKIPPED",outcome:string,code:string,budget:number,
  result?:{httpStatus:number;responseBytes:number;responseHash:string;durationMs:number}):Promise<void>{
- await tx.query("INSERT INTO api_pt_receipts(id,tenant_id,assessment_id,permit_id,operation_key,method,path,fixture_id,decision,outcome,code,http_status,response_bytes,response_hash,duration_ms,budget_consumed) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT(tenant_id,assessment_id,operation_key) DO NOTHING",
- [uuid(),tenant,id,pid,op.operation_key,op.method,op.path,FIXTURE_ID,decision,outcome,code,result?.httpStatus??null,
+ const meta=await tx.query(
+  "SELECT s.specification_version,s.target_scope_revision,s.max_evaluations,p.token_hash FROM api_pt_jobs j JOIN api_pt_scopes s ON s.id=j.scope_id AND s.tenant_id=j.tenant_id JOIN api_pt_permits p ON p.id=j.permit_id AND p.tenant_id=j.tenant_id WHERE j.assessment_id=$1",[id]);
+ if(!meta.rowCount)throw new Error("PT_RECEIPT_CONTEXT_NOT_FOUND");
+ const seq=await tx.query("SELECT count(*)::int+1 AS next_sequence FROM api_pt_receipts WHERE assessment_id=$1",[id]);
+ const m=meta.rows[0];
+ await tx.query("INSERT INTO api_pt_receipts(id,tenant_id,assessment_id,permit_id,operation_key,method,path,fixture_id,specification_version,scope_revision,permit_hash,evaluation_sequence,budget_remaining,decision,outcome,code,http_status,response_bytes,response_hash,duration_ms,budget_consumed) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) ON CONFLICT(tenant_id,assessment_id,operation_key) DO NOTHING",
+ [uuid(),tenant,id,pid,op.operation_key,op.method,op.path,FIXTURE_ID,
+  m.specification_version,m.target_scope_revision,m.token_hash,seq.rows[0].next_sequence,
+  Math.max(0,m.max_evaluations-budget),decision,outcome,code,result?.httpStatus??null,
   result?.responseBytes??null,result?.responseHash??null,result?.durationMs??null,budget]);
 }
 async function audit(tx:PoolClient,tenant:string,id:string,action:string,detail:string):Promise<void>{
