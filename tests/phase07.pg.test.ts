@@ -77,6 +77,9 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
    const denied=await start(sid,"SECURE_BASELINE");assert.equal(denied.statusCode,409,denied.body);
    assert.equal(denied.json().error,"AUTHORIZATION_MISSING");
    assert.equal((await start(sid,"PRODUCTION")).statusCode,400);
+   const unsupported=await start(sid,"SECURE_BASELINE",["PT-NONEXISTENT"]);
+   assert.equal(unsupported.statusCode,400,unsupported.body);
+   assert.equal(unsupported.json().error,"UNKNOWN_DETECTION_RULE");
    const fake=await call("POST","/v7/pt/scopes/"+sid+"/detections",
     {profile:"SECURE_BASELINE",ruleIds:[RULES[0]!.id],verdict:"CONFIRMED"},{key:"pt7-fake-"+randomUUID()});
    assert.equal(fake.statusCode,400);
@@ -169,7 +172,7 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
    const detail=await call("GET","/v7/pt/jobs/"+first);
    assert.equal(detail.json().status,"COMPLETED");
    const evals=await call("GET","/v7/pt/jobs/"+first+"/evaluations");
-   assert.equal((evals.json() as unknown[]).length,2,"no duplicated governed evaluations");
+   assert.equal((evals.json() as unknown as unknown[]).length,2,"no duplicated governed evaluations");
    const report=await call("GET","/v7/pt/jobs/"+first+"/report");
    assert.equal((report.json().observations as unknown[]).length,1);
   });
