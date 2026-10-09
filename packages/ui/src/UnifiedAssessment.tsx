@@ -83,7 +83,7 @@ export function UnifiedAssessment({token,targetId}:{token:string;targetId:string
   <h3>Assessment runs and history</h3>
   <div className="formgrid">
    <label>Run status<select value={status} onChange={e=>{setStatus(e.target.value);setOffset(0);}}>
-    <option value="">All states</option>{["QUEUED","PROCESSING","COMPLETED","FAILED","CANCELLED"].map(x=><option key={x}>{x}</option>)}
+    <option value="">All states</option>{["QUEUED","PROCESSING","COMPLETED","FAILED","CANCELLED"].map(x=><option key={x} value={x}>{x[0]+x.slice(1).toLowerCase()} runs</option>)}
    </select></label>
   </div>
   <button className="secondary" disabled={busy||loading} onClick={()=>void run(refresh)}>Refresh assessment history</button>
