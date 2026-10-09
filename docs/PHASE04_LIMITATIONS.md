@@ -12,6 +12,10 @@ STATUS: synthetic-fixture-only; not a customer runtime pentest.
 - The deliberate synthetic fixture cross-user defect is NOT proof of customer BOLA or any customer security flaw.
 - UNKNOWN != SAFE. NO EVIDENCE != SAFE. FIX APPLIED != VERIFIED_FIXED.
 
+## Profile expiry and rotation
+
+Synthetic test profiles have a one-hour expiry window. The API validates expiry at profile readiness and assessment admission; the private worker rechecks expiry when executing and inside the tenant-scoped atomic publication transaction. Profile rotation records `rotated_at`, increments revision, renews the bounded expiry and resets validation to PENDING. Expired or revoked profiles cannot authorize a fresh fixture evaluation. These are **synthetic-only** credentials and metadata; no Host credential is retrieved.
+
 ## Supported synthetic auth
 Bearer, header API key, HTTP Basic, OAuth2-style renewable/expiring test token, cookie/session, anonymous baseline, invalid/missing credentials, expiry, revocation, wrong issuer, wrong audience, tampering, profile rotation, logout, role constraints and resource ownership.
 
