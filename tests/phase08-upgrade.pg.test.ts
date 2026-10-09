@@ -150,9 +150,12 @@ test("Phase08 populated Phase07 011 -> 012 upgrade preserves historic signed per
   const pt7=await clone.query("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relkind='r' AND relname LIKE 'api_pt_detection_%' ORDER BY relname");
   assert.equal(pt7.rowCount,4);
   assert.ok(pt7.rows.every(x=>x.relrowsecurity===true&&x.relforcerowsecurity===true));
-  for(const table of ["api_pt_detection_plans","api_pt_detection_evaluations","api_pt_detection_results","api_pt_detection_reports"]){
-   assert.equal((await clone.query("SELECT count(*)::int AS n FROM public."+table)).rows[0].n,0,
-    table+" must not fabricate new historical findings");
+  for(const [table,expected] of [
+   ["api_pt_detection_plans",1],["api_pt_detection_evaluations",0],
+   ["api_pt_detection_results",0],["api_pt_detection_reports",1]
+  ] as const){
+   assert.equal((await clone.query("SELECT count(*)::int AS n FROM public."+table)).rows[0].n,expected,
+    table+" must preserve explicitly seeded 011 history, never invent records during 012");
   }
   assert.equal((await clone.query("SELECT has_table_privilege('api_family','public.api_pt_detection_reports','INSERT') AS allowed")).rows[0].allowed,false);
   assert.equal((await clone.query("SELECT has_table_privilege('api_family_queue','public.api_pt_detection_reports','INSERT') AS allowed")).rows[0].allowed,true);
