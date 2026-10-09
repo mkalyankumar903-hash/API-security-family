@@ -128,6 +128,9 @@ export async function processOneJob(): Promise<boolean> {
       await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]);
     });
   } catch (error) {
+    const reason=error instanceof Error?error.message:"UNKNOWN_WORKER_FAILURE";
+    const poison=["INVENTORY_SNAPSHOT_MISMATCH","RICH_INVENTORY_MISSING_OR_TAMPERED"].includes(reason)?
+      reason:null;
     const disposition=await scheduleConservativeRetry(lease,error).catch(()=>"NOT_RETRYABLE" as const);
     if(disposition==="RETRY_SCHEDULED"||disposition==="RETRY_EXHAUSTED")return true;
     // Failed work is auditable; never mark a failed assessment as successful.
@@ -138,6 +141,12 @@ export async function processOneJob(): Promise<boolean> {
         leaseCheck.rows[0]?.lease_valid!==true) return;
       await tx.query("UPDATE api_assessments SET status='FAILED',error_code='ASSESSMENT_ENGINE_FAILURE',completed_at=now() WHERE id=$1 AND status='PROCESSING'",[jobId]);
       await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,$3,$4)",[uuid(),tenant,"ASSESSMENT_FAILED",jobId]);
+      if(poison){
+        await tx.query("INSERT INTO api_worker_quarantine(assessment_id,tenant_id,reason_code,attempts) VALUES($1,$2,$3,1) ON CONFLICT DO NOTHING",
+         [jobId,tenant,poison]);
+        await tx.query("INSERT INTO api_worker_events(id,tenant_id,assessment_id,attempt_id,kind,code) VALUES($1,$2,$3,$4,'QUARANTINED',$5)",
+         [uuid(),tenant,jobId,lease.attempt_id,poison]);
+      }
       await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId,token]);
     });
   } finally {
