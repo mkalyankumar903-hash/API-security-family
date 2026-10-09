@@ -250,6 +250,34 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
    assert.equal((await call("POST","/v6/pt/jobs/"+jid+"/cancel",{})).statusCode,200);
    assert.equal((await call("GET","/v7/pt/jobs/"+jid+"/report")).statusCode,409);
   });
+  await t.test("cancelled terminal assessment conservatively consumes stranded reservation without executing the fixture",async()=>{
+   const sid=await scope(s,[RULES[4]!.id]);const pid=await permit(sid);
+   const r=await start(sid,"CROSS_USER_ACCESS_WEAKNESS",[RULES[4]!.id]);
+   assert.equal(r.statusCode,201,r.body);
+   const jid=r.json().id as string,claim=await claimJob();
+   assert.equal(claim?.assessment_id,jid);
+   await withWorkerTenant(A,async tx=>{
+    const row=await tx.query("SELECT evaluations FROM api_pt_detection_plans WHERE assessment_id=$1",[jid]);
+    const e=(row.rows[0].evaluations as {evaluationKey:string;operationKey:string;method:string;path:string;actor:string}[])[0]!;
+    await tx.query("UPDATE api_pt_permits SET reserved=reserved+1 WHERE id=$1",[pid]);
+    await tx.query("INSERT INTO api_pt_detection_evaluations(id,tenant_id,assessment_id,permit_id,evaluation_key,operation_key,method,path,actor,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'RESERVED')",[
+      randomUUID(),A,jid,pid,e.evaluationKey,e.operationKey,e.method,e.path,e.actor
+    ]);
+   });
+   assert.equal((await call("POST","/v6/pt/jobs/"+jid+"/cancel",{})).statusCode,200);
+   assert.equal(await settlePtDetectionReservations(A,jid,claim!.claim_token),true,
+    "terminal cancellation must not strand reserved quota");
+   const led=await withWorkerTenant(A,tx=>tx.query(
+    "SELECT state,reason,evidence FROM api_pt_detection_evaluations WHERE assessment_id=$1",[jid]));
+   assert.equal(led.rows[0].state,"UNCERTAIN");
+   assert.equal(led.rows[0].reason,"CONSERVATIVE_NO_REPLAY");
+   assert.equal(led.rows[0].evidence,null);
+   const remaining=await withTenant(A,tx=>tx.query(
+    "SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[pid]));
+   assert.equal(remaining.rows[0].consumed,1);
+   assert.equal(remaining.rows[0].reserved,0);
+   assert.equal((await call("GET","/v7/pt/jobs/"+jid+"/report")).statusCode,409);
+  });
   await t.test("signed-authority emergency stop cancels queued PT7 job without fixture execution or report",async()=>{
    const fresh=await scope(s,[RULES[0]!.id]);await permit(fresh);
    const queued=await start(fresh,"MISSING_AUTH_ENFORCEMENT",[RULES[0]!.id]);
