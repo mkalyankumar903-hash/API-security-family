@@ -9,14 +9,12 @@ type Dict=Record<string,unknown>;
 const o=(v:unknown):Dict=>v&&typeof v==="object"&&!Array.isArray(v)?v as Dict:{};
 const a=(v:unknown):unknown[]=>Array.isArray(v)?v:[];
 const hash=(v:unknown)=>createHash("sha256").update(JSON.stringify(v)).digest("hex");
-const types=(v:unknown)=>typeof v==="string"?v:null;
 export type RichOperation={
  key:string;pointer:string;
  weakensInherited:boolean|null;unknownOAuthScopes:boolean|null;unboundedStrings:number|null;
  unboundedArrays:number|null;explicitAdditionalProperties:number|null;missingErrorResponses:boolean|null;
 };
 export type RichInventory={normalizationVersion:"phase05-v2";rawFingerprint:string;phase02Fingerprint:string;richFingerprint:string;operations:RichOperation[]};
-const unknown=<T>(v:T|null)=>v===null;
 export function buildRichInventory(content:string,inventory:Inventory):RichInventory|null{
  if(inventory.format==="POSTMAN_2_1")return null;
  if(inventory.normalizationVersion!=="phase02-v1"||Buffer.byteLength(content,"utf8")>1048576)throw Error("RICH_SOURCE_NOT_VALIDATED");
