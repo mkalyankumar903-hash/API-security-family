@@ -61,6 +61,9 @@ test("Phase04 populated Phase03 → forward-only 006 preserves legacy+inventory 
   assert.ok(policies.rows.every(x=>x.rowsecurity&&x.forcerowsecurity));
   const privileges=await owner.query("SELECT has_table_privilege('api_family','public.api_auth_evaluations','INSERT') AS can_insert,has_table_privilege('api_family_queue','public.api_auth_evaluations','INSERT') AS worker_insert");
   assert.equal(privileges.rows[0].can_insert,false);assert.equal(privileges.rows[0].worker_insert,true);
+  const guard=await owner.query("SELECT has_table_privilege('api_family_queue','public.api_auth_profiles','UPDATE') AS can_update,has_function_privilege('api_family_queue','public.api_auth_fixture_lock_context(uuid,uuid,integer,uuid,integer,integer)','EXECUTE') AS can_guard");
+  assert.equal(guard.rows[0].can_update,false);
+  assert.equal(guard.rows[0].can_guard,true);
  }finally{
   if(service)await service.end();if(owner)await owner.end();
   try{await master.query("DROP DATABASE IF EXISTS "+db);}finally{await master.end();}

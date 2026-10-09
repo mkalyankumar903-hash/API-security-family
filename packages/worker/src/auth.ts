@@ -35,7 +35,12 @@ export async function processAuthFixtureJob(tenant:string,jobId:string,token:str
   }
   // Recheck authorization at publication, not only at admission. Revocation/target/scope
   // updates invalidate the in-flight result and roll back the entire transaction.
-  const current=(await tx.query("SELECT p.revision,p.status,p.validation_status,p.credential_reference,t.lifecycle,t.environment,t.revision AS target_revision,t.scope_revision FROM api_auth_profiles p JOIN api_targets t ON t.id=p.target_id AND t.tenant_id=p.tenant_id WHERE p.id=$1 FOR UPDATE OF p,t",[state.profile_id])).rows[0];
+  // Lock through narrow non-superuser SECURITY DEFINER guard: no UPDATE on
+  // profiles for worker; serializes publication with revocation and profile edits.
+  const guard=await tx.query("SELECT public.api_auth_fixture_lock_context($1,$2,$3,$4,$5,$6) AS permitted",
+   [tenant,state.profile_id,state.profile_revision,state.target_id,state.target_revision,state.scope_revision]);
+  if(guard.rows[0]?.permitted!==true)throw new Error("AUTH04_PUBLICATION_AUTHORIZATION_REVOKED");
+  const current=(await tx.query("SELECT p.revision,p.status,p.validation_status,p.credential_reference,t.lifecycle,t.environment,t.revision AS target_revision,t.scope_revision FROM api_auth_profiles p JOIN api_targets t ON t.id=p.target_id AND t.tenant_id=p.tenant_id WHERE p.id=$1",[state.profile_id])).rows[0];
   if(!current||current.revision!==state.profile_revision||current.status!=="ACTIVE"||current.validation_status!=="VALID"||
    current.lifecycle!=="ACTIVE"||current.environment!=="SYNTHETIC"||current.target_revision!==state.target_revision||
    current.scope_revision!==state.scope_revision||

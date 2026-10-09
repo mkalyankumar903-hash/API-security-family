@@ -88,3 +88,39 @@ CREATE TRIGGER immutable_auth_assessment_config BEFORE UPDATE OR DELETE ON publi
  FOR EACH ROW EXECUTE FUNCTION public.api_phase1_immutable_audit();
 CREATE TRIGGER immutable_auth_evaluation BEFORE UPDATE OR DELETE ON public.api_auth_evaluations
  FOR EACH ROW EXECUTE FUNCTION public.api_phase1_immutable_audit();
+
+
+-- Narrow Phase04 publication guard. Worker has NO UPDATE privilege on profiles.
+-- SECURITY DEFINER owner is the non-superuser app role; FORCE RLS still applies.
+-- Deterministic lock ordering matches profile mutation routes: profile before target.
+CREATE FUNCTION public.api_auth_fixture_lock_context(
+ p_tenant uuid,p_profile uuid,p_revision integer,p_target uuid,
+ p_target_revision integer,p_scope_revision integer
+) RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public
+AS $guard$
+DECLARE found_profile boolean := false; found_target boolean := false;
+BEGIN
+ IF nullif(current_setting('api.tenant_id',true),'')::uuid IS DISTINCT FROM p_tenant THEN
+  RETURN false;
+ END IF;
+ SELECT true INTO found_profile
+ FROM public.api_auth_profiles p
+ WHERE p.tenant_id=p_tenant AND p.id=p_profile AND p.revision=p_revision
+ AND p.status='ACTIVE' AND p.validation_status='VALID'
+ AND p.target_id=p_target AND p.target_revision=p_target_revision
+ AND p.scope_revision=p_scope_revision
+ FOR UPDATE;
+ IF NOT coalesce(found_profile,false) THEN RETURN false; END IF;
+ SELECT true INTO found_target
+ FROM public.api_targets t
+ WHERE t.tenant_id=p_tenant AND t.id=p_target AND t.lifecycle='ACTIVE'
+ AND t.environment='SYNTHETIC' AND t.revision=p_target_revision
+ AND t.scope_revision=p_scope_revision
+ FOR UPDATE;
+ RETURN coalesce(found_target,false);
+END;
+$guard$;
+ALTER FUNCTION public.api_auth_fixture_lock_context(uuid,uuid,integer,uuid,integer,integer) OWNER TO api_family;
+REVOKE ALL ON FUNCTION public.api_auth_fixture_lock_context(uuid,uuid,integer,uuid,integer,integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.api_auth_fixture_lock_context(uuid,uuid,integer,uuid,integer,integer) TO api_family_queue;
