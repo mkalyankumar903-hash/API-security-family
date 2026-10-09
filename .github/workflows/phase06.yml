@@ -4,8 +4,6 @@ on:
     branches: ["work/phase06-api-pt-authorization-safe-execution"]
 env:
   PT_TEST_AUTHORITY_ENABLED: "true"
-  PT_TEST_SIGNING_KEY: "PHASE06_TEST_ONLY_6d61f35cadbdf4f668a12c8c9e51c1f52c4e42f2d2bb"
-  PT_TEST_AUTHORITY_KEY: "PHASE06_SEPARATE_TEST_AUTHORITY_aa99bb88cc77dd66ee55ff44gg33"
 permissions:
   contents: read
 concurrency:
@@ -17,6 +15,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
+      - name: Generate isolated per-job test-only permit authority
+        shell: bash
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -61,6 +68,15 @@ jobs:
       VITE_API_BASE: http://127.0.0.1:3001
       VITE_DEV_TOKEN: local-test-token-alpha
     steps:
+      - name: Generate isolated per-job test-only permit authority
+        shell: bash
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -119,6 +135,15 @@ jobs:
       VITE_API_BASE: http://127.0.0.1:3001
       VITE_DEV_TOKEN: local-test-token-alpha
     steps:
+      - name: Generate isolated per-job test-only permit authority
+        shell: bash
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -170,6 +195,15 @@ jobs:
       VITE_API_BASE: http://127.0.0.1:3001
       VITE_DEV_TOKEN: local-test-token-alpha
     steps:
+      - name: Generate isolated per-job test-only permit authority
+        shell: bash
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
