@@ -10,7 +10,7 @@ test("Phase05 evidence-aware comparison distinguishes persisted new, changed and
  assert.equal(out.noLongerObserved.length,1);
  assert.equal(out.stillObserved.length,1);
  assert.equal(out.evidenceChanged.length,1);
- assert.equal(out.evidenceChanged[0].fingerprint,"new");
+ assert.equal(out.evidenceChanged[0]!.fingerprint,"new");
 });
 test("Phase05 comparison on empty findings never implies verified security",()=>{
  const out=comparePersistedFindings([],[]);
