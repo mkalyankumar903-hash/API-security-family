@@ -34,7 +34,18 @@ export function issueTestPermit(input:Omit<PtClaims,"v"|"issuer"|"audience"|"pro
  const key=root(),claims:PtClaims={
   v:1,issuer:PT_ISSUER,audience:PT_AUDIENCE,profile:PT_PROFILE,nonce:b64(randomBytes(24)),...input
  };
- const body=b64(JSON.stringify(claims));
+ // PostgreSQL jsonb sorts object members. Reconstruct the exact v1 issuer
+ // serialization order before verifying its original keyed fingerprint.
+ const fields=["v","issuer","audience","profile","nonce","permitId","tenantId",
+  "targetId","environment","fixtureId","specificationId","specificationVersion",
+  "specFingerprint","targetVerificationVersion","targetScopeRevision","scopeId",
+  "operationKeys","methods","exclusions","maxEvaluations","maxConcurrency",
+  "ratePerMinute","deadlineMs","notBefore","expiresAt"];
+ const raw=claims as unknown as Record<string,unknown>;
+ if(Object.keys(raw).length!==fields.length||fields.some(k=>!Object.hasOwn(raw,k)))
+  throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
+ const ordered=Object.fromEntries(fields.map(k=>[k,raw[k]]));
+ const body=b64(JSON.stringify(ordered));
  const signature=createHmac("sha256",key).update("pt6v1."+body).digest();
  return "pt6v1."+body+"."+b64(signature);
 }
