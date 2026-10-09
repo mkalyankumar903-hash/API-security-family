@@ -15,10 +15,9 @@ try{
   });
   if(!didWork&&!stopping.signal.aborted){
    await new Promise<void>(resolve=>{
-    const timer=setTimeout(resolve,300);
-    stopping.signal.addEventListener("abort",()=>{
-     clearTimeout(timer);resolve();
-    },{once:true});
+    const onAbort=()=>{clearTimeout(timer);resolve();};
+    const timer=setTimeout(()=>{stopping.signal.removeEventListener("abort",onAbort);resolve();},300);
+    stopping.signal.addEventListener("abort",onAbort,{once:true});
    });
   }
  }
