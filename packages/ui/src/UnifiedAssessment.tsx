@@ -1,14 +1,15 @@
 import {useCallback,useEffect,useState} from "react";
 
 const BASE=(typeof import.meta.env==="object"&&import.meta.env.VITE_API_BASE)||"http://127.0.0.1:3001";
+type Version={specificationId:string;version:number;format:string;normalizedFingerprint:string};
 type Run={id:string;targetId:string;targetName:string;environment:string;specificationId:string;specificationVersion:number|null;format:string;engineVersion:string;status:string;errorCode?:string;createdAt:string;completedAt?:string};
 type Finding={id:string;ruleId:string;ruleVersion:string|null;operationKey:string|null;category:string;impact:string|null;confidence:string|null;explanation:string;remediation:string;observationType:string;validationLevel:string;reviewRequired:boolean;sourcePointer:string;fingerprint:string|null};
 type Detail=Finding&{evidence:Record<string,unknown>;potentialImpact:string|null;notice:string};
 type Coverage={rules:{ruleId:string;ruleVersion:string;status:string|null;skipReason:string|null;matchCount:number|null}[];limitations:string[];warnings:string[];operationsEvaluated:number|null;notice:string};
 type Comparison={comparable:boolean;reason:string|null;counts?:Record<string,number>;newlyObserved:Finding[];noLongerObserved:Finding[];stillObserved:Finding[];evidenceChanged:Finding[];notice:string;syntheticFixtureOnly?:boolean};
 type Report={schemaVersion:string;assessment:Run;immutableReport:Record<string,unknown>;provenance:Record<string,unknown>;notice:string};
-async function api<T>(token:string,path:string,method="GET",body?:unknown):Promise<T>{
- const response=await fetch(BASE+path,{method,headers:{authorization:"Bearer "+token,"content-type":"application/json"},
+async function api<T>(token:string,path:string,method="GET",body?:unknown,headers:Record<string,string>={}):Promise<T>{
+ const response=await fetch(BASE+path,{method,headers:{authorization:"Bearer "+token,"content-type":"application/json",...headers},
   ...(body===undefined?{}:{body:JSON.stringify(body)})});
  const result:unknown=await response.json();
  if(!response.ok)throw new Error((result as {error?:string}).error??"API_REQUEST_FAILED");
@@ -16,10 +17,12 @@ async function api<T>(token:string,path:string,method="GET",body?:unknown):Promi
 }
 const catalog:{id:string;label:string;guide:string;section:string}[]=[
  {id:"inventory-v1",label:"Specification Security Assessment",guide:"Offline declarations only. No runtime security conclusions.",section:"#api-inventory-analysis"},
+ {id:"inventory-v2",label:"Richer Offline Specification Analysis",guide:"Versioned phase05-v2 metadata only. Six additional declaration checks; older imports remain v1.",section:"#api-inventory-analysis"},
  {id:"auth-fixture-v1",label:"Synthetic Authentication & Authorization Validation",guide:"Only trusted test fixtures. Not customer API authentication.",section:"#api-auth-fixture"}
 ];
 export function UnifiedAssessment({token,targetId}:{token:string;targetId:string}){
  const [engine,setEngine]=useState("inventory-v1"),[status,setStatus]=useState(""),[offset,setOffset]=useState(0);
+ const [versions,setVersions]=useState<Version[]>([]),[specification,setSpecification]=useState(""),[newJob,setNewJob]=useState("");
  const [runs,setRuns]=useState<Run[]>([]),[selected,setSelected]=useState<Run|null>(null);
  const [findings,setFindings]=useState<Finding[]>([]),[findingPage,setFindingPage]=useState(0),[rule,setRule]=useState("");
  const [impact,setImpact]=useState(""),[confidence,setConfidence]=useState(""),[search,setSearch]=useState("");
@@ -38,7 +41,14 @@ export function UnifiedAssessment({token,targetId}:{token:string;targetId:string
   void refresh().catch(e=>{if(live)setError(e instanceof Error?e.message:"HISTORY_UNAVAILABLE");}).finally(()=>{if(live)setLoading(false);});
   return()=>{live=false;};
  },[refresh]);
- useEffect(()=>{setSelected(null);setDetail(null);setCoverage(null);setReport(null);setFindings([]);setComparison(null);setFrom("");setTo("");},[targetId,token]);
+ useEffect(()=>{setSelected(null);setDetail(null);setCoverage(null);setReport(null);setFindings([]);setComparison(null);setFrom("");setTo("");setNewJob("");setVersions([]);
+   if(!targetId||!token)return;
+   let live=true;
+   void api<Version[]>(token,"/v2/targets/"+targetId+"/specifications?limit=100")
+     .then(v=>{if(live){setVersions(v);setSpecification(v[0]?.specificationId??"");}})
+     .catch(e=>{if(live)setError(e instanceof Error?e.message:"VERSIONS_UNAVAILABLE");});
+   return()=>{live=false;};
+ },[targetId,token]);
  useEffect(()=>{if(!selected||selected.status!=="COMPLETED"){setFindings([]);setCoverage(null);setReport(null);return;}
   let live=true;const q=new URLSearchParams({limit:"25",offset:String(findingPage)});
   if(rule)q.set("ruleId",rule);if(impact)q.set("impact",impact);if(confidence)q.set("confidence",confidence);if(search)q.set("search",search);
@@ -50,6 +60,15 @@ export function UnifiedAssessment({token,targetId}:{token:string;targetId:string
   return()=>{live=false;};
  },[selected?.id,selected?.status,token,findingPage,rule,impact,confidence,search]);
  async function run(fn:()=>Promise<void>){setBusy(true);setError("");try{await fn();}catch(e){setError(e instanceof Error?e.message:"REQUEST_FAILED");}finally{setBusy(false);}}
+ async function startAssessment(){
+  if(!targetId||!specification||engine==="auth-fixture-v1")return;
+  await run(async()=>{
+   const entry=await api<{id:string;status:string}>(token,"/v5/targets/"+targetId+"/assessments","POST",
+    {engineVersion:engine,mode:"SPEC_ONLY",specificationId:specification},
+    {"idempotency-key":"phase05-ui-"+crypto.randomUUID()});
+   setNewJob(entry.id+" · "+entry.status+" · awaiting private worker");await refresh();
+  });
+ }
  async function openRun(item:Run){
   setSelected(item);setReport(null);setDetail(null);setFindingPage(0);setRule("");setSearch("");setImpact("");setConfidence("");
   if(item.status==="COMPLETED")await run(async()=>{setReport(await api<Report>(token,"/v5/assessments/"+item.id+"/report"));});
@@ -77,7 +96,15 @@ export function UnifiedAssessment({token,targetId}:{token:string;targetId:string
    {catalog.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
   </select></label>
   <p>{catalog.find(x=>x.id===engine)?.guide}</p>
-  {targetId?<a href={catalog.find(x=>x.id===engine)?.section}>Configure this assessment using the verified engine controls</a>:
+  {targetId&&engine!=="auth-fixture-v1"&&<>
+   <label>Imported immutable specification<select value={specification} onChange={e=>setSpecification(e.target.value)}>
+    {versions.length===0&&<option value="">Import a specification first</option>}
+    {versions.map(v=><option key={v.specificationId} value={v.specificationId}>Version {v.version} · {v.format}</option>)}
+   </select></label>
+   <button className="secondary" disabled={busy||!specification} onClick={()=>void startAssessment()}>Start selected offline assessment</button>
+   {newJob&&<p role="status">Queued assessment: {newJob}</p>}
+  </>}
+  {targetId?<a href={catalog.find(x=>x.id===engine)?.section}>{engine==="auth-fixture-v1"?"Configure validated synthetic fixture assessment":"Import or inspect specification using preserved controls"}</a>:
    <p>Select an API target above to configure an assessment.</p>}
   <p>Engine choice does not confer ownership, production credentials or target-network permission.</p>
   <h3>Assessment runs and history</h3>
