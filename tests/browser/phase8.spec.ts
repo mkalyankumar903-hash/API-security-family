@@ -5,7 +5,7 @@ import {claimJob,withWorkerTenant,closeDatabase} from "../../packages/database/s
 import {processOneJob} from "../../packages/worker/src/index.js";
 import {processPtDetectionJob} from "../../packages/worker/src/pt-detection.js";
 
-const URL="http://127.0.0.1:3001",TENANT="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const API_BASE="http://127.0.0.1:3001",TENANT="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const headers={"authorization":"Bearer local-test-token-alpha"};
 const secondTenant={"authorization":"Bearer local-test-token-beta"};
 const issuer={...headers,"x-pt-authority-key":process.env.PT_TEST_AUTHORITY_KEY??""};
@@ -14,38 +14,38 @@ test.afterAll(async()=>{await closeDatabase();});
 
 async function seed(request:APIRequestContext){
  const suffix=randomUUID().slice(0,8);
- const target=await request.post(URL+"/v1/targets",{headers,
+ const target=await request.post(API_BASE+"/v1/targets",{headers,
   data:{name:"Phase08 Browser "+suffix,environment:"SYNTHETIC",baseUrl:"https://phase08-"+suffix+".fixture.invalid"}});
  expect(target.status()).toBe(201);
  const tid=(await target.json() as {id:string}).id;
- const imported=await request.post(URL+"/v2/targets/"+tid+"/specifications/imports",{headers:{...headers,"idempotency-key":"pt8-browser-import-"+randomUUID()},
+ const imported=await request.post(API_BASE+"/v2/targets/"+tid+"/specifications/imports",{headers:{...headers,"idempotency-key":"pt8-browser-import-"+randomUUID()},
   data:{filename:"phase07-security.openapi.json",content:source}});
  expect(imported.status()).toBe(201);
  const sid=(await imported.json() as {specificationId:string}).specificationId;
- const operations=await request.get(URL+"/v2/specifications/"+sid+"/operations?limit=100",{headers});
+ const operations=await request.get(API_BASE+"/v2/specifications/"+sid+"/operations?limit=100",{headers});
  expect(operations.status()).toBe(200);
  const op=await operations.json() as {key:string;method:string;path:string}[];
  return {tid,sid,op};
 }
 async function setup(request:APIRequestContext,tid:string,sid:string,ops:string[],budget:number){
- const scoped=await request.post(URL+"/v6/pt/targets/"+tid+"/scopes",
+ const scoped=await request.post(API_BASE+"/v6/pt/targets/"+tid+"/scopes",
   {headers:{...headers,"idempotency-key":"pt8-browser-scope-"+randomUUID()},
    data:{specificationId:sid,operationKeys:ops,fixtureId:"pt-security-v1",exclusions:[],
     maxEvaluations:budget,ratePerMinute:budget,maxConcurrency:1,deadlineMs:30000,validityMinutes:15}});
- expect(scoped.status()).toBe(201,await scoped.text());
+ expect(scoped.status(),await scoped.text()).toBe(201);
  const scopeId=(await scoped.json() as {id:string}).id;
- expect((await request.post(URL+"/v6/pt/scopes/"+scopeId+"/request-authorization",{headers,data:{}})).status()).toBe(201);
- expect((await request.post(URL+"/v6/pt/test-authority/scopes/"+scopeId+"/issue",{headers,data:{}})).status()).toBe(403);
- const signed=await request.post(URL+"/v6/pt/test-authority/scopes/"+scopeId+"/issue",{headers:issuer,data:{}});
- expect(signed.status()).toBe(201,await signed.text());
+ expect((await request.post(API_BASE+"/v6/pt/scopes/"+scopeId+"/request-authorization",{headers,data:{}})).status()).toBe(201);
+ expect((await request.post(API_BASE+"/v6/pt/test-authority/scopes/"+scopeId+"/issue",{headers,data:{}})).status()).toBe(403);
+ const signed=await request.post(API_BASE+"/v6/pt/test-authority/scopes/"+scopeId+"/issue",{headers:issuer,data:{}});
+ expect(signed.status(),await signed.text()).toBe(201);
  return scopeId;
 }
 async function admit(request:APIRequestContext,scopeId:string,rules:string[],profile:string){
- const r=await request.post(URL+"/v7/pt/scopes/"+scopeId+"/detections",
+ const r=await request.post(API_BASE+"/v7/pt/scopes/"+scopeId+"/detections",
   {headers:{...headers,"idempotency-key":"pt8-browser-job-"+randomUUID()},data:{profile,ruleIds:rules}});
- expect(r.status()).toBe(201,await r.text());
+ expect(r.status(),await r.text()).toBe(201);
  const id=(await r.json() as {id:string}).id;
- const queued=await request.get(URL+"/v7/pt/jobs/"+id,{headers});
+ const queued=await request.get(API_BASE+"/v7/pt/jobs/"+id,{headers});
  expect((await queued.json() as {status:string}).status).toBe("QUEUED");
  return id;
 }
@@ -64,16 +64,16 @@ test("Phase08 real Chromium: partial failure after governed response yields pers
  await withWorkerTenant(TENANT,tx=>tx.query("UPDATE api_assessments SET status='PROCESSING' WHERE id=$1 AND status='QUEUED'",[job]));
  await processPtDetectionJob(TENANT,job,claim!.claim_token,{afterEvaluation:async count=>{
   if(count===1)throw new Error("ISOLATED_PHASE08_BROWSER_FAULT");}});
- const state=await request.get(URL+"/v7/pt/jobs/"+job,{headers});
+ const state=await request.get(API_BASE+"/v7/pt/jobs/"+job,{headers});
  expect((await state.json() as {status:string}).status).toBe("FAILED");
- const diagnostics=await request.get(URL+"/v8/pt/jobs/"+job+"/terminal-coverage",{headers});
+ const diagnostics=await request.get(API_BASE+"/v8/pt/jobs/"+job+"/terminal-coverage",{headers});
  expect(diagnostics.status()).toBe(200);
  const coverage=await diagnostics.json() as {assessmentComplete:boolean;verifiedFixed:boolean;rules:{status:string}[]};
  expect(coverage.assessmentComplete).toBe(false);
  expect(coverage.verifiedFixed).toBe(false);
  expect(coverage.rules[0]?.status).toBe("INCONCLUSIVE");
- expect((await request.get(URL+"/v7/pt/jobs/"+job+"/report",{headers})).status()).toBe(409);
- expect((await request.get(URL+"/v8/pt/jobs/"+job+"/terminal-coverage",{headers:secondTenant})).status()).toBe(404);
+ expect((await request.get(API_BASE+"/v7/pt/jobs/"+job+"/report",{headers})).status()).toBe(409);
+ expect((await request.get(API_BASE+"/v8/pt/jobs/"+job+"/terminal-coverage",{headers:secondTenant})).status()).toBe(404);
  await page.goto("/");
  await page.getByLabel("Select target").selectOption(tid);
  const explorer=page.getByRole("region",{name:"API PT findings and history"});
@@ -96,11 +96,11 @@ test("Phase08 real Chromium: multi-rule persisted report, tenant-scoped findings
  const scope=await setup(request,tid,sid,keys,4);
  const job=await admit(request,scope,["PT-AUTH-ANONYMOUS","PT-BOLA-CROSS-USER"],"MISSING_AUTH_ENFORCEMENT");
  expect(await processOneJob()).toBe(true);
- const progress=await request.get(URL+"/v8/pt/jobs/"+job+"/progress",{headers});
+ const progress=await request.get(API_BASE+"/v8/pt/jobs/"+job+"/progress",{headers});
  expect(progress.status()).toBe(200);
  expect((await progress.json() as {executedEvaluations:number;plannedEvaluations:number;complete:boolean})).toMatchObject({
   executedEvaluations:4,plannedEvaluations:4,complete:true});
- const result=await request.get(URL+"/v7/pt/jobs/"+job+"/report",{headers});
+ const result=await request.get(API_BASE+"/v7/pt/jobs/"+job+"/report",{headers});
  expect(result.status()).toBe(200);
  const rpt=await result.json() as {syntheticOnly:boolean;verifiedFixed:boolean;coverage:{requested:number;actualEvaluations:number};observations:{ruleId:string}[]};
  expect(rpt.syntheticOnly).toBe(true);
@@ -108,11 +108,11 @@ test("Phase08 real Chromium: multi-rule persisted report, tenant-scoped findings
  expect(rpt.coverage.requested).toBe(2);
  expect(rpt.coverage.actualEvaluations).toBe(4);
  expect(rpt.observations.length).toBe(1);
- expect((await request.get(URL+"/v7/pt/jobs/"+job+"/report",{headers:secondTenant})).status()).toBe(409);
- const found=await request.get(URL+"/v8/pt/findings?targetId="+tid,{headers});
+ expect((await request.get(API_BASE+"/v7/pt/jobs/"+job+"/report",{headers:secondTenant})).status()).toBe(409);
+ const found=await request.get(API_BASE+"/v8/pt/findings?targetId="+tid,{headers});
  expect(found.status()).toBe(200);
  expect(((await found.json()) as {items:unknown[]}).items.length).toBe(1);
- const foreign=await request.get(URL+"/v8/pt/findings?targetId="+tid,{headers:secondTenant});
+ const foreign=await request.get(API_BASE+"/v8/pt/findings?targetId="+tid,{headers:secondTenant});
  expect(((await foreign.json()) as {items:unknown[]}).items).toHaveLength(0);
  await page.goto("/");
  await page.getByLabel("Select target").selectOption(tid);
