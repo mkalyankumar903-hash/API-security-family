@@ -90,3 +90,15 @@ export function skippedRule(rule:Rule,reason:string):Result{return {
  status:"SKIPPED",code:reason,confidence:"NONE",evidence:[],fingerprint:null,
  syntheticOnly:true,runtimeCustomerVerification:false
 };}
+
+/** JSONB property order is not stable; sign the canonical immutable plan content. */
+function canonical(value:unknown):unknown{
+ if(Array.isArray(value))return value.map(canonical);
+ if(value!==null&&typeof value==="object")
+  return Object.fromEntries(Object.entries(value as Record<string,unknown>).sort(([a],[b])=>a.localeCompare(b))
+   .map(([k,v])=>[k,canonical(v)]));
+ return value;
+}
+export function planFingerprint(value:unknown):string{
+ return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
+}
