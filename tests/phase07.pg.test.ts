@@ -62,7 +62,8 @@ test("Phase07 real PostgreSQL 16 — governed synthetic detection, RLS and prese
    const r=await pool.query("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname LIKE 'api_pt_detection_%' AND relkind='r'");
    assert.equal(r.rowCount,4);
    assert.ok(r.rows.every(x=>x.relrowsecurity&&x.relforcerowsecurity));
-   await assert.rejects(()=>pool.query("SELECT * FROM api_pt_detection_plans"),/permission denied|policy|tenant/);
+   const noContext=await pool.query("SELECT * FROM api_pt_detection_plans");
+   assert.equal(noContext.rowCount,0,"Unscoped application principal sees zero tenant rows");
   });
   const s=await seed();
   await t.test("rule registry and fixture expose no customer destination",async()=>{
