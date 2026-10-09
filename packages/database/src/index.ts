@@ -140,7 +140,10 @@ export async function claimJob():Promise<WorkerClaim|null>{
  const tx=await workerPool.connect();
  try{
   await tx.query("BEGIN");
-  const gate=await tx.query("SELECT id FROM api_queue.api_worker_claim_gate WHERE id=true FOR UPDATE SKIP LOCKED");
+  // Capacity check must serialize, but not drop other eligible jobs if this
+  // short-lived gate is busy: bounded wait, SKIP LOCKED retained per job row.
+  await tx.query("SET LOCAL lock_timeout='1500ms'");
+  const gate=await tx.query("SELECT id FROM api_queue.api_worker_claim_gate WHERE id=true FOR UPDATE");
   if(!gate.rowCount){await tx.query("COMMIT");return null;}
   const picked=await tx.query(
    `SELECT q.assessment_id,q.tenant_id,q.claim_generation FROM api_queue.api_assessment_queue q
