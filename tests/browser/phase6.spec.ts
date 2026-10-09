@@ -4,7 +4,7 @@ import {closeDatabase} from "../../packages/database/src/index.js";
 test.afterAll(async()=>{await closeDatabase();});
 const base="http://127.0.0.1:3001";
 const auth={"authorization":"Bearer local-test-token-alpha"};
-const secret="PHASE06_SEPARATE_TEST_AUTHORITY_aa99bb88cc77dd66ee55ff44gg33";
+const secret=process.env.PT_TEST_AUTHORITY_KEY??"";
 type Row={id:string;scope_id:string;permit_id:string;status:string};
 test("Phase06 Chromium: React scope/denial/issuer/worker/receipts/report/revocation/stop/concurrency",async({page,request})=>{
  test.setTimeout(160000);
