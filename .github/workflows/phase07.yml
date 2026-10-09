@@ -164,14 +164,14 @@ jobs:
         run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
       - name: Frozen dependencies
         run: npm ci --no-audit --no-fund
-      - name: Initialize fresh isolated database 001-009
+      - name: Initialize fresh isolated database 001-011
         run: npm run migrate
       - name: React production build
         run: npm run build
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Real Chromium React Fastify PostgreSQL worker
-        run: npx playwright test tests/browser/phase6.spec.ts
+        run: npx playwright test tests/browser/phase7.spec.ts
 
   postgres-targeted:
     if: ${{ contains(github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message, '[phase07-pg]') }}
@@ -228,4 +228,4 @@ jobs:
       - name: Initialize fresh isolated database 001-009
         run: npm run migrate
       - name: Real PostgreSQL Phase07 rich and historical regressions
-        run: node --import tsx --test --test-concurrency=1 tests/phase06.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase06-upgrade.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase06-races.pg.test.ts
+        run: npm run test:pg
