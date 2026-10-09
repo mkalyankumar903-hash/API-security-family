@@ -170,7 +170,7 @@ jobs:
         run: npm run build
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
-      - name: Real Chromium React Fastify PostgreSQL worker
+      - name: Real Chromium Phase07 governed detection and synthetic permit journeys
         run: npx playwright test tests/browser/phase7.spec.ts
 
   postgres-targeted:
