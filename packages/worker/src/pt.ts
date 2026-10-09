@@ -1,7 +1,7 @@
 import type {PoolClient} from "pg";
 import {withWorkerTenant,uuid} from "../../database/src/index.js";
 import {verifyStoredTestPermit,enforcePermit,PermitError,type PtClaims} from "../../pt/src/permit.js";
-import {evaluateFixture,fixtureOperation,FIXTURE_ID} from "../../pt/src/fixture.js";
+import {evaluateFixture,fixtureOperationFor,FIXTURE_ID} from "../../pt/src/fixture.js";
 
 type State={
  scope_id:string;permit_id:string;target_id:string;specification_id:string;specification_version:number;
@@ -43,7 +43,7 @@ function check(s:State,tenant:string,op:Op):string|null{
   if(s.target_verification_version!==s.current_verification||s.target_scope_revision!==s.current_scope_revision)
    return "TARGET_SCOPE_CHANGED";
   if(new Date(s.job_deadline).getTime()<=Date.now())return "JOB_DEADLINE_EXPIRED";
-  if(!fixtureOperation(op.method,op.path))return "METHOD_OR_FIXTURE_DENIED";
+  if(!fixtureOperationFor(s.fixture_id,op.method,op.path))return "METHOD_OR_FIXTURE_DENIED";
   return null;
  }catch(e){return e instanceof PermitError?e.code:"PERMIT_INVALID";}
 }
