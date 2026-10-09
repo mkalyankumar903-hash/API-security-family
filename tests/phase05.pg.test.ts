@@ -87,6 +87,6 @@ test("Phase05 real PostgreSQL: unified cross-engine history, immutable export, c
   const engines=await call("GET","/v5/engines");
   assert.equal(engines.statusCode,200);
   assert.equal(engines.json().maxRequests,0);
-  assert.equal(engines.json().options.length,3);
+  assert.equal(engines.json().options.length,4);
  }finally{await app.close();await pool.end();await workerPool.end();}
 });
