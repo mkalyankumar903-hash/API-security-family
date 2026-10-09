@@ -41,10 +41,12 @@ function validatePlan(s:Snapshot,operations:readonly {operation_key:string;metho
  }
 }
 async function fail(tenant:string,id:string,token:string,code:string):Promise<void>{
- await settlePtDetectionReservations(tenant,id);
+ // Settlement and failure publication must never be driven by a stale claim token.
+ if(!await settlePtDetectionReservations(tenant,id,token))return;
  await withWorkerTenant(tenant,async tx=>{
-  const q=await tx.query("SELECT claim_token FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[id]);
-  if(q.rows[0]?.claim_token!==token)return;
+  const q=await tx.query("SELECT claim_token,locked_until FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[id]);
+  if(q.rows[0]?.claim_token!==token||!q.rows[0]?.locked_until||
+   new Date(q.rows[0].locked_until).getTime()<=Date.now())return;
   await tx.query("UPDATE api_assessments SET status='FAILED',error_code=$2,completed_at=now() WHERE id=$1 AND status='PROCESSING'",[id,code]);
   await tx.query("INSERT INTO api_pt_events(id,tenant_id,subject_id,action,details) VALUES($1,$2,$3,'PT7_DETECTION_FAILED',$4::jsonb)",
    [uuid(),tenant,id,JSON.stringify({code})]);
