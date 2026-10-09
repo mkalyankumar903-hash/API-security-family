@@ -2,6 +2,7 @@ import type {PoolClient} from "pg";
 import {withWorkerTenant,uuid} from "../../database/src/index.js";
 import {verifyStoredTestPermit,enforcePermit,PermitError,type PtClaims} from "../../pt/src/permit.js";
 import {evaluateFixture,fixtureOperationFor,FIXTURE_ID} from "../../pt/src/fixture.js";
+import {DETECTION_FIXTURE,executeTrustedSynthetic,isActor,isDetectionPath,isProfile,type Evidence} from "../../pt/src/security-fixture.js";
 
 type State={
  scope_id:string;permit_id:string;target_id:string;specification_id:string;specification_version:number;
@@ -228,4 +229,82 @@ export async function processPtJob(tenant:string,id:string,token:string,barriers
    await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[id,token]);
   });
  }
+}
+
+/** Phase07 additive evaluation interface INSIDE the Phase06 private governor.
+ * Each case is signed-permit checked, operation/fixture scoped, reserved, and
+ * executed under stop/permit/lease/target locks. No detector imports Fastify. */
+export type DetectionEvaluationInput={
+ evaluationKey:string;operationKey:string;path:string;method:"GET";actor:string;profile:string;
+};
+export type DetectionEvaluationOutcome={status:"CONSUMED"|"UNCERTAIN"|"DENIED";code:string;evidence:Evidence|null};
+export async function governedPtDetectionInteraction(tenant:string,id:string,token:string,
+ input:DetectionEvaluationInput):Promise<DetectionEvaluationOutcome>{
+ if(!/^[A-Z0-9-]{4,48}:[a-z]{3,20}$/.test(input.evaluationKey)||
+  !isActor(input.actor)||!isProfile(input.profile)||!isDetectionPath(input.path))
+  return {status:"DENIED",code:"UNTRUSTED_DETECTION_PLAN",evidence:null};
+ const admission=await withWorkerTenant(tenant,async tx=>{
+  if(await stopActive(tx,tenant))return {status:"DENIED",code:"EMERGENCY_STOP_ACTIVE"};
+  const s=await context(tx,tenant,id,true);
+  if(!s||!await leased(tx,id,token))return {status:"DENIED",code:"LEASE_NOT_OWNED"};
+  if(s.fixture_id!==DETECTION_FIXTURE)return {status:"DENIED",code:"FIXTURE_MISMATCH"};
+  const op=await opFor(tx,s.specification_id,input.operationKey);
+  if(op.path!==input.path||op.method!==input.method)return {status:"DENIED",code:"OPERATION_MISMATCH"};
+  const existing=await tx.query("SELECT state FROM api_pt_detection_evaluations WHERE assessment_id=$1 AND evaluation_key=$2 FOR UPDATE",[id,input.evaluationKey]);
+  if(existing.rowCount){
+   if(existing.rows[0].state==="RESERVED"){
+    await tx.query("UPDATE api_pt_detection_evaluations SET state='UNCERTAIN',reason='CRASH_RECOVERY_NO_REPLAY',settled_at=now() WHERE assessment_id=$1 AND evaluation_key=$2",[id,input.evaluationKey]);
+    await tx.query("UPDATE api_pt_permits SET reserved=reserved-1,consumed=consumed+1 WHERE id=$1 AND reserved>0",[s.permit_id]);
+   }
+   return {status:"UNCERTAIN",code:"DUPLICATE_EVALUATION_NEVER_REPLAY"};
+  }
+  let code=check(s,tenant,op);
+  if(!code&&!s.operation_keys.includes(input.operationKey))code="OPERATION_OUT_OF_SCOPE";
+  if(!code&&s.consumed+s.reserved>=s.max_evaluations)code="PERMIT_BUDGET_EXHAUSTED";
+  if(!code&&s.rate_used>=s.rate_per_minute&&Date.now()-new Date(s.rate_start).getTime()<60000)code="RATE_LIMIT";
+  if(code)return {status:"DENIED",code};
+  const reset=Date.now()-new Date(s.rate_start).getTime()>=60000;
+  await tx.query("UPDATE api_pt_permits SET reserved=reserved+1,rate_used=CASE WHEN $2 THEN 1 ELSE rate_used+1 END,rate_start=CASE WHEN $2 THEN now() ELSE rate_start END WHERE id=$1",[s.permit_id,reset]);
+  await tx.query("INSERT INTO api_pt_detection_evaluations(id,tenant_id,assessment_id,permit_id,evaluation_key,operation_key,method,path,actor,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'RESERVED')",
+   [uuid(),tenant,id,s.permit_id,input.evaluationKey,input.operationKey,input.method,input.path,input.actor]);
+  await audit(tx,tenant,id,"PT7_EVALUATION_RESERVED","GOVERNOR_AUTHORIZED");
+  return {status:"RESERVED",code:"RESERVED"};
+ });
+ if(admission.status!=="RESERVED")return {status:admission.status,code:admission.code,evidence:null};
+ return withWorkerTenant(tenant,async tx=>{
+  if(await stopActive(tx,tenant))return {status:"DENIED" as const,code:"EMERGENCY_STOP_ACTIVE",evidence:null};
+  const s=await context(tx,tenant,id,true);
+  if(!s||!await leased(tx,id,token))return {status:"DENIED" as const,code:"LEASE_NOT_OWNED",evidence:null};
+  const op=await opFor(tx,s.specification_id,input.operationKey);
+  const ledger=await tx.query("SELECT state FROM api_pt_detection_evaluations WHERE assessment_id=$1 AND evaluation_key=$2 FOR UPDATE",[id,input.evaluationKey]);
+  if(ledger.rows[0]?.state!=="RESERVED")return {status:"UNCERTAIN" as const,code:"NOT_RESERVED",evidence:null};
+  const failure=op.path!==input.path||op.method!==input.method?"OPERATION_MISMATCH":check(s,tenant,op);
+  let evidence:Evidence|null=null;
+  let code=failure??"FIXTURE_EVALUATED";
+  if(!failure){
+   try{
+    evidence=await executeTrustedSynthetic({
+     method:input.method,path:input.path as Evidence["path"],actor:input.actor as Evidence["actor"],profile:input.profile as Evidence["profile"]
+    });
+   }catch{code="TRUSTED_FIXTURE_FAILED";}
+  }
+  await tx.query("UPDATE api_pt_detection_evaluations SET state=$3,evidence=$4::jsonb,reason=$5,settled_at=now() WHERE assessment_id=$1 AND evaluation_key=$2",
+   [id,input.evaluationKey,evidence?"CONSUMED":"UNCERTAIN",evidence?JSON.stringify(evidence):null,code]);
+  await tx.query("UPDATE api_pt_permits SET reserved=reserved-1,consumed=consumed+1 WHERE id=$1 AND reserved>0",[s.permit_id]);
+  await audit(tx,tenant,id,"PT7_GOVERNED_EVALUATION",code);
+  return {status:evidence?"CONSUMED" as const:"UNCERTAIN" as const,code,evidence};
+ });
+}
+/** Cancellation, stale worker and exceptions must settle uncertain reservations without replay. */
+export async function settlePtDetectionReservations(tenant:string,id:string):Promise<void>{
+ await withWorkerTenant(tenant,async tx=>{
+  const s=await context(tx,tenant,id,true);
+  if(!s)return;
+  const rows=await tx.query("SELECT evaluation_key FROM api_pt_detection_evaluations WHERE assessment_id=$1 AND state='RESERVED' FOR UPDATE",[id]);
+  for(const row of rows.rows){
+   await tx.query("UPDATE api_pt_detection_evaluations SET state='UNCERTAIN',reason='CONSERVATIVE_NO_REPLAY',settled_at=now() WHERE assessment_id=$1 AND evaluation_key=$2",[id,row.evaluation_key]);
+   await tx.query("UPDATE api_pt_permits SET reserved=reserved-1,consumed=consumed+1 WHERE id=$1 AND reserved>0",[s.permit_id]);
+  }
+  if(rows.rowCount)await audit(tx,tenant,id,"PT7_ORPHANED_EVALUATIONS_UNCERTAIN",String(rows.rowCount));
+ });
 }
