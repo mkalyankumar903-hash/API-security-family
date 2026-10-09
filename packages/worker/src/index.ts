@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { assess, parseAndValidateSpec } from "../../assessment-engine/src/index.js";
 import {detectInventory} from "../../assessment-engine/src/inventory.js";
+import {processAuthFixtureJob} from "./auth.js";
 import type {Inventory} from "../../discovery/src/index.js";
 import { claimJob, uuid, withWorkerTenant } from "../../database/src/index.js";
 
@@ -18,6 +19,10 @@ export async function processOneJob(): Promise<boolean> {
     });
     if (!job) {
       await withWorkerTenant(tenant, async tx => { await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[jobId, token]); });
+      return true;
+    }
+    if(job.engine_version==="auth-fixture-v1"){
+      await processAuthFixtureJob(tenant,jobId,token);
       return true;
     }
     const inventoryBased=job.engine_version==="inventory-v1";
