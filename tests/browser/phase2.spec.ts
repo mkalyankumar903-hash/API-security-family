@@ -49,7 +49,7 @@ test("real Chromium: all offline imports, React explorer, version diff, selected
  expect(foreign.status()).toBe(404);
  await uploader.setInputFiles({name:"malformed.json",mimeType:"application/json",buffer:Buffer.from("{PRIVATE_TOKEN=do-not-return")});
  await expect(page.getByRole("alert")).toContainText(/Import FAILED: INVALID_JSON/);
- await expect(page.getByText("FAILED",{exact:true})).toBeVisible();
+ await expect(page.getByRole("cell",{name:"FAILED",exact:true})).toBeVisible();
  await page.getByRole("button",{name:"Suspend target"}).click();
  await expect(page.getByText(/Lifecycle:.*SUSPENDED/)).toBeVisible();
  await expect(uploader).toBeDisabled();
