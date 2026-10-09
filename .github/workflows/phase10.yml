@@ -1,7 +1,8 @@
 name: Phase 10 Advanced Worker Execution Safety Qualification
 on:
-  push:
-    branches: ["work/phase10-advanced-workers-execution-safety"]
+  pull_request:
+    branches: ["work/phase09-deterministic-autonomous-orchestrator"]
+    types: [opened, synchronize, edited, reopened]
 env:
   PT_TEST_AUTHORITY_ENABLED: "true"
 permissions:
