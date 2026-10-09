@@ -114,8 +114,8 @@ test("Phase08 populated Phase07 011 -> 012 upgrade preserves historic signed per
    [historicalPermit,tenant,historicalScope,digest(syntheticBearer),JSON.stringify(syntheticClaims),
     syntheticBearer.split(".")[1],historicTime,historicalPolicy.expiresAt]);
   await clone.query(
-   "INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version) VALUES($1,$2,$3,$4,'COMPLETED','SYNTHETIC_PT_FIXTURE',$5,'pt-detection-v1')",
-   [historicalJob,tenant,target,spec,"pt8-detection-"+randomUUID()]);
+   "INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version,inventory_version,inventory_raw_fingerprint,inventory_fingerprint) VALUES($1,$2,$3,$4,'COMPLETED','SYNTHETIC_PT_FIXTURE',$5,'pt-detection-v1',1,$6,$7)",
+   [historicalJob,tenant,target,spec,"pt8-detection-"+randomUUID(),"a".repeat(64),"b".repeat(64)]);
   await clone.query(
    "INSERT INTO api_pt_jobs(assessment_id,tenant_id,target_id,scope_id,permit_id,operation_keys,job_deadline) VALUES($1,$2,$3,$4,$5,$6::jsonb,now()+interval '2 minutes')",
    [historicalJob,tenant,target,historicalScope,historicalPermit,JSON.stringify(["GET /pt/account"])]);
