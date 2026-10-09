@@ -26,7 +26,7 @@ test("Phase05 real Chromium: unified persisted assessment, findings, provenance,
  expect(await drainQueue()).toBe(1);
  await expect(detection.getByRole("heading",{name:"Evidence-backed assessment report"})).toBeVisible();
  await workspace.getByRole("button",{name:"Refresh assessment history"}).click();
- await expect(workspace.getByText("COMPLETED").first()).toBeVisible();
+ await expect(workspace.getByRole("cell",{name:"COMPLETED"}).first()).toBeVisible();
  await workspace.getByRole("button",{name:"Review run"}).first().click();
  await expect(workspace.getByRole("heading",{name:"Immutable report"})).toBeVisible();
  await expect(workspace.getByRole("heading",{name:"Coverage and unknowns"})).toBeVisible();
