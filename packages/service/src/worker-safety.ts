@@ -39,7 +39,8 @@ export function registerWorkerSafetyRoutes(app:FastifyInstance,identity:(req:Fas
     assessment:a.rows[0],queue:queue.rows[0]?.state??null,
     execution:{
       queueRecordId:queue.rows[0]?.state?id:null,
-      currentAttemptId:attempts.rows.find(x=>x.state==="ACTIVE")?.id??null,
+      currentAttemptId:queue.rows[0]?.state?.queueState==="LEASED"?
+       (attempts.rows.find(x=>x.state==="ACTIVE")?.id??null):null,
       lifecycle:a.rows[0].status,
       deadline:governor.rows[0]?.job_deadline??null,
       authorization:governor.rowCount?{
