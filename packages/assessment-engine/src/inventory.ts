@@ -19,7 +19,7 @@ export type DetectionResult={engineVersion:typeof INVENTORY_ENGINE_VERSION;canon
  rawFingerprint:string;normalizedFingerprint:string;observations:Detection[];coverage:RuleCoverage[];warnings:string[];limitations:string[]};
 const ALL:Format[]=["OPENAPI_3_0","OPENAPI_3_1","SWAGGER_2","POSTMAN_2_1"];
 const OAS:Format[]=["OPENAPI_3_0","OPENAPI_3_1","SWAGGER_2"];
-const catalog:Rule[]=[
+const catalog:Rule[]=([
  ["AUTH_UNDECLARED","Missing declared authentication","AUTH","LOW","HIGH","No effective authentication requirement is declared.","The intended authentication policy is unclear.","Declare requirements and verify enforcement.","Missing declarations never prove absent runtime authentication."],
  ["AUTH_EXPLICIT_NONE","Explicitly unauthenticated operation","AUTH","LOW","HIGH","An operation explicitly opts out of declared authentication.","Anonymous exposure may be intentional or may merit review.","Confirm public exposure is intended and document access rules.","Does not confirm runtime anonymous access."],
  ["AUTH_SENSITIVE_ROUTE","Sensitive-looking route without declared authentication","AUTH","MEDIUM","MEDIUM","A potentially sensitive operation has no declared authentication.","Undocumented access policy for sensitive functionality.","Review server-side authentication and authorization; declare intended policy.","Route naming is a heuristic, not evidence of BOLA or BFLA."],
@@ -48,7 +48,7 @@ const catalog:Rule[]=[
  ["DEPRECATED_OPERATION","Deprecated operation present","METADATA","INFORMATIONAL","HIGH","An operation is marked deprecated.","Old interfaces can extend maintenance and attack surface.","Confirm retirement timeline and client migration.","Deprecated does not mean vulnerable."],
  ["DEPRECATED_AUTH_SCHEME","Deprecated authentication scheme","METADATA","LOW","MEDIUM","A legacy authentication scheme appears in the declaration.","Older authentication patterns may need review.","Review and migrate legacy authentication.","Basic authentication is only a heuristic for legacy schemes."],
  ["UNSUPPORTED_SECURITY_METADATA","Unsupported security declaration metadata","METADATA","INFORMATIONAL","HIGH","Authentication metadata cannot be interpreted fully.","Assessment coverage is incomplete.","Review unsupported authentication manually.","Coverage warning is not a security vulnerability.","Unknown security metadata must be reported as coverage, not a finding."]
-].map((r):Rule=>({id:"API03_"+r[0],revision:"1.0.0",name:r[1],category:r[2],impact:r[3] as Impact,
+ ] as [string,string,string,string,string,string,string,string,string,string?][]).map((r):Rule=>({id:"API03_"+r[0],revision:"1.0.0",name:r[1],category:r[2],impact:r[3] as Impact,
 confidence:r[4] as Confidence,explanation:r[5],potentialImpact:r[6],remediation:r[7],limitation:r[8],
 formats:["API03_AUTH_APIKEY_QUERY","API03_AUTH_OAUTH_SCOPE","API03_AUTH_UNKNOWN_SCHEME","API03_BODY_SCHEMA_MISSING","API03_STRING_NO_BOUNDS","API03_ARRAY_NO_BOUNDS","API03_NUMBER_NO_RANGE","API03_OBJECT_PERMISSIVE","API03_PATH_PARAMETER_WEAK","API03_ADDITIONAL_PROPERTIES","API03_REQUEST_SENSITIVE_FIELD","API03_ERROR_RESPONSE_GAPS","API03_RESPONSE_SENSITIVE_FIELD","API03_EXAMPLE_CREDENTIAL","API03_DESCRIPTION_SENSITIVE_EXAMPLE","API03_RESPONSE_SCHEMA_INCONSISTENT"].includes("API03_"+r[0])?OAS:ALL,
 ...(r[9]?{unsupported:r[9]}:{})}));
