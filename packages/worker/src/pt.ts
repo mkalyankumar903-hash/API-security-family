@@ -308,3 +308,22 @@ export async function settlePtDetectionReservations(tenant:string,id:string):Pro
   if(rows.rowCount)await audit(tx,tenant,id,"PT7_ORPHANED_EVALUATIONS_UNCERTAIN",String(rows.rowCount));
  });
 }
+
+/** Publication is serialized with the same Phase06 stop, permit, tenant, target,
+ * lease and scope locks. Any throw atomically rolls back results and report. */
+export async function withGovernedPtDetectionPublication<T>(
+ tenant:string,id:string,token:string,publish:(tx:PoolClient)=>Promise<T>
+):Promise<T|null>{
+ return withWorkerTenant(tenant,async tx=>{
+  if(await stopActive(tx,tenant))return null;
+  const s=await context(tx,tenant,id,true);
+  if(!s||s.fixture_id!==DETECTION_FIXTURE||!await leased(tx,id,token))return null;
+  const first=s.operation_keys[0];
+  if(!first)return null;
+  const op=await opFor(tx,s.specification_id,first);
+  if(check(s,tenant,op))return null;
+  const pending=await tx.query("SELECT count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1 AND state='RESERVED'",[id]);
+  if(pending.rows[0].n!==0)return null;
+  return publish(tx);
+ });
+}
