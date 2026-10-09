@@ -270,7 +270,7 @@ export async function governedPtDetectionInteraction(tenant:string,id:string,tok
   await audit(tx,tenant,id,"PT7_EVALUATION_RESERVED","GOVERNOR_AUTHORIZED");
   return {status:"RESERVED",code:"RESERVED"};
  });
- if(admission.status!=="RESERVED")return {status:admission.status,code:admission.code,evidence:null};
+ if(admission.status!=="RESERVED")return {status:admission.status as "UNCERTAIN"|"DENIED",code:admission.code,evidence:null};
  return withWorkerTenant(tenant,async tx=>{
   if(await stopActive(tx,tenant))return {status:"DENIED" as const,code:"EMERGENCY_STOP_ACTIVE",evidence:null};
   const s=await context(tx,tenant,id,true);
