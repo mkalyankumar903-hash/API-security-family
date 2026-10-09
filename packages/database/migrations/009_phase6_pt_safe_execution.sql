@@ -118,7 +118,7 @@ CREATE TRIGGER immutable_pt_scope BEFORE UPDATE OR DELETE ON public.api_pt_scope
 DO $immutable$ DECLARE tab text;
 BEGIN
  FOREACH tab IN ARRAY ARRAY['api_pt_requests','api_pt_receipts','api_pt_reports','api_pt_events','api_pt_denials'] LOOP
-  EXECUTE format('CREATE TRIGGER immutable_%I BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.api_phase1_immutable_audit()',tab,tab);
+  EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.api_phase1_immutable_audit()','immutable_'||tab,tab);
  END LOOP;
 END $immutable$;
 CREATE OR REPLACE FUNCTION public.api_pt_permit_content_guard() RETURNS trigger
