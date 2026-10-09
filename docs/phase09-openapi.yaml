@@ -1,0 +1,204 @@
+openapi: 3.1.0
+info:
+  title: LumicSec Isolated Synthetic API PT Orchestration
+  version: 9.0.0
+  description: |
+    This API orchestrates only repository-owned in-process synthetic security fixtures.
+    It is not a live customer-scanning API and does not grant Host authorization.
+servers:
+  - url: http://127.0.0.1:3001
+    description: Isolated development or CI only; not a production Host
+security:
+  - syntheticTenantBearer: []
+components:
+  securitySchemes:
+    syntheticTenantBearer:
+      type: http
+      scheme: bearer
+      description: Explicit test tenant mapping; unavailable in production
+  parameters:
+    resourceId:
+      in: path
+      name: id
+      required: true
+      schema: {type: string, format: uuid}
+    otherId:
+      in: path
+      name: otherId
+      required: true
+      schema: {type: string, format: uuid}
+    idem:
+      in: header
+      name: idempotency-key
+      required: true
+      schema: {type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9:_-]+$'}
+    policyId:
+      in: query
+      name: policyId
+      required: true
+      schema: {type: string, enum: [SYNTHETIC_PT_BASELINE, SYNTHETIC_PT_AUTHORIZATION_FOCUSED, SYNTHETIC_PT_DATA_EXPOSURE_FOCUSED, SYNTHETIC_PT_COMPLETE_SUPPORTED]}
+    fixtureProfile:
+      in: query
+      name: profile
+      required: true
+      schema: {type: string, enum: [SECURE_BASELINE, MISSING_AUTH_ENFORCEMENT, CROSS_USER_ACCESS_WEAKNESS, ROLE_RESTRICTION_WEAKNESS, SENSITIVE_RESPONSE_EXPOSURE, INSECURE_CACHE_POLICY]}
+  schemas:
+    StartOrchestration:
+      type: object
+      additionalProperties: false
+      required: [policyId, profile]
+      properties:
+        policyId: {type: string}
+        profile: {type: string}
+    Error:
+      type: object
+      properties:
+        error: {type: string}
+        requestId: {type: string}
+    Orchestration:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        status: {type: string, enum: [QUEUED, PROCESSING, COMPLETED, FAILED, CANCELLED]}
+        plan: {type: object}
+        fingerprint: {type: string, pattern: '^[0-9a-f]{64}$'}
+        stages: {type: array, items: {type: object}}
+        accounting: {type: object}
+        customerNetworkRequests: {type: integer, const: 0}
+        customerRuntimeVerified: {type: boolean, const: false}
+        verifiedFixed: {type: boolean, const: false}
+    SyntheticReport:
+      type: object
+      properties:
+        schemaVersion: {type: string, const: pt-orchestration-report-v1}
+        syntheticOnly: {type: boolean, const: true}
+        customerNetworkRequests: {type: integer, const: 0}
+        customerRuntimeVerified: {type: boolean, const: false}
+        verifiedFixed: {type: boolean, const: false}
+        stages: {type: array, items: {type: object}}
+        ruleResults: {type: array, items: {type: object}}
+        observations: {type: array, items: {type: object}}
+        accounting: {type: object}
+    Terminal:
+      type: object
+      properties:
+        schemaVersion: {type: string, const: pt-orchestration-terminal-v1}
+        assessmentComplete: {type: boolean, const: false}
+        syntheticOnly: {type: boolean, const: true}
+        status: {type: string, enum: [FAILED, CANCELLED]}
+        code: {type: string}
+        accounting: {type: object}
+paths:
+  /v9/pt/policies:
+    get:
+      summary: Trusted versioned synthetic orchestration policies
+      responses:
+        '200': {description: Supported immutable policy registry}
+  /v9/pt/scopes/{id}/preview:
+    get:
+      summary: Read-only deterministic plan preview and authorization readiness
+      parameters:
+        - {$ref: '#/components/parameters/resourceId'}
+        - {$ref: '#/components/parameters/policyId'}
+        - {$ref: '#/components/parameters/fixtureProfile'}
+      responses:
+        '200': {description: Plan with readiness, denial and budget projection}
+        '400': {description: Invalid query}
+        '404': {description: Unknown or unauthorized scope}
+        '409': {description: Unsupported policy or out-of-scope plan}
+  /v9/pt/scopes/{id}/orchestrations:
+    post:
+      summary: Admit one explicitly authorized bounded orchestration
+      parameters:
+        - {$ref: '#/components/parameters/resourceId'}
+        - {$ref: '#/components/parameters/idem'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/StartOrchestration'}
+      responses:
+        '201': {description: New admitted immutable plan}
+        '200': {description: Idempotent matching prior admission}
+        '400': {description: Invalid request}
+        '404': {description: Scope not found}
+        '409': {description: Missing permit, exhausted budget, emergency stop or policy mismatch}
+  /v9/pt/orchestrations/{id}:
+    get:
+      summary: Server-persisted stage progress and authoritative ledger accounting
+      parameters:
+        - {$ref: '#/components/parameters/resourceId'}
+      responses:
+        '200':
+          description: Persisted orchestration state
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Orchestration'}
+        '404': {description: Orchestration not found within tenant}
+  /v9/pt/orchestrations/{id}/decisions:
+    get:
+      summary: Bounded append-only stage decisions
+      parameters:
+        - {$ref: '#/components/parameters/resourceId'}
+      responses:
+        '200': {description: Array of up to 100 decisions}
+  /v9/pt/orchestrations/{id}/report:
+    get:
+      summary: Immutable successful synthetic report only
+      parameters:
+        - {$ref: '#/components/parameters/resourceId'}
+      responses:
+        '200':
+          description: Completed report, never canonical Host verification
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SyntheticReport'}
+        '409': {description: No completed successful report}
+  /v9/pt/orchestrations/{id}/terminal:
+    get:
+      summary: Immutable FAILED or CANCELLED summary, not a report
+      parameters:
+        - {$ref: '#/components/parameters/resourceId'}
+      responses:
+        '200':
+          description: Truthful terminal stage coverage and uncertain budget
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Terminal'}
+        '409': {description: Terminal summary unavailable}
+  /v9/pt/orchestrations/{id}/export:
+    get:
+      summary: JSON export of completed immutable report
+      parameters:
+        - {$ref: '#/components/parameters/resourceId'}
+      responses:
+        '200': {description: Completed report as application/json attachment}
+        '409': {description: Report not ready}
+  /v9/pt/orchestrations/{id}/cancel:
+    post:
+      summary: Cancel only currently cancellable orchestration
+      parameters:
+        - {$ref: '#/components/parameters/resourceId'}
+      responses:
+        '200': {description: Cancelled and persisted terminal coverage}
+        '404': {description: Orchestration not found}
+        '409': {description: Not cancellable}
+  /v9/pt/targets/{id}/history:
+    get:
+      summary: Bounded orchestration history for this tenant and target
+      parameters:
+        - {$ref: '#/components/parameters/resourceId'}
+        - in: query
+          name: limit
+          schema: {type: integer, minimum: 1, maximum: 50, default: 30}
+      responses:
+        '200': {description: Ordered history of up to 50 records}
+  /v9/pt/orchestrations/{id}/compare/{otherId}:
+    get:
+      summary: Compare compatible completed synthetic runs
+      parameters:
+        - {$ref: '#/components/parameters/resourceId'}
+        - {$ref: '#/components/parameters/otherId'}
+      responses:
+        '200': {description: Compatible observation delta or explicit incompatibility, never VERIFIED_FIXED}
+        '409': {description: Run missing, incomplete or same-run comparison forbidden}
