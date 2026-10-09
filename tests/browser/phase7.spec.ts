@@ -1,4 +1,5 @@
 import {test,expect} from "@playwright/test";
+import {readFileSync} from "node:fs";
 import {drainQueue} from "../../packages/worker/src/index.js";
 import {closeDatabase} from "../../packages/database/src/index.js";
 test.afterAll(async()=>{await closeDatabase();});
@@ -104,5 +105,75 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  expect((await compare.json() as {verifiedFixed:boolean}).verifiedFixed).toBe(false);
  expect((await request.get(url+"/v7/pt/jobs/"+firstJob+"/report",{
   headers:{authorization:"Bearer local-test-token-beta"}})).status()).toBe(409);
+ // Cancellation and stop must prevent all queued synthetic fixture evaluations.
+ const additionalScope=async():Promise<string>=>{
+  const received=page.waitForResponse(r=>r.request().method()==="POST"&&
+   r.url()===url+"/v6/pt/targets/"+tid+"/scopes");
+  await panel.getByRole("button",{name:"Propose detection scope"}).click();
+  const response=await received,payload=await response.json() as {id?:string;error?:string};
+  expect(response.status(),payload.error).toBe(201);
+  expect(payload.id).toBeTruthy();
+  return payload.id!;
+ };
+ const authorizeAdditional=async(scopeId:string):Promise<void>=>{
+  const authorized=page.waitForResponse(r=>r.request().method()==="POST"&&
+   r.url()===url+"/v6/pt/scopes/"+scopeId+"/request-authorization");
+  await panel.getByRole("button",{name:"Request separate synthetic test authority"}).click();
+  expect((await authorized).status()).toBe(201);
+  const signed=await request.post(url+"/v6/pt/test-authority/scopes/"+scopeId+"/issue",{
+   headers:{...auth,"x-pt-authority-key":signer},data:{}
+  });
+  expect(signed.status()).toBe(201);
+  await panel.getByRole("button",{name:"Refresh detection permit"}).click();
+  await expect(panel.getByText("TEST-ONLY PERMIT ISSUED")).toBeVisible();
+ };
+ const cancellationScope=await additionalScope();
+ await authorizeAdditional(cancellationScope);
+ const cancelledId=await submitDetection(cancellationScope);
+ await expect(panel.getByRole("button",{name:"Cancel detection"})).toBeEnabled();
+ const cancelled=page.waitForResponse(r=>r.request().method()==="POST"&&
+  r.url()===url+"/v6/pt/jobs/"+cancelledId+"/cancel");
+ await panel.getByRole("button",{name:"Cancel detection"}).click();
+ expect((await cancelled).status()).toBe(200);
+ expect((await (await request.get(url+"/v7/pt/jobs/"+cancelledId,{headers:auth})).json() as {status:string}).status).toBe("CANCELLED");
+ expect((await request.get(url+"/v7/pt/jobs/"+cancelledId+"/report",{headers:auth})).status()).toBe(409);
+ expect((await (await request.get(url+"/v7/pt/jobs/"+cancelledId+"/evaluations",{headers:auth})).json() as unknown as unknown[]).length).toBe(0);
+ const stopScope=await additionalScope();
+ await authorizeAdditional(stopScope);
+ const stoppedId=await submitDetection(stopScope);
+ expect((await request.post(url+"/v6/pt/test-authority/stop",{headers:auth,data:{}})).status()).toBe(403);
+ expect((await request.post(url+"/v6/pt/test-authority/stop",{
+  headers:{...auth,"x-pt-authority-key":signer},data:{}
+ })).status()).toBe(200);
+ expect((await (await request.get(url+"/v7/pt/jobs/"+stoppedId,{headers:auth})).json() as {status:string}).status).toBe("CANCELLED");
+ expect((await request.get(url+"/v7/pt/jobs/"+stoppedId+"/report",{headers:auth})).status()).toBe(409);
+ expect((await (await request.get(url+"/v7/pt/jobs/"+stoppedId+"/evaluations",{headers:auth})).json() as unknown as unknown[]).length).toBe(0);
+ expect((await request.post(url+"/v6/pt/test-authority/resume",{
+  headers:{...auth,"x-pt-authority-key":signer},data:{}
+ })).status()).toBe(200);
+ // An imported synthetic POST operation can never be admitted into a trusted read-only scope.
+ const syntheticSpec=JSON.parse(readFileSync("fixtures/phase07-security.openapi.json","utf8")) as {
+  paths:Record<string,Record<string,unknown>>
+ };
+ syntheticSpec.paths["/pt/account"]!.post={operationId:"synthetic_forbidden_post",
+  responses:{"200":{description:"Not executable by the PT governor"}}};
+ const imported=await request.post(url+"/v2/targets/"+tid+"/specifications/imports",{
+  headers:{...auth,"idempotency-key":"pt7-unsafe-import-"+crypto.randomUUID()},
+  data:{filename:"phase07-method-denial.openapi.json",content:JSON.stringify(syntheticSpec)}
+ });
+ expect(imported.status()).toBe(201);
+ const unsafeSpecId=(await imported.json() as {specificationId:string}).specificationId;
+ const opResponse=await request.get(url+"/v2/specifications/"+unsafeSpecId+"/operations?limit=100",{headers:auth});
+ expect(opResponse.status()).toBe(200);
+ const postOp=(await opResponse.json() as {key:string;path:string;method:string}[])
+  .find(x=>x.method==="POST"&&x.path==="/pt/account");
+ expect(postOp).toBeDefined();
+ const forbidden=await request.post(url+"/v6/pt/targets/"+tid+"/scopes",{
+  headers:{...auth,"idempotency-key":"pt7-unsafe-scope-"+crypto.randomUUID()},
+  data:{specificationId:unsafeSpecId,operationKeys:[postOp!.key],fixtureId:"pt-security-v1",exclusions:[],
+   maxEvaluations:1,maxConcurrency:1,ratePerMinute:1,deadlineMs:30000,validityMinutes:15}
+ });
+ expect(forbidden.status()).toBe(409);
+ expect((await forbidden.json() as {error:string}).error).toBe("METHOD_DENIED");
  expect(external).toEqual([]);
 });
