@@ -75,17 +75,28 @@ export function verifyTestPermit(token:string,now=Date.now()):PtClaims {
 }
 /** Independently authenticate persisted permit claims without storing a bearer
  * or signature. Only the isolated testing key can re-derive the original MAC. */
-export function verifyStoredTestPermit(claims:PtClaims,tokenHash:string,now=Date.now()):PtClaims {
+/** Store only the unsigned canonical payload, public claims and fingerprint.
+ * Recompute the real HMAC at every trust decision; the bearer/MAC never persists. */
+export function verifyStoredTestPermit(claims:PtClaims,tokenHash:string,unsignedBody:string,now=Date.now()):PtClaims {
  const key=root();
  if(!claims||typeof claims!=="object"||Array.isArray(claims)||
-  typeof tokenHash!=="string"||!/^[0-9a-f]{64}$/.test(tokenHash))
+  typeof tokenHash!=="string"||!/^[0-9a-f]{64}$/.test(tokenHash)||
+  typeof unsignedBody!=="string")
   throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
- const body=b64(JSON.stringify(claims));
- const signature=createHmac("sha256",key).update("pt6v1."+body).digest();
- const reconstructed="pt6v1."+body+"."+b64(signature);
- if(!timingSafeEqual(Buffer.from(digest(reconstructed),"hex"),Buffer.from(tokenHash,"hex")))
+ const raw=decodeCanonical(unsignedBody);
+ let parsed:PtClaims;
+ try{parsed=JSON.parse(raw.toString("utf8")) as PtClaims;}
+ catch{throw new PermitError("PERMIT_INTEGRITY_MISMATCH");}
+ if(b64(JSON.stringify(parsed))!==unsignedBody)throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
+ // JSONB reorders keys; compare all public persisted claims semantically.
+ const normalize=(o:PtClaims)=>JSON.stringify(Object.fromEntries(
+  Object.entries(o).sort(([a],[b])=>a<b?-1:a>b?1:0)));
+ if(normalize(parsed)!==normalize(claims))throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
+ const signature=createHmac("sha256",key).update("pt6v1."+unsignedBody).digest();
+ const full="pt6v1."+unsignedBody+"."+b64(signature);
+ if(!timingSafeEqual(Buffer.from(digest(full),"hex"),Buffer.from(tokenHash,"hex")))
   throw new PermitError("PERMIT_INTEGRITY_MISMATCH");
- return verifyTestPermit(reconstructed,now);
+ return verifyTestPermit(full,now);
 }
 export function enforcePermit(c:PtClaims,context:{
  tenantId:string;targetId:string;scopeId:string;specificationId:string;specFingerprint:string;
