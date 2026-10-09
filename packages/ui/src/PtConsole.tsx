@@ -13,7 +13,7 @@ type Job={id:string;status:string;errorCode:string|null;permit_id:string;consume
 type Receipt={id:string;operation_key:string;method:string;path:string;decision:string;code:string;outcome:string;http_status:number|null;response_bytes:number|null;budget_consumed:number};
 type Report={status:string;counts:{allowed:number;denied:number;skipped:number};customerNetworkRequests:number;syntheticOnly:boolean;limitations:string[];verifiedFixed:boolean};
 async function api<T>(token:string,path:string,method="GET",body?:unknown,key?:string):Promise<T>{
- const response=await fetch(BASE+path,{method,headers:{"authorization":"Bearer "+token,"content-type":"application/json",...(key?{"idempotency-key":key}:{})},
+ const response=await fetch(BASE+path,{method,headers:{"authorization":"Bearer "+token,...(body===undefined?{}:{"content-type":"application/json"}),...(key?{"idempotency-key":key}:{})},
   ...(body===undefined?{}:{body:JSON.stringify(body)})});
  const payload=await response.json() as T&{error?:string};
  if(!response.ok)throw new Error(payload.error||"REQUEST_FAILED");
