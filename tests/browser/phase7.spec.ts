@@ -86,6 +86,17 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  await panel.getByText("Redacted observed evidence").click();
  await expect(panel.getByText(/alice · \/pt\/resources\/bob · HTTP 200/)).toBeVisible();
  await expect(panel.getByText(/VERIFIED_FIXED: false/)).toBeVisible();
+ // Phase08 unified customer findings/history explorer must use the actual completed record.
+ const explorer=page.getByRole("region",{name:"API PT findings and history"});
+ await expect(explorer.getByRole("heading",{name:"API PT Findings, Evidence, Reports & History"})).toBeVisible();
+ await explorer.getByRole("button",{name:"Search PT findings"}).click();
+ const found=explorer.getByRole("button",{name:"Inspect evidence PT-BOLA-CROSS-USER"});
+ await expect(found).toBeVisible();
+ await found.click();
+ await expect(explorer.getByRole("heading",{name:"Evidence — PT-BOLA-CROSS-USER"})).toBeVisible();
+ await expect(explorer.getByText(/NOT A CONFIRMED CUSTOMER VULNERABILITY/)).toBeVisible();
+ await expect(explorer.getByRole("button",{name:/Open report/}).first()).toBeVisible();
+
  const first=await request.get(url+"/v7/pt/targets/"+tid+"/history",{headers:auth});
  const firstJob=(await first.json() as {id:string}[])[0]!.id;
  const firstReport=await request.get(url+"/v7/pt/jobs/"+firstJob+"/report",{headers:auth});
