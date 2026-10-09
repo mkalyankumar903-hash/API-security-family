@@ -7,8 +7,13 @@ type Rule={id:string;revision:string;category:string;path:string;evaluations:num
 type ScopeDetail={scope:{id:string;operation_keys:string[];max_evaluations:number};
  requested:boolean;permit:{id:string;revoked:boolean;expired:boolean;expiresAt:string;consumed:number;reserved:number}|null};
 type Status={id:string;status:string;errorCode:string|null;counts:Record<string,number>;plan_fingerprint:string};
+type Progress={status:string;plannedEvaluations:number;executedEvaluations:number;uncertainEvaluations:number;inFlightReservations:number;notYetExecuted:number;complete:boolean};
+type Preview={executable:boolean;plannedEvaluations:number;applicableEvaluations:number;rules:{ruleId:string;applicable:boolean;reason:string;operationKey:string|null}[]};
 type Observation={ruleId:string;category:string;impact:string;confidence:string;status:string;code:string;fingerprint:string;
  remediation:string;evidence:{actor:string;path:string;status:number;exposedPaths:string[];cacheControl:string|null}[]};
+type Terminal={schemaVersion:string;status:string;errorCode:string;notice:string;rules:{rule_id:string;status:string;code:string;planned:number;executed:number;uncertain:number;notRun:number}[];
+ totals:{plannedEvaluations:number;executedEvaluations:number;uncertainEvaluations:number;notRunEvaluations:number};
+ assessmentComplete:false;verifiedFixed:false;customerRuntimeVerified:false;limitations:string[]};
 type Report={schemaVersion:string;status:string;coverage:{requested:number;executed:number;passed:number;observed:number;skipped:number;inconclusive:number;actualEvaluations:number};
  observations:Observation[];limitations:string[];customerNetworkRequests:number;verifiedFixed:boolean;syntheticOnly:boolean};
 async function call<T>(token:string,path:string,method="GET",body?:unknown,key?:string):Promise<T>{
@@ -26,6 +31,8 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
  const [chosen,setChosen]=useState<string[]>([]),[scopeId,setScopeId]=useState("");
  const [scope,setScope]=useState<ScopeDetail|null>(null),[jobId,setJobId]=useState("");
  const [job,setJob]=useState<Status|null>(null),[report,setReport]=useState<Report|null>(null);
+ const [progress,setProgress]=useState<Progress|null>(null),[preview,setPreview]=useState<Preview|null>(null);
+ const [terminal,setTerminal]=useState<Terminal|null>(null);
  const [coverage,setCoverage]=useState<{rule_id:string;status:string;code:string}[]>([]);
  const [history,setHistory]=useState<{id:string;status:string;plan_fingerprint:string}[]>([]);
  const [compareId,setCompareId]=useState(""),[comparison,setComparison]=useState<unknown>(null);
@@ -42,7 +49,7 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
   setSpecs(versions);setRules(registry.rules);setProfiles(fixtures.profiles);setHistory(previous);
  },[targetId,token]);
  useEffect(()=>{setSpecs([]);setSpecId("");setScopeId("");setScope(null);setJobId("");setJob(null);
-  setReport(null);setHistory([]);setChosen([]);
+  setReport(null);setTerminal(null);setProgress(null);setPreview(null);setHistory([]);setChosen([]);
   if(active&&targetId)void refresh().catch(e=>setError(String(e)));
  },[active,targetId,refresh]);
  useEffect(()=>{let live=true;setOperations([]);setChosen([]);
@@ -57,12 +64,19 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
  const refreshScope=useCallback(async()=>{if(scopeId)setScope(await call<ScopeDetail>(token,"/v6/pt/scopes/"+scopeId));},[scopeId,token]);
  const refreshJob=useCallback(async()=>{
   if(!jobId)return;
-  const x=await call<Status>(token,"/v7/pt/jobs/"+jobId);setJob(x);
-  if(["COMPLETED","FAILED","CANCELLED"].includes(x.status)){
+  const [x,p]=await Promise.all([call<Status>(token,"/v7/pt/jobs/"+jobId),
+   call<Progress>(token,"/v8/pt/jobs/"+jobId+"/progress")]);
+  setJob(x);setProgress(p);
+  if(x.status==="COMPLETED"){
+   setTerminal(null);
    try{setReport(await call<Report>(token,"/v7/pt/jobs/"+jobId+"/report"));
     setCoverage(await call<{rule_id:string;status:string;code:string}[]>(token,"/v7/pt/jobs/"+jobId+"/coverage"));}
    catch{setReport(null);setCoverage([]);}
-  }
+  }else if(x.status==="FAILED"||x.status==="CANCELLED"){
+   setReport(null);setCoverage([]);
+   setTerminal(await call<Terminal>(token,"/v8/pt/jobs/"+jobId+"/terminal-coverage"));
+  }else{setTerminal(null);}
+
  },[jobId,token]);
  useEffect(()=>{if(!jobId)return;void refreshJob().catch(e=>setError(String(e)));
   if(["COMPLETED","FAILED","CANCELLED"].includes(job?.status??""))return;
@@ -113,6 +127,13 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
    {specId&&applicable.length===0&&<p>No applicable trusted GET operation in this imported specification.</p>}
   </fieldset>
   <p>Signed-permit evaluation budget preview: <strong>{total}</strong> · Applicable rules {applicable.length} · Selected {selected.length} · Real customer requests: 0.</p>
+  <button type="button" className="secondary" disabled={busy||!specId||!selected.length}
+   onClick={()=>void work(async()=>setPreview(await call<Preview>(token,"/v8/pt/specifications/"+specId+"/plan-preview",
+    "POST",{profile,ruleIds:chosen,exclusions:[]})))}>Preview governed rule applicability</button>
+  {preview&&<section aria-label="Authoritative evaluation plan preview">
+   <p>Server-side planned evaluations {preview.plannedEvaluations}, applicable {preview.applicableEvaluations}. All selected rules executable: {String(preview.executable)}.</p>
+   <ul>{preview.rules.map(x=><li key={x.ruleId}>{x.ruleId} — {x.applicable?"APPLICABLE":x.reason} · {x.operationKey??"No governed operation"}</li>)}</ul>
+  </section>}
   <button disabled={busy||!active||!selected.length||total>20||!specId} onClick={propose}>Propose detection scope</button>
   {scopeId&&<article>
    <h3>Synthetic authorization</h3><p>Scope: {scopeId}</p>
@@ -128,10 +149,17 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
   {jobId&&<article>
    <h3>Private worker detection</h3><p>Assessment {jobId} · <strong>{job?.status??"Loading"}</strong> · Customer-network requests 0.</p>
    {job?.errorCode&&<p role="alert">{job.errorCode}</p>}
+   {progress&&<p role="status">Persisted governed progress: {progress.executedEvaluations}/{progress.plannedEvaluations} evaluations · {progress.inFlightReservations} in flight · {progress.uncertainEvaluations} uncertain · {progress.notYetExecuted} pending.</p>}
    <button type="button" className="secondary" disabled={busy} onClick={()=>void work(refreshJob)}>Refresh detection results</button>
    {job&&["QUEUED","PROCESSING"].includes(job.status)&&<button disabled={busy} onClick={()=>void work(async()=>{
     await call(token,"/v6/pt/jobs/"+jobId+"/cancel","POST");await refreshJob();
    })}>Cancel detection</button>}
+   {terminal&&<section aria-label="Incomplete PT diagnostic coverage" role="status"><h4>Incomplete assessment — diagnostic coverage</h4>
+    <p>{terminal.notice}</p><p>Planned {terminal.totals.plannedEvaluations} · Executed {terminal.totals.executedEvaluations} · Uncertain {terminal.totals.uncertainEvaluations} · Not run {terminal.totals.notRunEvaluations}</p>
+    <p>Terminal state {terminal.status} · Reason {terminal.errorCode} · VERIFIED_FIXED: false</p>
+    <ul>{terminal.rules.map(r=><li key={r.rule_id}>{r.rule_id}: {r.status} ({r.code}) — {r.executed}/{r.planned} executed, {r.notRun} not run</li>)}</ul>
+    <p>NOT CUSTOMER PRODUCTION VULNERABILITY VERIFICATION. No successful report was published.</p>
+   </section>}
    {report&&<><p>Executed {report.coverage.executed} · Passed {report.coverage.passed} · Synthetic observations {report.coverage.observed} · Skipped {report.coverage.skipped} · Inconclusive {report.coverage.inconclusive}</p>
     <h4>Evidence-backed synthetic PT observations</h4>
     {report.observations.length===0&&<p>No synthetic weakness observed; customer runtime remains unverified.</p>}
@@ -147,7 +175,7 @@ export function PtDetectionConsole({token,targetId,active}:{token:string;targetI
    </>}
   </article>}
   <h3>Detection history &amp; compatible comparisons</h3>
-  {history.map(h=><p key={h.id}><button type="button" className="secondary" onClick={()=>{setJobId(h.id);setReport(null);setJob(null);}}>
+  {history.map(h=><p key={h.id}><button type="button" className="secondary" onClick={()=>{setJobId(h.id);setReport(null);setTerminal(null);setJob(null);}}>
    View {h.id.slice(0,8)} · {h.status}</button></p>)}
   {jobId&&<><label>Compare against another detection job
    <select aria-label="Comparison assessment" value={compareId} onChange={e=>setCompareId(e.target.value)}>

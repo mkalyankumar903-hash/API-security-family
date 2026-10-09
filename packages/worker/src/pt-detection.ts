@@ -1,6 +1,7 @@
 import {withWorkerTenant,uuid} from "../../database/src/index.js";
 import {DETECTION_ENGINE,DETECTION_FIXTURE,type Evidence,type Profile} from "../../pt/src/security-fixture.js";
 import {RULES,evaluateRule,getRule,planFingerprint,type RuleId} from "../../pt/src/detection.js";
+import {persistTerminalCoverage} from "../../pt/src/terminal-coverage.js";
 import {governedPtDetectionInteraction,settlePtDetectionReservations,withGovernedPtDetectionPublication,
  type DetectionEvaluationInput} from "./pt.js";
 
@@ -48,12 +49,16 @@ async function fail(tenant:string,id:string,token:string,code:string):Promise<vo
   if(q.rows[0]?.claim_token!==token||!q.rows[0]?.locked_until||
    new Date(q.rows[0].locked_until).getTime()<=Date.now())return;
   await tx.query("UPDATE api_assessments SET status='FAILED',error_code=$2,completed_at=now() WHERE id=$1 AND status='PROCESSING'",[id,code]);
+  await persistTerminalCoverage(tx,tenant,id);
   await tx.query("INSERT INTO api_pt_events(id,tenant_id,subject_id,action,details) VALUES($1,$2,$3,'PT7_DETECTION_FAILED',$4::jsonb)",
    [uuid(),tenant,id,JSON.stringify({code})]);
   await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[id,token]);
  });
 }
-export async function processPtDetectionJob(tenant:string,id:string,token:string):Promise<void>{
+/** Test-only in-process qualification barrier, never accessible from customer/API routes. */
+export type Pt8QualificationBarriers={afterEvaluation?:(completed:number)=>Promise<void>};
+export async function processPtDetectionJob(tenant:string,id:string,token:string,barriers?:Pt8QualificationBarriers):Promise<void>{
+ let completedEvaluations=0;
  let failed=false;
  try{
   const data=await withWorkerTenant(tenant,async tx=>{
@@ -69,6 +74,8 @@ export async function processPtDetectionJob(tenant:string,id:string,token:string
     method:planned.method,path:planned.path,actor:planned.actor,profile:data.snapshot.fixture_profile};
    const result=await governedPtDetectionInteraction(tenant,id,token,input);
    if(result.status!=="CONSUMED"){failed=true;break;}
+   completedEvaluations++;
+   if(barriers?.afterEvaluation)await barriers.afterEvaluation(completedEvaluations);
   }
   if(failed){await fail(tenant,id,token,"PT7_INCOMPLETE_OR_DENIED");return;}
   const finalized=await withGovernedPtDetectionPublication(tenant,id,token,async tx=>{
