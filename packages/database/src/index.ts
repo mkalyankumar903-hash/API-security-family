@@ -221,6 +221,28 @@ export async function renewWorkerClaim(claim:WorkerClaim):Promise<boolean>{
  });
 }
 
+/** Only call immediately after a claim and BEFORE beginning processing. Once a
+ * fixture/stage may have executed, do NOT use this function to release ownership. */
+export async function releaseUnstartedWorkerClaim(claim:WorkerClaim):Promise<boolean>{
+ return withWorkerTenant(claim.tenant_id,async tx=>{
+  const q=await tx.query(
+   "SELECT claim_token,claim_generation,locked_until FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",
+   [claim.assessment_id]);
+  if(q.rows[0]?.claim_token!==claim.claim_token||
+   Number(q.rows[0]?.claim_generation)!==claim.claim_generation)return false;
+  const out=await tx.query(
+   "UPDATE api_queue.api_assessment_queue SET claim_token=NULL,locked_until=NULL,claimed_at=NULL,last_heartbeat_at=NULL WHERE assessment_id=$1 AND claim_token=$2 AND claim_generation=$3",
+   [claim.assessment_id,claim.claim_token,claim.claim_generation]);
+  await tx.query(
+   "UPDATE api_worker_attempts SET state='LOST',finished_at=clock_timestamp(),failure_code='SHUTDOWN_BEFORE_EXECUTION' WHERE id=$1 AND state='ACTIVE'",
+   [claim.attempt_id]);
+  await tx.query(
+   "INSERT INTO api_worker_events(id,tenant_id,assessment_id,attempt_id,kind,code) VALUES($1,$2,$3,$4,'LEASE_LOST','SHUTDOWN_BEFORE_EXECUTION')",
+   [uuid(),claim.tenant_id,claim.assessment_id,claim.attempt_id]);
+  return Boolean(out.rowCount);
+ });
+}
+
 /** Final state comes from committed PostgreSQL status, never a worker's success flag. */
 export async function finishWorkerAttempt(claim:WorkerClaim):Promise<void>{
  await withWorkerTenant(claim.tenant_id,async tx=>{
