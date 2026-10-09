@@ -54,6 +54,12 @@ test("Phase07 real Chromium: protected fixture weakness, secure negative, permit
  const firstJob=(await first.json() as {id:string}[])[0]!.id;
  const firstReport=await request.get(url+"/v7/pt/jobs/"+firstJob+"/report",{headers:auth});
  expect((await firstReport.json() as {observations:unknown[]}).observations.length).toBe(1);
+ const backed=await request.get(url+"/v7/pt/jobs/"+firstJob+"/evaluations",{headers:auth});
+ expect(backed.status()).toBe(200);
+ const actual=await backed.json() as {state:string;evidence:{responseHash:string}|null}[];
+ expect(actual.length).toBe(2);
+ expect(actual.every(x=>x.state==="CONSUMED"&&x.evidence?.responseHash?.length===64)).toBe(true);
+ expect(backed.body().then(x=>x.toString("utf8").includes("SYNTHETIC_PLACEHOLDER_NOT_A_SECRET"))).resolves.toBe(false);
  await panel.getByRole("button",{name:"Export persisted JSON report"}).click();
  // Secure fixture: identical trusted operation/rule but a different signed scope and new test-only permit.
  await panel.getByLabel("PT detection fixture profile").selectOption("SECURE_BASELINE");
