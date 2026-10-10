@@ -153,3 +153,43 @@ test("Phase13 SDK errors, bounded pagination and API compatibility fail closed",
  assert.deepEqual(await happy.corrections(5,10),[]);
  assert.equal(visited[0],origin+"/v13/usage/corrections?limit=5&offset=10");
 });
+
+test("Phase14 strict SDK accepts genuine PostgreSQL monthStart serialization and empty commercial lists",async()=>{
+ const version="api-family-commercial-v13";
+ const projection={schemaVersion:version,tenantContext:"ISOLATED_SYNTHETIC_ONLY",
+  hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",feature:"IMMUTABLE_REPORT_OBSERVED",
+  meterUnit:"one distinct immutable Phase11 report",billable:false,
+  monthStart:"2026-10-01T00:00:00.000Z",entitlement:null,
+  quota:0,consumed:0,reserved:0,remaining:0,decision:"HOST_AUTHORITY_NOT_CONFIGURED"};
+ const pathnames:string[]=[];
+ let current:unknown=projection;
+ const sdk=new V13Client({baseUrl:"http://127.0.0.1:3001",accessToken:()=>"synthetic-test-only",
+  fetcher:(async(input)=>{
+   const path=new URL(String(input)).pathname;pathnames.push(path);
+   return new Response(JSON.stringify(path==="/v13/usage/summary"?current:[]),
+    {status:200,headers:{"content-type":"application/json;charset=utf-8"}});
+  }) as typeof fetch});
+ for(const monthStart of ["2026-10-01T00:00:00.000Z","2026-10-01"]){
+  current={...projection,monthStart};
+  const actual=await sdk.summary();
+  assert.equal(actual.monthStart,monthStart);
+  assert.equal(actual.hostAuthority,"HOST_AUTHORITY_NOT_CONFIGURED");
+  assert.equal(actual.billable,false);
+  assert.equal(actual.quota,0);
+ }
+ assert.deepEqual(await sdk.usage(10,0),[]);
+ assert.deepEqual(await sdk.reconciliations(10,0),[]);
+ assert.deepEqual(pathnames,["/v13/usage/summary","/v13/usage/summary",
+  "/v13/usage/events","/v13/reconciliations"]);
+ for(const monthStart of ["2026-10-01T15:00:00.000Z","2026-10-01\\x","2026-99-01\\x"]){
+  current={...projection,monthStart};
+  await assert.rejects(sdk.summary(),(error:unknown)=>error instanceof V13ClientError&&
+   error.code==="INVALID_RESPONSE");
+ }
+ current={...projection,hostAuthority:"HOST_CONFIGURED"};
+ await assert.rejects(sdk.summary(),(error:unknown)=>error instanceof V13ClientError&&
+  error.code==="INVALID_RESPONSE");
+ current={...projection,billable:true};
+ await assert.rejects(sdk.summary(),(error:unknown)=>error instanceof V13ClientError&&
+  error.code==="INVALID_RESPONSE");
+});
