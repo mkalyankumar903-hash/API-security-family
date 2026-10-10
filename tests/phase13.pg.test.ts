@@ -8,7 +8,8 @@ import {makeApp} from "../packages/service/src/app.js";
 import {processOneJob} from "../packages/worker/src/index.js";
 import {V13} from "../packages/contracts/src/commercial-v13.js";
 import {ingestSyntheticEntitlement,projection,reserveObservedReport,settleObservedReport,
- closeReservation,reconcilePending,reconcileSyntheticExternalSnapshot,ingestSyntheticUsageCorrection} from "../packages/service/src/phase13.js";
+ closeReservation,reconcilePending,reconcileSyntheticExternalSnapshot,ingestSyntheticUsageCorrection,reserveFeatureObservation,settleFeatureObservation} from "../packages/service/src/phase13.js";
+import {enqueueQaDelivery,claimQaDelivery,consumeQaSink,ackQaDelivery,failQaDelivery} from "../packages/service/src/phase13-delivery-qa.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
 test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=>{
@@ -216,6 +217,93 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
     assert.match(String((conflict[0] as PromiseRejectedResult).reason),/ENTITLEMENT_UNAVAILABLE/);
    }
    assert.equal((await projection(A)).consumed,2,"Revocation must not meter an unverified in-flight report");
+  });
+
+  await t.test("018 genuine independent offline child observation, signed per-feature quota and replay-safe ledger",async()=>{
+   const feature="OFFLINE_API_ASSESSMENT_COMPLETED",eid=randomUUID();
+   const sign=(revision:number,limit:number,status:"ISSUED"|"REVOKED"="ISSUED",tenant=A)=>{
+    const raw=Buffer.from(JSON.stringify({schemaVersion:V13,eventId:randomUUID(),tenantId:tenant,
+     issuer:"lumicsec-ci-synthetic-v13",audience:"api-family-v13-test",
+     issuedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+120000).toISOString(),
+     entitlementId:eid,revision,feature,limit,status}));
+    return {raw,sig:createHmac("sha256",key).update(raw).digest("hex")};
+   };
+   const grant=sign(1,1);
+   assert.equal((await ingestSyntheticEntitlement(grant.raw,grant.sig,key)).replay,false);
+   const race=await Promise.allSettled([
+    reserveFeatureObservation(A,r1,"phase13-offline-quota-"+randomUUID(),feature),
+    reserveFeatureObservation(A,r2,"phase13-offline-quota-"+randomUUID(),feature)
+   ]);
+   assert.equal(race.filter(x=>x.status==="fulfilled").length,1);
+   assert.equal(race.filter(x=>x.status==="rejected").length,1);
+   const reserved=(race.find(x=>x.status==="fulfilled") as PromiseFulfilledResult<{id:string}>).value;
+   assert.equal((await settleFeatureObservation(A,reserved.id)).state,"SETTLED");
+   assert.equal((await settleFeatureObservation(A,reserved.id)).replay,true);
+   assert.equal((await projection(A,feature)).consumed,1);
+   assert.equal((await projection(A,feature)).remaining,0);
+   assert.equal((await projection(B,feature)).consumed,0);
+   assert.equal((await projection(A)).consumed,2,"report-only quota remains unaffected by offline use");
+   const sources=await withTenant(A,tx=>tx.query("SELECT feature,source_type,source_fingerprint,entitlement_revision FROM public.api_v13_feature_sources"));
+   assert.equal(sources.rowCount,1);
+   assert.equal(sources.rows[0].source_type,"PERSISTED_OFFLINE_REPORT");
+   assert.match(String(sources.rows[0].source_fingerprint),/^[a-f0-9]{64}$/);
+   await assert.rejects(()=>withTenant(A,tx=>tx.query("UPDATE public.api_v13_feature_sources SET entitlement_revision=3")));
+   assert.equal((await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_feature_sources"))).rows[0].n,0);
+   await assert.rejects(()=>reserveFeatureObservation(A,randomUUID(),"phase13-offline-missing-"+randomUUID(),feature),/IMMUTABLE_REPORT_NOT_FOUND/);
+   await assert.rejects(()=>reserveFeatureObservation(B,r1,"phase13-offline-other-"+randomUUID(),feature),/ENTITLEMENT_UNAVAILABLE/);
+   const second=sign(2,2);
+   await ingestSyntheticEntitlement(second.raw,second.sig,key);
+   const other=race[0]?.status==="fulfilled"?r2:r1;
+   const res2=await reserveFeatureObservation(A,other,"phase13-offline-second-"+randomUUID(),feature);
+   await settleFeatureObservation(A,res2.id);
+   assert.equal((await projection(A,feature)).consumed,2);
+   assert.equal((await reconcilePending(A,feature)).state,"PENDING_EXTERNAL_AUTHORITY");
+   const snapKey=randomBytes(48),now=new Date();
+   const snap=Buffer.from(JSON.stringify({schemaVersion:V13,snapshotId:randomUUID(),tenantId:A,
+    issuer:"lumicsec-ci-external-accounting-v13",audience:"api-family-reconcile-v13-test",
+    feature,meterVersion:1,monthStart:now.toISOString().slice(0,7)+"-01",
+    watermarkAt:now.toISOString(),observedUnits:2,revision:1,issuedAt:now.toISOString(),
+    expiresAt:new Date(now.getTime()+100000).toISOString()}));
+   assert.equal((await reconcileSyntheticExternalSnapshot(A,snap,createHmac("sha256",snapKey).update(snap).digest("hex"),snapKey)).state,"MATCHED");
+  });
+  await t.test("018 synthetic QA-only retry, sink idempotency, lease fencing and dead letter; real outbox stays disabled",async()=>{
+   const out=await withTenant(A,tx=>tx.query("SELECT o.id,o.delivery_state,o.attempt_count FROM public.api_v13_outbox o JOIN public.api_v13_usage_ledger l ON l.id=o.source_usage_id WHERE l.feature='OFFLINE_API_ASSESSMENT_COMPLETED' ORDER BY o.created_at,o.id"));
+   assert.equal(out.rowCount,2);
+   const first=await enqueueQaDelivery(A,out.rows[0].id as string);
+   assert.equal((await enqueueQaDelivery(A,out.rows[0].id as string)).replay,true);
+   await assert.rejects(()=>enqueueQaDelivery(B,out.rows[0].id as string),/QA_SOURCE_NOT_ELIGIBLE/);
+   const lease=await claimQaDelivery(A,first.id,5);
+   assert.equal(lease.state,"LEASED");
+   const token=(lease as {token:string}).token;
+   await assert.rejects(()=>claimQaDelivery(A,first.id),/QA_LEASE_IN_USE/);
+   await assert.rejects(()=>consumeQaSink(A,first.id,randomUUID()),/QA_STALE_LEASE/);
+   assert.equal((await consumeQaSink(A,first.id,token)).replay,false);
+   assert.equal((await consumeQaSink(A,first.id,token)).replay,true,"synthetic delivery retry cannot duplicate receipt");
+   assert.equal((await ackQaDelivery(A,first.id,token)).state,"ACKED");
+   assert.equal((await ackQaDelivery(A,first.id,token)).replay,true);
+   assert.equal((await claimQaDelivery(A,first.id)).state,"ACKED");
+   const second=await enqueueQaDelivery(A,out.rows[1].id as string);
+   const backoffs:number[]=[];
+   for(let i=0;i<4;i++){
+    const c=await claimQaDelivery(A,second.id,5);
+    assert.equal(c.state,"LEASED");
+    const result=await failQaDelivery(A,second.id,(c as {token:string}).token);
+    backoffs.push(result.backoffSeconds);
+    if(i<3){
+     assert.equal(result.state,"RETRY");
+     await assert.rejects(()=>claimQaDelivery(A,second.id),/QA_BACKOFF_ACTIVE/);
+     await withTenant(A,tx=>tx.query("UPDATE public.api_v13_qa_delivery SET next_attempt_at=clock_timestamp()-interval '1 second' WHERE id=$1",[second.id]));
+    }else assert.equal(result.state,"DEAD_LETTER");
+   }
+   assert.deepEqual(backoffs,[1,2,4,0]);
+   assert.equal((await claimQaDelivery(A,second.id)).state,"DEAD_LETTER");
+   const events=await withTenant(A,tx=>tx.query("SELECT code,attempt_count FROM public.api_v13_qa_delivery_events WHERE delivery_id=$1 ORDER BY created_at,id",[second.id]));
+   assert.equal(events.rows.filter(x=>x.code==="CLAIMED").length,4);
+   assert.equal(events.rows.filter(x=>x.code==="DEAD_LETTER").length,1);
+   const immutable=await withTenant(A,tx=>tx.query("SELECT delivery_state,attempt_count,delivered_at,last_attempt_at FROM public.api_v13_outbox WHERE id=$1",[out.rows[0].id]));
+   assert.deepEqual(immutable.rows[0],{delivery_state:"DISABLED",attempt_count:0,delivered_at:null,last_attempt_at:null});
+   assert.equal((await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_qa_delivery"))).rows[0].n,0);
+   await assert.rejects(()=>withTenant(A,tx=>tx.query("DELETE FROM public.api_v13_qa_delivery WHERE id=$1",[first.id])));
   });
  }finally{await app.close();await closeDatabase();}
 });
