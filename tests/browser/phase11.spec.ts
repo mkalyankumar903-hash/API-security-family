@@ -111,3 +111,47 @@ test("Phase11 Chromium: missing synthetic permit prevents admission before runti
  const history=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
  expect(await history.json()).toEqual([]);
 });
+
+test("Phase11 Chromium: cancellation after completed offline analysis prevents a successful parent report",async({page,request})=>{
+ test.setTimeout(150000);
+ const {tid,scopeId}=await seed(request);
+ const panel=await open(page,tid);
+ await panel.getByLabel("Authorized synthetic scope").selectOption(scopeId);
+ await expect(panel.getByText("Permit readiness: VALID",{exact:false})).toBeVisible();
+ await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ const history=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
+ const id=(await history.json() as {id:string}[])[0]!.id;
+ expect(await processOneJob()).toBe(true);
+ await panel.getByRole("button",{name:"Cancel assessment"}).click();
+ await expect(panel.getByText("Terminal diagnostics (not successful VAPT)")).toBeVisible({timeout:15000});
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth})).status()).toBe(409);
+ const state=await request.get(API+"/v11/api-vapt/assessments/"+id,{headers:auth});
+ expect((await state.json() as {status:string}).status).toBe("CANCELLED");
+});
+test("Phase11 Chromium: controlled reassessment creates fresh identity without rewriting historical report",async({request})=>{
+ test.setTimeout(150000);
+ const {tid,scopeId}=await seed(request);
+ const requestData={mode:"GOVERNED_SYNTHETIC",scopeId,
+  policyId:"SYNTHETIC_PT_AUTHORIZATION_FOCUSED",profile:"SECURE_BASELINE"};
+ const first=await request.post(API+"/v11/api-vapt/assessments",{
+  headers:{...auth,"idempotency-key":"pt11-first-"+randomUUID()},data:requestData});
+ expect(first.status(),await first.text()).toBe(201);
+ const oldId=(await first.json() as {id:string}).id;
+ for(let i=0;i<3;i++)expect(await processOneJob()).toBe(true);
+ const oldReport=await request.get(API+"/v11/api-vapt/assessments/"+oldId+"/report",{headers:auth});
+ expect(oldReport.status()).toBe(200);
+ const historical=await oldReport.text();
+ const next=await request.post(API+"/v11/api-vapt/assessments/"+oldId+"/reassess",{
+  headers:{...auth,"idempotency-key":"pt11-fresh-"+randomUUID()},data:{}});
+ expect(next.status(),await next.text()).toBe(201);
+ const newId=(await next.json() as {id:string}).id;expect(newId).not.toBe(oldId);
+ for(let i=0;i<3;i++)expect(await processOneJob()).toBe(true);
+ const current=await request.get(API+"/v11/api-vapt/assessments/"+newId+"/report",{headers:auth});
+ expect(current.status(),await current.text()).toBe(200);
+ const oldAgain=await request.get(API+"/v11/api-vapt/assessments/"+oldId+"/report",{headers:auth});
+ expect(await oldAgain.text()).toBe(historical);
+ const compared=await request.get(API+"/v11/api-vapt/assessments/"+oldId+"/compare/"+newId,{headers:auth});
+ expect(compared.status(),await compared.text()).toBe(200);
+ const diff=await compared.json() as {compatibility:string;verifiedFixed:boolean};
+ expect(diff.compatibility).toBe("COMPATIBLE");expect(diff.verifiedFixed).toBe(false);
+});
