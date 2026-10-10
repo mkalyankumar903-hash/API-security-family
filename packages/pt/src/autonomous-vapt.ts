@@ -35,7 +35,7 @@ export function buildAutonomousVaptPlan(input:VaptInput):VaptPlan{
  if(!UUID.test(input.tenantId)||!UUID.test(input.targetId)||!UUID.test(input.specificationId)||
   !Number.isInteger(input.specificationVersion)||input.specificationVersion<1||
   !Number.isInteger(input.targetVerificationVersion)||input.targetVerificationVersion<1||
-  !Number.isInteger(input.targetScopeRevision)||input.targetScopeRevision<1||
+  !Number.isInteger(input.targetScopeRevision)||input.targetScopeRevision<0||
   !HEX.test(input.specFingerprint)||!HEX.test(input.inventoryFingerprint)||
   !["inventory-v1","inventory-v2"].includes(input.offlineEngine)||
   !["OFFLINE_ONLY","GOVERNED_SYNTHETIC"].includes(input.mode))
