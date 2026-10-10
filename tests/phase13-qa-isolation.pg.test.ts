@@ -1,7 +1,7 @@
 /** Actual PostgreSQL 16 independent app/worker/QA role privilege negative tests. */
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {migrate,withQaTenant,pool,workerPool,closeDatabase} from "../packages/database/src/index.js";
+import {migrate,withTenant,withQaTenant,pool,workerPool,closeDatabase} from "../packages/database/src/index.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const qaTables=["api_v13_qa_delivery","api_v13_qa_delivery_events","api_v13_qa_sink_receipts"] as const;
@@ -47,7 +47,7 @@ test("Phase13 migration 019: independent SQL identity and real privilege isolati
    await assert.rejects(()=>withQaTenant(A,tx=>tx.query("UPDATE public.api_v13_qa_sink_receipts SET id=id WHERE false")),denied);
   });
   await t.test("real outbox remains DISABLED and zero-attempt after QA lifecycle",async()=>{
-   const q=await pool.query("SELECT count(*)::int AS total,count(*) FILTER(WHERE delivery_state='DISABLED' AND attempt_count=0 AND delivered_at IS NULL AND last_attempt_at IS NULL)::int AS safe FROM public.api_v13_outbox");
+   const q=await withTenant(A,tx=>tx.query("SELECT count(*)::int AS total,count(*) FILTER(WHERE delivery_state='DISABLED' AND attempt_count=0 AND delivered_at IS NULL AND last_attempt_at IS NULL)::int AS safe FROM public.api_v13_outbox"));
    assert(q.rows[0].total>=2);
    assert.equal(q.rows[0].total,q.rows[0].safe);
   });
