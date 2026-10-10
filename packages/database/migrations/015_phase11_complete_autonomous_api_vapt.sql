@@ -110,3 +110,32 @@ CREATE INDEX api_vapt11_lineage ON public.api_vapt11_assessments(tenant_id,linea
 CREATE INDEX api_vapt11_correlated ON public.api_vapt11_correlations(tenant_id,parent_assessment_id,source,stable_key);
 -- Context validation is done at admission using transactionally locked authoritative
 -- assessments. The composite FKs forbid wrong tenant/target/spec child identities.
+
+-- Trigger-driven dependency admission: offline child must actually terminate before
+-- governed PT can be queued. Only a terminal PT child wakes the parent.
+-- No client or service endpoint receives private queue write privileges.
+CREATE FUNCTION public.api_vapt11_dependency_wakeup() RETURNS trigger
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE item record;
+BEGIN
+ IF NEW.status IS NOT DISTINCT FROM OLD.status OR
+  NEW.status NOT IN('COMPLETED','FAILED','CANCELLED') THEN RETURN NEW; END IF;
+ SELECT parent_assessment_id,pt_assessment_id INTO item
+ FROM public.api_vapt11_assessments
+ WHERE tenant_id=NEW.tenant_id AND offline_assessment_id=NEW.id;
+ IF FOUND THEN
+   IF NEW.status='COMPLETED' AND item.pt_assessment_id IS NOT NULL THEN
+     PERFORM public.api_enqueue_assessment(item.pt_assessment_id);
+   ELSE
+     PERFORM public.api_enqueue_assessment(item.parent_assessment_id);
+   END IF;
+ END IF;
+ SELECT parent_assessment_id INTO item
+ FROM public.api_vapt11_assessments
+ WHERE tenant_id=NEW.tenant_id AND pt_assessment_id=NEW.id;
+ IF FOUND THEN PERFORM public.api_enqueue_assessment(item.parent_assessment_id); END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION public.api_vapt11_dependency_wakeup() FROM PUBLIC;
+CREATE TRIGGER api_vapt11_dependency_wakeup AFTER UPDATE OF status ON public.api_assessments
+ FOR EACH ROW EXECUTE FUNCTION public.api_vapt11_dependency_wakeup();
