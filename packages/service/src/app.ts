@@ -127,7 +127,8 @@ export async function makeApp(): Promise<FastifyInstance> {
     return withTenant(tenant(req),async tx=>(await tx.query("SELECT id,name,base_url,environment,revision,verification_version,scope_revision,lifecycle,ownership_status,created_at,updated_at,archived_at FROM api_targets WHERE ($1='' OR strpos(lower(name),lower($1))>0 OR strpos(lower(base_url),lower($1))>0) AND ($2::text IS NULL OR lifecycle=$2) AND ($3::text IS NULL OR environment=$3) AND ($4::text IS NULL OR ownership_status=$4) ORDER BY created_at DESC,id LIMIT $5 OFFSET $6",[search,lifecycle??null,environment??null,status??null,pagination.limit,pagination.offset])).rows);
   });
   app.get("/v1/targets/:id",async req => {
-    const r=await withTenant(tenant(req),async tx=>tx.query("SELECT id,name,base_url,environment,revision,verification_version,scope_revision,lifecycle,ownership_status,created_at,updated_at,archived_at FROM api_targets WHERE id=$1",[paramsId(req)]));
+    const targetId=paramsId(req);
+    const r=await withTenant(tenant(req),async tx=>tx.query("SELECT id,name,base_url,environment,revision,verification_version,scope_revision,lifecycle,ownership_status,created_at,updated_at,archived_at FROM api_targets WHERE id=$1",[targetId]));
     if(!r.rowCount)throw new ApiError(404,"NOT_FOUND");
     return r.rows[0];
   });
