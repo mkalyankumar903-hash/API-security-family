@@ -161,7 +161,7 @@ test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=
    const original=await withTenant(A,tx=>tx.query("SELECT id,units FROM public.api_v13_usage_ledger ORDER BY created_at DESC LIMIT 1"));
    assert.equal(original.rowCount,1);
    const usageId=original.rows[0].id as string,correctionKey=randomBytes(48);
-   const signCorrection=(delta:number,tenant=A,correctionId=randomUUID())=>{
+   const signCorrection=(delta:number,tenant=A,correctionId:string=randomUUID())=>{
     const raw=Buffer.from(JSON.stringify({schemaVersion:V13,correctionId,tenantId:tenant,
      issuer:"lumicsec-ci-correction-v13",audience:"api-family-correction-v13-test",
      usageId,unitDelta:delta,reason:"MEASUREMENT_CORRECTION",
