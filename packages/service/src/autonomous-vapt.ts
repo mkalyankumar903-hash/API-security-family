@@ -61,6 +61,9 @@ async function resolveInventory(tx:PoolClient,targetId:string,specId:string){
  return {t,inv,operations:operations.rows as VaptInput["operations"],offlineEngine:rich.rowCount?"inventory-v2" as const:"inventory-v1" as const};
 }
 async function create(tx:PoolClient,tenant:string,b:Request,key:string,lineage:string|null){
+ // Transaction-scoped tenant+key admission lock prevents read-before-insert races.
+ // A replay returns the committed same workflow and never creates a second child.
+ await tx.query("SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))",[tenant,key]);
  // Idempotency is a historical identity lookup, never an instruction to replay
  // authorized runtime interactions or refresh an expired permit.
  const old=await tx.query("SELECT v.parent_assessment_id,v.plan,v.mode FROM api_assessments a JOIN api_vapt11_assessments v ON v.parent_assessment_id=a.id WHERE a.idempotency_key=$1",[key]);
