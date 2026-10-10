@@ -22,7 +22,7 @@ export type VaptPlan={
  specFingerprint:string;inventoryFingerprint:string;targetVerificationVersion:number;
  targetScopeRevision:number;mode:VaptMode;offlineEngine:"inventory-v1"|"inventory-v2";
  operations:VaptOperation[];ptPlanFingerprint:string|null;ptPolicyId:string|null;
- ptPolicyVersion:string|null;scopeId:string|null;permitId:string|null;
+ ptPolicyVersion:string|null;ptProfile:string|null;scopeId:string|null;permitId:string|null;
  permitFingerprint:string|null;fixtureId:string|null;fixtureVersion:number|null;
  rules:{id:string;revision:string}[];plannedEvaluations:number;stages:VaptStage[];
  syntheticOnly:true;customerNetworkRequests:0;realHostAuthorization:"UNAVAILABLE";
@@ -73,7 +73,7 @@ export function buildAutonomousVaptPlan(input:VaptInput):VaptPlan{
   inventoryFingerprint:input.inventoryFingerprint,targetVerificationVersion:input.targetVerificationVersion,
   targetScopeRevision:input.targetScopeRevision,mode:input.mode,offlineEngine:input.offlineEngine,
   operations,ptPlanFingerprint:pt?orchestrationFingerprint(pt):null,
-  ptPolicyId:pt?.policyId??null,ptPolicyVersion:pt?.policyVersion??null,
+  ptPolicyId:pt?.policyId??null,ptPolicyVersion:pt?.policyVersion??null,ptProfile:pt?.profile??null,
   scopeId:pt?.binding.scopeId??null,permitId:pt?.binding.permitId??null,
   permitFingerprint:pt?.binding.permitFingerprint??null,fixtureId:pt?.fixtureId??null,
   fixtureVersion:pt?.fixtureVersion??null,rules:pt?.rules??[],
