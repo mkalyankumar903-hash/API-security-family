@@ -23,6 +23,26 @@ export async function processOneJob(options:{signal?:AbortSignal}={}): Promise<b
     await releaseUnstartedWorkerClaim(lease);
     return true;
   }
+  // GitHub CI ONLY: synchronize a real DB lease acquisition with a separate
+  // OS process. "stalled" intentionally refuses cancellation so the main
+  // process' forced-drain deadline must terminate it. No production path.
+  if(process.env.NODE_ENV==="test"&&process.env.SYNTHETIC_AUTH_ENABLED==="true"&&
+    process.env.GITHUB_ACTIONS==="true"&&process.send&&
+    ["cooperative","stalled"].includes(process.env.PHASE14_TEST_CLAIM_BARRIER??"")){
+    const mode=process.env.PHASE14_TEST_CLAIM_BARRIER;
+    process.send({kind:"PHASE14_CLAIM_HELD",assessmentId:jobId,claimGeneration:lease.claim_generation});
+    await new Promise<void>(resolve=>{
+      if(mode==="cooperative"){
+        if(options.signal?.aborted)resolve();
+        else options.signal?.addEventListener("abort",()=>resolve(),{once:true});
+      }
+      // Intentionally unresolved in "stalled", until the real OS child exits.
+    });
+    if(options.signal?.aborted){
+      await releaseUnstartedWorkerClaim(lease);
+      return true;
+    }
+  }
   // DB-authoritative heartbeats only maintain an existing lease. If renewal fails,
   // every governed evaluation/publication boundary still rechecks the private claim.
   let heartbeatInFlight:Promise<void>|null=null;
