@@ -164,7 +164,7 @@ export function registerPhase12Routes(app:FastifyInstance,identity:(req:FastifyR
   const b=await withTenant(tenant,async tx=>(await tx.query(
    'SELECT display_name AS "displayName",report_title AS "reportTitle",accent_hex AS "accentHex",version FROM api_v12_branding WHERE tenant_id=$1',[tenant])).rows[0] as ReportBrand|undefined);
   const pdf=await renderPhase12Pdf(report,b);
-  await withTenant(tenant,tx=>tx.query("INSERT INTO api_v12_report_audit(id,tenant_id,parent_assessment_id,action,metadata) VALUES($1,$2,$3,\'PDF_GENERATED\',$4::jsonb)",[uuid(),tenant,reportId,JSON.stringify({bytes:pdf.length,templateVersion:"phase12-advanced-v1",brandingVersion:b?.version??0})]));
+  await withTenant(tenant,tx=>tx.query("INSERT INTO api_v12_report_audit(id,tenant_id,parent_assessment_id,action,metadata) VALUES($1,$2,$3,'PDF_GENERATED',$4::jsonb)",[uuid(),tenant,reportId,JSON.stringify({bytes:pdf.length,templateVersion:"phase12-advanced-v1",brandingVersion:b?.version??0})]));
   reply.header("Cache-Control","no-store").header("X-Content-Type-Options","nosniff")
    .header("Content-Disposition",'attachment; filename="lumicsec-api-presentation-'+reportId+'.pdf"')
    .type("application/pdf").send(pdf);

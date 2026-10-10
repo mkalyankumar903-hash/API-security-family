@@ -1,7 +1,7 @@
 /** Phase 12 finding/coverage projections from accepted immutable PostgreSQL correlation authority.
  * No queue, permit, governor, scanner, worker, Host or AI mutation imports. */
 import type {FastifyInstance,FastifyRequest} from "fastify";
-import {withTenant,uuid} from "../../database/src/index.js";
+import {withTenant} from "../../database/src/index.js";
 import {PtError} from "./pt.js";
 import {presentVaptReport} from "./phase12.js";
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
