@@ -60,6 +60,11 @@ CREATE TABLE public.api_v13_event_inbox(
 CREATE TABLE public.api_v13_outbox(
  id uuid PRIMARY KEY,tenant_id uuid NOT NULL,source_usage_id uuid NOT NULL,
  payload jsonb NOT NULL CHECK(jsonb_typeof(payload)='object' AND pg_column_size(payload)<=2048),
+ -- Deliberate delivery-state fence: no endpoint, lease, retries, acknowledgements or network dispatch.
+ delivery_state text NOT NULL DEFAULT 'DISABLED' CHECK(delivery_state='DISABLED'),
+ attempt_count integer NOT NULL DEFAULT 0 CHECK(attempt_count=0),
+ last_attempt_at timestamptz CHECK(last_attempt_at IS NULL),
+ delivered_at timestamptz CHECK(delivered_at IS NULL),
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  UNIQUE(tenant_id,source_usage_id),
  FOREIGN KEY(tenant_id,source_usage_id) REFERENCES public.api_v13_usage_ledger(tenant_id,id));

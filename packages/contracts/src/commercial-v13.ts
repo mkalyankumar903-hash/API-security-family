@@ -3,6 +3,24 @@ import {createHash,createHmac,timingSafeEqual} from "node:crypto";
 export const V13="api-family-commercial-v13" as const;
 export const features=["IMMUTABLE_REPORT_OBSERVED"] as const;
 export type Feature=typeof features[number];
+/** Versioned capability definitions are not interchangeable with enabled meters or entitlements. */
+export const commercialFeatureCatalog=[
+ {feature:"IMMUTABLE_REPORT_OBSERVED",version:1,state:"NON_BILLABLE_OBSERVATION",
+  evidence:"PERSISTED_IMMUTABLE_PHASE11_REPORT",outcome:"SUCCESSFUL_PARENT_REPORT_ONLY",
+  charges:false,canAuthorizeScanning:false},
+ {feature:"OFFLINE_API_ASSESSMENT_COMPLETED",version:1,state:"DISABLED_NO_METER",
+  evidence:"IMMUTABLE_OFFLINE_ASSESSMENT_SOURCE_REQUIRED",outcome:"SUCCESS_ONLY_NOT_INSTRUMENTED",
+  charges:false,canAuthorizeScanning:false},
+ {feature:"GOVERNED_API_PT_COMPLETED",version:1,state:"DISABLED_HOST_AUTHORITY",
+  evidence:"SIGNED_SCOPED_PERMIT_AND_IMMUTABLE_TERMINAL_SOURCE_REQUIRED",
+  outcome:"SUCCESS_ONLY_NOT_INSTRUMENTED",charges:false,canAuthorizeScanning:false}
+] as const;
+export function classifyCatalogFeature(feature:unknown,version:unknown){
+ const hit=commercialFeatureCatalog.find(x=>x.feature===feature&&x.version===version);
+ if(!hit)throw new CommercialContractError("UNSUPPORTED_FEATURE_OR_VERSION");
+ return hit;
+}
+
 export type HostIdentityAdapter={resolveIdentity(token:string):Promise<{tenantId:string;subject:string;issuer:string}|null>};
 export type HostEntitlementAdapter={verifyEntitlement(raw:Uint8Array):Promise<VerifiedEntitlement>};
 export type HostCommercialEventAdapter={verifyEvent(raw:Uint8Array,signature:string):Promise<CommercialEvent>};

@@ -95,8 +95,17 @@ test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=
    assert.equal((await projection(A)).remaining,0);
    const other=await call("GET","/v13/usage/events",undefined,true);
    assert.deepEqual(other.json(),[]);
-   const found=await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_v13_outbox"));
-   assert.equal(found.rows[0].n,1);
+   const found=await withTenant(A,tx=>tx.query("SELECT id,delivery_state,attempt_count,last_attempt_at,delivered_at FROM api_v13_outbox"));
+   assert.equal(found.rowCount,1);
+   assert.equal(found.rows[0].delivery_state,"DISABLED");
+   assert.equal(found.rows[0].attempt_count,0);
+   assert.equal(found.rows[0].last_attempt_at,null);
+   assert.equal(found.rows[0].delivered_at,null);
+   await assert.rejects(()=>withTenant(A,tx=>tx.query("UPDATE api_v13_outbox SET delivery_state='PENDING' WHERE id=$1",[found.rows[0].id])));
+   await assert.rejects(()=>withTenant(A,tx=>tx.query("DELETE FROM api_v13_outbox WHERE id=$1",[found.rows[0].id])));
+   const noOutput=await withTenant(B,tx=>tx.query("SELECT id FROM api_v13_outbox"));
+   assert.equal(noOutput.rowCount,0);
+   await assert.rejects(()=>reserveObservedReport(A,randomUUID(),"phase13-no-evidence-"+randomUUID()),/IMMUTABLE_REPORT_NOT_FOUND/);
    await assert.rejects(()=>reserveObservedReport(A,r2,"phase13-repeat-"+randomUUID()),/QUOTA_EXCEEDED/);
    assert.equal((await call("GET","/v13/reservations",undefined,true)).body,"[]");
   });
@@ -192,6 +201,21 @@ test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=
    const excessive=signCorrection(1);
    await assert.rejects(()=>ingestSyntheticUsageCorrection(excessive.raw,excessive.signature,correctionKey),/INVALID_USAGE_CORRECTION/);
    assert.equal((await call("GET","/v13/decisions")).json().allowed,false);
+   const third=await produceReport();
+   const revocation=envelope("REVOKED",4,0);
+   const conflict=await Promise.allSettled([
+    reserveObservedReport(A,third,"phase13-revoke-race-"+randomUUID()),
+    ingestSyntheticEntitlement(revocation.raw,revocation.signature,key)
+   ]);
+   assert.equal(conflict[1]?.status,"fulfilled","Revocation must commit under same tenant advisory lock");
+   assert.equal((await projection(A)).quota,0,"Revocation wins all subsequent admission checks");
+   if(conflict[0]?.status==="fulfilled"){
+    const reservation=conflict[0].value as {id:string};
+    await assert.rejects(()=>settleObservedReport(A,reservation.id),/ENTITLEMENT_UNAVAILABLE/);
+   }else{
+    assert.match(String((conflict[0] as PromiseRejectedResult).reason),/ENTITLEMENT_UNAVAILABLE/);
+   }
+   assert.equal((await projection(A)).consumed,2,"Revocation must not meter an unverified in-flight report");
   });
  }finally{await app.close();await closeDatabase();}
 });

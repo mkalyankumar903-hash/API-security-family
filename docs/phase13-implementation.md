@@ -5,6 +5,7 @@ This phase builds a test-only, tenant-scoped, commercially inert foundation on a
 ## Implemented boundaries
 - Versioned, strict signed test-only entitlement-event contract and five Host adapter interfaces; without approved Host trust configuration production fails closed.
 - Migration 017 introduces seven tenant-isolated FORCE RLS tables (entitlement events, reservations, usage ledger, immutable usage corrections, event inbox, outbox, reconciliation). Privileged queue worker has no grants. Immutable records reject UPDATE/DELETE. Reservation state mutation is restricted to allowed transitions.
+- A versioned feature catalog declares three distinct contract definitions. Only `IMMUTABLE_REPORT_OBSERVED@1` is implemented as a non-billable test observation. `OFFLINE_API_ASSESSMENT_COMPLETED@1` and `GOVERNED_API_PT_COMPLETED@1` are `DISABLED` contract-only placeholders, not working meters, entitlements or permits. Unsupported versions explicitly reject.
 - `IMMUTABLE_REPORT_OBSERVED` is a single non-billable **observation unit** tied to an existing, fingerprinted, immutable Phase 11 report. A render/button click does not meter usage. No historical usage is backcharged.
 - A real PostgreSQL transaction takes a tenant+feature advisory lock; deduplicated reservations, bounded units, expiry and settlements create exactly one immutable ledger row and exactly one unsent outbox row. Database clock governs the month and expiry.
 - `/v13` read APIs return only session-bound, tenant-RLS projections. Every decision is `allowed:false` until real Host authority is approved. Existing accepted Phase 00–12 routes stay synthetic-only and are **not claimed to be under commercial quotas**.
@@ -17,7 +18,7 @@ This phase builds a test-only, tenant-scoped, commercially inert foundation on a
 - Current entitlement issuer is strictly `lumicsec-ci-synthetic-v13` (never production). Host entitlement verification and production operational authorization remain **HOST_BLOCKED**.
 - Current ledger supports only a narrow source-confirmed immutable report meter, not every candidate usage category.
 - Without independently signed external authority reconciliation remains `PENDING_EXTERNAL_AUTHORITY`. A separate CI-only external accounting fixture can produce `MATCHED` / `MISMATCH` with signed independent units, revision/watermark checks and immutable history. **Synthetic matches never qualify live Host invoices**.
-- Outbox is durable **but delivery intentionally disabled**. No actual callbacks or live signing key rotation.
+- Outbox is durable, default-and-CHECK-fenced to `DISABLED`, `attempt_count=0`, and no `last_attempt_at`/`delivered_at`; immutable trigger rejects delivery transitions. No delivery worker, endpoint, acknowledgements or live signing key rotation. This is **not** a delivered-webhook subsystem.
 - Current UI is English with existing Phase 12 QA pseudo-locales retained; no translation or WCAG certification is claimed.
 
 ## Acceptance and source map

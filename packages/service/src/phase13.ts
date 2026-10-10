@@ -4,7 +4,7 @@ import {randomUUID} from "node:crypto";
 import {withTenant} from "../../database/src/index.js";
 import type {PoolClient} from "pg";
 import {PtError} from "./pt.js";
-import {verifySyntheticEvent,verifySyntheticExternalSnapshot,verifySyntheticCorrection,fingerprint,unit,features} from "../../contracts/src/commercial-v13.js";
+import {verifySyntheticEvent,verifySyntheticExternalSnapshot,verifySyntheticCorrection,fingerprint,unit,features,commercialFeatureCatalog} from "../../contracts/src/commercial-v13.js";
 const fail=(code:string,status=409):never=>{throw new PtError(status,code);};
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const id=(v:unknown)=>typeof v==="string"&&UUID.test(v)?v:fail("INVALID_ID",400);
@@ -194,8 +194,9 @@ export async function reconcileSyntheticExternalSnapshot(t:string,raw:Uint8Array
 
 export function registerPhase13Routes(app:FastifyInstance,identity:(req:FastifyRequest)=>string){
  app.get("/v13/capabilities",async()=>({schemaVersion:"api-family-commercial-v13",syntheticOnly:true,
-  productionHostIntegration:false,hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",meterDefinitions:[
-   {feature:features[0],version:1,unit:"distinct existing immutable Phase11 report",billable:false}],
+  productionHostIntegration:false,hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",
+  meterDefinitions:[{feature:features[0],version:1,unit:"distinct existing immutable Phase11 report",billable:false}],
+  featureDefinitions:commercialFeatureCatalog,
   scanningAuthority:false,verifiedFixedAuthority:false}));
  app.get("/v13/entitlements",async req=>({projection:await projection(identity(req))}));
  app.get("/v13/usage/summary",async req=>projection(identity(req)));

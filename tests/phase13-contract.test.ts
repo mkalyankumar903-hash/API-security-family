@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {randomUUID,randomBytes,createHmac} from "node:crypto";
-import {validateEvent,verifySyntheticEvent,verifyRotatedSyntheticEvent,verifySyntheticExternalSnapshot,verifySyntheticCorrection,unit,V13,hostNotConfigured} from "../packages/contracts/src/commercial-v13.js";
+import {validateEvent,verifySyntheticEvent,verifyRotatedSyntheticEvent,verifySyntheticExternalSnapshot,verifySyntheticCorrection,commercialFeatureCatalog,classifyCatalogFeature,unit,V13,hostNotConfigured} from "../packages/contracts/src/commercial-v13.js";
 import {V13Client,V13ClientError} from "../packages/sdk/src/v13.js";
 const e=()=>({schemaVersion:V13,eventId:randomUUID(),tenantId:randomUUID(),
  issuer:"lumicsec-ci-synthetic-v13",audience:"api-family-v13-test",issuedAt:new Date().toISOString(),
@@ -115,4 +115,20 @@ test("Phase13 independently signed corrections reject wrong authority, overflows
   assert.throws(()=>verifySyntheticCorrection(raw,sig,key),/HOST_AUTHORITY_NOT_CONFIGURED/);
  }finally{if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
  if(flag===undefined)delete process.env.SYNTHETIC_AUTH_ENABLED;else process.env.SYNTHETIC_AUTH_ENABLED=flag;}
+});
+
+test("Phase13 versioned feature definitions deny unsupported meters and never imply Host permit",()=>{
+ assert.equal(commercialFeatureCatalog.length,3);
+ const current=classifyCatalogFeature("IMMUTABLE_REPORT_OBSERVED",1);
+ assert.equal(current.state,"NON_BILLABLE_OBSERVATION");
+ assert.equal(current.outcome,"SUCCESSFUL_PARENT_REPORT_ONLY");
+ for(const entry of commercialFeatureCatalog){
+  assert.equal(entry.charges,false);
+  assert.equal(entry.canAuthorizeScanning,false);
+  assert.equal(classifyCatalogFeature(entry.feature,entry.version),entry);
+ }
+ assert.throws(()=>classifyCatalogFeature("GOVERNED_API_PT_COMPLETED",2),/UNSUPPORTED_FEATURE_OR_VERSION/);
+ assert.throws(()=>classifyCatalogFeature("CANCELLED_ASSESSMENT",1),/UNSUPPORTED_FEATURE_OR_VERSION/);
+ assert.equal(classifyCatalogFeature("GOVERNED_API_PT_COMPLETED",1).state,"DISABLED_HOST_AUTHORITY");
+ assert.equal(classifyCatalogFeature("OFFLINE_API_ASSESSMENT_COMPLETED",1).state,"DISABLED_NO_METER");
 });
