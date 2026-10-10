@@ -8,3 +8,14 @@
 #phase12-workspace .finding{max-width:100%;overflow-wrap:anywhere}
 #phase12-workspace button{max-width:100%;white-space:normal}
 @media(prefers-reduced-motion:reduce){#phase12-workspace *{scroll-behavior:auto!important;transition:none!important}}
+
+/* Narrow layouts: contain previously unbounded JSON, evidence keys, and tables. */
+html,body,#root,main.container{min-width:0;max-width:100%}
+main.container section,main.container article,main.container div,main.container header{min-width:0;max-width:100%}
+main.container pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+main.container table{width:100%;max-width:100%;table-layout:fixed}
+main.container td,main.container th{overflow-wrap:anywhere;word-break:break-word;min-width:0}
+main.container code,main.container li{overflow-wrap:anywhere;word-break:break-all}
+main.container .tag{white-space:normal}
+main.container input,main.container select,main.container textarea{min-width:0;max-width:100%}
+main.container .formgrid{grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))}

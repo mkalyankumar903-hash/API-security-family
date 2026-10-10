@@ -87,6 +87,8 @@ jobs:
         run: npm run migrate
       - name: Real tenant authorization, sharing, mutation and concurrency tests
         run: node --import tsx --test --test-concurrency=1 tests/phase12.pg.test.ts
+      - name: Populated historical Phase11 to Phase12 real PostgreSQL upgrade
+        run: node --import tsx --test --test-concurrency=1 tests/phase12-upgrade.pg.test.ts
 
   browser-targeted:
     if: ${{ contains(github.event.pull_request.title, '[phase12-e2e]') || contains(github.event.pull_request.title, '[phase12-full]') }}
