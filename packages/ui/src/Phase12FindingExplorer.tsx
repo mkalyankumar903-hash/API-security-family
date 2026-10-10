@@ -30,7 +30,7 @@ export function Phase12FindingExplorer({token,targetId}:{token:string;targetId:s
  useEffect(()=>{let active=true;setEvidence(null);if(!selected)return()=>{active=false;};
   const parts=selected.split("/");
   if(parts.length!==2)return()=>{active=false;};
-  void access<Evidence>(token,"/v12/reports/"+encodeURIComponent(parts[0])+"/evidence/"+encodeURIComponent(parts[1])).then(value=>{if(active)setEvidence(value);})
+  void access<Evidence>(token,"/v12/reports/"+encodeURIComponent(parts[0]??"")+"/evidence/"+encodeURIComponent(parts[1]??"")).then(value=>{if(active)setEvidence(value);})
    .catch(e=>{if(active)setError(e instanceof Error?e.message:"EVIDENCE_UNAVAILABLE");});
   return()=>{active=false;};
  },[token,selected]);
