@@ -20,6 +20,19 @@ await processPtOrchestrationJob(claimed.tenant_id,claimed.assessment_id,claimed.
  },
  afterCheckpoint:async stage=>{
   if(scenario==="after-checkpoint"&&stage==="authorization")await pause("after-checkpoint",stage);
+ },
+ beforeReservation:async()=>{
+  if(scenario==="before-reservation")await pause("before-reservation","governor-not-yet-called");
+ },
+ afterReservation:async()=>{
+  if(scenario==="after-reservation")await pause("after-reservation","durable-reserved-before-fixture");
+ },
+ afterFixtureBeforeReceipt:async pid=>{
+  if(scenario==="after-fixture-before-receipt"||scenario==="db-disconnect-before-receipt")
+   await pause(scenario,String(pid));
+ },
+ beforeFinalization:async()=>{
+  if(scenario==="before-finalization")await pause("before-finalization","stage-running-no-report");
  }
 });
 if(scenario==="after-report")await pause("after-report","report-committed");
