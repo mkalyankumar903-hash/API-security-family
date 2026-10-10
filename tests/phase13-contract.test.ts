@@ -82,3 +82,13 @@ test("Phase13 external snapshot independent signature validation is mandatory",(
  }finally{if(prev===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=prev;
  if(flag===undefined)delete process.env.SYNTHETIC_AUTH_ENABLED;else process.env.SYNTHETIC_AUTH_ENABLED=flag;}
 });
+
+test("Phase13 SDK binds browser-native fetch receiver instead of illegal class this",async()=>{
+ const nativeLike=function(this:unknown,input:RequestInfo|URL){
+  assert.equal(this,globalThis,"browser fetch must execute with global receiver");
+  assert.match(String(input),/\/v13\/capabilities$/);
+  return Promise.resolve(new Response(JSON.stringify({schemaVersion:V13,hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",meterDefinitions:[],scanningAuthority:false}),{status:200}));
+ } as typeof fetch;
+ const sdk=new V13Client({baseUrl:"http://localhost:3001",accessToken:()=>"test-only",fetcher:nativeLike});
+ assert.equal((await sdk.capabilities()).scanningAuthority,false);
+});

@@ -12,8 +12,8 @@ test("Phase13 Chromium commercial workspace remains host-blocked, scoped and acc
  const section=page.locator("#phase13-commercial");
  await expect(section.getByRole("heading",{name:"Commercial usage & entitlements — Phase 13"})).toBeVisible();
  const directSummary=await request.get("http://127.0.0.1:3001/v13/usage/summary",{headers:{authorization:"Bearer local-test-token-alpha"}});
- console.log("PHASE13_DIAG_API",directSummary.status(),await directSummary.text());
- console.log("PHASE13_DIAG_UI",await section.innerText());
+ expect(directSummary.status(),await directSummary.text()).toBe(200);
+ expect((await directSummary.json() as {hostAuthority:string}).hostAuthority).toBe("HOST_AUTHORITY_NOT_CONFIGURED");
  await expect(section.getByText("HOST_AUTHORITY_NOT_CONFIGURED")).toBeVisible();
  await expect(section.getByText("NOT CONFIGURED")).toBeVisible();
  await expect(section.getByText("PENDING_EXTERNAL_AUTHORITY")).toBeVisible();

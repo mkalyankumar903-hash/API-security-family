@@ -23,7 +23,8 @@ export class V13Client{
   if(!Number.isSafeInteger(config.timeoutMs??10000)||(config.timeoutMs??10000)<100||(config.timeoutMs??10000)>60000)
    throw new Error("INVALID_TIMEOUT");
   this.base=url.origin;this.timeoutMs=config.timeoutMs??10000;
-  this.request=config.fetcher??fetch;
+  // Window.fetch is a WebIDL operation: preserve the global receiver when passed to a class.
+  this.request=(config.fetcher??globalThis.fetch).bind(globalThis);
  }
  private async get<T>(path:string,signal?:AbortSignal):Promise<T>{
   const token=await this.config.accessToken();
