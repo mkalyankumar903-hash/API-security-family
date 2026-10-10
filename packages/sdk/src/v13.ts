@@ -30,7 +30,7 @@ export type V13ClientOptions={
 };
 const isObject=(v:unknown):v is Record<string,unknown>=>
  typeof v==="object"&&v!==null&&!Array.isArray(v);
-const boundedStr=(v:unknown,max=256)=>typeof v==="string"&&v.length<=max;
+const boundedStr=(v:unknown,max=256):v is string=>typeof v==="string"&&v.length<=max;
 const whole=(v:unknown)=>typeof v==="number"&&Number.isSafeInteger(v)&&v>=0;
 function requireShape(ok:boolean):void{
  if(!ok)throw new V13ClientError(200,"INVALID_RESPONSE");
