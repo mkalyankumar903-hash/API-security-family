@@ -8,6 +8,16 @@ BEGIN
   EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I CHECK (feature IN (''IMMUTABLE_REPORT_OBSERVED'',''OFFLINE_API_ASSESSMENT_COMPLETED'',''GOVERNED_API_PT_COMPLETED''))',t,t||'_feature_check');
  END LOOP;
 END $$;
+-- Every old and new 017 accounting record is bound to version one; existing
+-- rows acquire their additive default unchanged, not a new usage event.
+DO $
+DECLARE t text;
+BEGIN
+ FOREACH t IN ARRAY ARRAY['api_v13_entitlement_events','api_v13_reservations',
+  'api_v13_usage_ledger','api_v13_reconciliation'] LOOP
+  EXECUTE format('ALTER TABLE public.%I ADD COLUMN meter_version smallint NOT NULL DEFAULT 1 CHECK(meter_version=1)',t);
+ END LOOP;
+END $;
 -- Stores immutable independently validated source binding, not a customer-created counter.
 CREATE TABLE public.api_v13_feature_sources (
  id uuid PRIMARY KEY,tenant_id uuid NOT NULL,reservation_id uuid NOT NULL,
