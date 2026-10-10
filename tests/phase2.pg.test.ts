@@ -133,7 +133,7 @@ test("real PG16 Phase2 importer: all 4 formats, idempotency, versions, diff, RLS
   assert.equal(history.rawFingerprint,o31.json().rawFingerprint);
   assert.equal((await req("GET","/v1/assessments/"+queued.json().id+"/report")).body,reportText);
   const phases=(await withTenant(A,async tx=>tx.query("SELECT version FROM api_schema_migrations ORDER BY version"))).rows.map(x=>x.version);
-  assert.deepEqual(phases,["001","002","003","004","005","006","007","008","009","010","011","012","013","014"],"Phase10 preserves historical migrations 001–013 unchanged and appends only forward-only migration 014");
+  assert.deepEqual(phases,["001","002","003","004","005","006","007","008","009","010","011","012","013","014","015"],"Phase11 preserves historical migrations 001–014 unchanged and appends only forward-only migration 015");
   await assert.rejects(()=>withTenant(A,async tx=>tx.query("DELETE FROM api_spec_inventories WHERE specification_id=$1",[spec1])),/IMMUTABLE|PHASE1_IMMUTABLE/);
   await assert.rejects(()=>withTenant(A,async tx=>tx.query("UPDATE api_spec_inventories SET snapshot='{}'::jsonb WHERE specification_id=$1",[spec1])),/IMMUTABLE_INVENTORY_CONTENT/);
   await assert.rejects(()=>withTenant(A,async tx=>tx.query("UPDATE api_inventory_operations SET path='/evil' WHERE specification_id=$1",[spec1])),/PHASE1_IMMUTABLE_HISTORY/);
