@@ -1,6 +1,6 @@
 import { Pool, type PoolClient } from "pg";
 import { readFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { randomUUID,createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 12, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 });
@@ -252,11 +252,38 @@ export async function releaseUnstartedWorkerClaim(claim:WorkerClaim):Promise<boo
 /** Final state comes from committed PostgreSQL status, never a worker's success flag. */
 export async function finishWorkerAttempt(claim:WorkerClaim):Promise<void>{
  await withWorkerTenant(claim.tenant_id,async tx=>{
-  const state=await tx.query("SELECT status,error_code FROM public.api_assessments WHERE id=$1",[claim.assessment_id]);
+  const state=await tx.query("SELECT status,error_code,engine_version FROM public.api_assessments WHERE id=$1",[claim.assessment_id]);
   const q=await tx.query("SELECT claim_token,claim_generation FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[claim.assessment_id]);
   const current=!q.rowCount||(q.rows[0].claim_token===claim.claim_token&&Number(q.rows[0].claim_generation)===claim.claim_generation);
   const s=state.rows[0]?.status;
   const outcome=current&&s==="COMPLETED"?"COMPLETED":current&&s==="CANCELLED"?"CANCELLED":current&&s==="FAILED"?"FAILED":"LOST";
+
+  // Phase11 conservative fallback: authoritative FAILED/CANCELLED parent state
+  // always receives terminal diagnostics, even when a worker fault occurs before
+  // the normal composite finalizer can publish. Never infer successful results.
+  if(current&&(s==="FAILED"||s==="CANCELLED")&&
+   state.rows[0]?.engine_version==="autonomous-api-vapt-v1"){
+   const v=await tx.query("SELECT offline_assessment_id,pt_assessment_id,mode FROM public.api_vapt11_assessments WHERE parent_assessment_id=$1",[claim.assessment_id]);
+   if(v.rowCount){
+    const childIds=[v.rows[0].offline_assessment_id,...(v.rows[0].pt_assessment_id?[v.rows[0].pt_assessment_id]:[])];
+    const children=await tx.query("SELECT id,engine_version,status,error_code FROM public.api_assessments WHERE id=ANY($1::uuid[]) ORDER BY id",[childIds]);
+    const diagnostic={schemaVersion:"autonomous-api-vapt-terminal-v1",assessmentId:claim.assessment_id,
+     status:s,mode:v.rows[0].mode,code:state.rows[0].error_code??"WORKER_TERMINAL_FAILURE",
+     children:children.rows,fullAuthorizedVaptCompleted:false,verifiedFixed:false,
+     customerRuntimeVerified:false,customerNetworkRequests:0,
+     limitations:["Terminal diagnostic, not a successful authorized VAPT report",
+      "Completed child evidence and consumed synthetic budgets are not discarded",
+      "NO EVIDENCE != SAFE","UNCERTAIN != SUCCESS"]};
+    const projection=JSON.stringify(diagnostic);
+    const fingerprint=createHash("sha256").update(projection).digest("hex");
+    const saved=await tx.query(
+     "INSERT INTO public.api_vapt11_terminal(id,tenant_id,parent_assessment_id,status,code,projection,fingerprint) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7) ON CONFLICT(tenant_id,parent_assessment_id) DO NOTHING RETURNING id",
+     [uuid(),claim.tenant_id,claim.assessment_id,s,diagnostic.code,projection,fingerprint]);
+    if(saved.rowCount)await tx.query(
+     "INSERT INTO public.api_vapt11_events(id,tenant_id,parent_assessment_id,code,details) VALUES($1,$2,$3,'CONSERVATIVE_TERMINAL_RECOVERY',$4::jsonb)",
+     [uuid(),claim.tenant_id,claim.assessment_id,JSON.stringify({status:s,code:diagnostic.code})]);
+   }
+  }
   const changed=await tx.query("UPDATE public.api_worker_attempts SET state=$2,finished_at=clock_timestamp(),failure_code=CASE WHEN $2='LOST' THEN 'AUTHORITY_OR_TERMINAL_NOT_CONFIRMED' ELSE NULL END WHERE id=$1 AND claim_token=$3 AND state='ACTIVE' RETURNING id",
    [claim.attempt_id,outcome,claim.claim_token]);
   if(changed.rowCount){
