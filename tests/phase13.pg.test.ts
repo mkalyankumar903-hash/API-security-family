@@ -219,6 +219,16 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
    assert.equal((await projection(A)).consumed,2,"Revocation must not meter an unverified in-flight report");
   });
 
+  await t.test("018 UTC calendar month boundary never follows the tenant or database timezone",async()=>{
+   const dates=await withTenant(A,async tx=>{
+    await tx.query("SET LOCAL TIME ZONE 'Pacific/Kiritimati'");
+    return tx.query("SELECT date_trunc('month', $1::timestamptz AT TIME ZONE 'UTC')::date AS october, date_trunc('month',$2::timestamptz AT TIME ZONE 'UTC')::date AS november, date_trunc('month',clock_timestamp() AT TIME ZONE 'UTC')::date AS current_month",
+     ["2026-10-31T23:59:59Z","2026-11-01T00:00:01Z"]);
+   });
+   assert.equal(String(dates.rows[0].october).slice(0,10),"2026-10-01");
+   assert.equal(String(dates.rows[0].november).slice(0,10),"2026-11-01");
+   assert.equal(String((await projection(A)).monthStart).slice(0,10),String(dates.rows[0].current_month).slice(0,10));
+  });
   await t.test("018 genuine independent offline child observation, signed per-feature quota and replay-safe ledger",async()=>{
    const feature="OFFLINE_API_ASSESSMENT_COMPLETED",eid=randomUUID();
    const sign=(revision:number,limit:number,status:"ISSUED"|"REVOKED"="ISSUED",tenant=A)=>{
