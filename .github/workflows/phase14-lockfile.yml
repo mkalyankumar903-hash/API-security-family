@@ -1,0 +1,29 @@
+name: Phase14 Read Only Lockfile Reproduction
+on:
+  pull_request:
+    branches: ["work/phase13-commercial-entitlements-host-adapters-sdk"]
+    types: [opened, synchronize, edited, reopened]
+permissions:
+  contents: read
+concurrency:
+  group: phase14-lock-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  reproduce-lock:
+    if: ${{ contains(github.event.pull_request.title, '[phase14-lock]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22
+      - name: Verify exact PR source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Regenerate only supported-major upstream security updates without scripts or repo writes
+        env:
+          PHASE14_SYNTHETIC_LOCK_REGEN: "true"
+        run: node scripts/phase14-lock-regeneration.mjs
