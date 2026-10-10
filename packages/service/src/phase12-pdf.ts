@@ -225,9 +225,10 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
     let timeout:ReturnType<typeof setTimeout>|undefined;
     const deadline=new Promise<never>((_,reject)=>{
       timeout=setTimeout(()=>{
-        if(browserServer)browserServer.process().kill("SIGKILL");
-        else void browser.close().catch(()=>undefined);
         reject(new PtError(503,"PDF_RENDER_TIMEOUT"));
+        // Fail with the deadline code before Chromium disconnect events race.
+        queueMicrotask(()=>{if(browserServer)browserServer.process().kill("SIGKILL");
+         else void browser.close().catch(()=>undefined);});
       },phase14ChildFault("render-timeout")?350:20000);
     });
     try{
@@ -241,7 +242,7 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
       return bytes;
     }finally{if(timeout)clearTimeout(timeout);}
 
-   }finally{await context.close();}
+   }finally{await context.close().catch(()=>undefined);}
   }finally{
     await browser.close().catch(()=>undefined);
     if(browserServer)await browserServer.close().catch(()=>undefined);
