@@ -168,6 +168,25 @@ export function buildPhase12PdfHtml(report:Report,custom?:ReportBrand){
  <p>PDF GENERATION != NEW ASSESSMENT. Only the future authorized Host RetestVerificationAuthority can establish VERIFIED_FIXED.</p>
  </section></body></html>`;
 }
+// Only independent GitHub Actions children may expose controlled renderer faults.
+// Never expose this via Fastify, an HTTP endpoint, or production environment.
+const phase14ChildFault=(mode:string)=>process.env.NODE_ENV==="test"&&
+ process.env.SYNTHETIC_AUTH_ENABLED==="true"&&process.env.GITHUB_ACTIONS==="true"&&
+ process.env.PHASE14_PDF_CHILD_FAULT===mode&&typeof process.send==="function";
+async function phase14RendererBarrier(stage:string,pid:number|undefined):Promise<void>{
+ await new Promise<void>((resolve,reject)=>{
+  const timeout=setTimeout(()=>{cleanup();reject(Error("PHASE14_RENDERER_BARRIER_TIMEOUT"));},9000);
+  const resumed=(message:unknown)=>{
+   if(typeof message==="object"&&message!==null&&
+     (message as {kind?:unknown}).kind==="PHASE14_CONTINUE"){
+    cleanup();resolve();
+   }
+  };
+  const cleanup=()=>{clearTimeout(timeout);process.off("message",resumed);};
+  process.on("message",resumed);
+  process.send?.({kind:stage,chromiumPid:pid});
+ });
+}
 let running=0;
 export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Promise<Buffer>{
  if(running>=2)throw new PtError(429,"PDF_GENERATION_CONCURRENCY_LIMIT");
@@ -182,21 +201,39 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
   const browser=await chromium.launch({headless:true,timeout:15000,
     ...(fault?{executablePath:"/phase14-disposable-ci-nonexistent-chromium"}:{})});
   try{
+   if(phase14ChildFault("before-page"))await phase14RendererBarrier("PHASE14_BROWSER_LAUNCHED",browser.process()?.pid);
    const context=await browser.newContext({javaScriptEnabled:false,acceptDownloads:false});
    try{
     await context.route("**/*",route=>route.abort("blockedbyclient"));
     const page=await context.newPage();
     await page.setContent(html,{waitUntil:"domcontentloaded",timeout:15000});
-    const bytes=await page.pdf({format:"A4",printBackground:true,displayHeaderFooter:true,
+    const pending=page.pdf({format:"A4",printBackground:true,displayHeaderFooter:true,
      margin:{top:"16mm",bottom:"21mm",left:"14mm",right:"14mm"},
      headerTemplate:"<span></span>",
      footerTemplate:'<div style="font-family:Arial;font-size:8px;width:100%;color:#444;text-align:right;padding-right:16mm">Page <span class="pageNumber"></span> / <span class="totalPages"></span></div>',
     });
-    if(bytes.length>4*1024*1024)throw new PtError(413,"PDF_OUTPUT_LIMIT");
-    if(bytes.subarray(0,5).toString()!=="%PDF-")throw new PtError(500,"INVALID_PDF_BYTES");
-    emitDiagnostic({kind:"REPORT_RENDER",classification:"OK",statusCode:200,
-      durationMs:Number(process.hrtime.bigint()-started)/1e6});
-    return bytes;
+    // Attach a rejection handler *before* the child can kill the real browser.
+    void pending.catch(()=>undefined);
+    if(phase14ChildFault("mid-render"))
+     await phase14RendererBarrier("PHASE14_RENDER_IN_FLIGHT",browser.process()?.pid);
+    let timeout:ReturnType<typeof setTimeout>|undefined;
+    const deadline=new Promise<never>((_,reject)=>{
+      timeout=setTimeout(()=>{
+        browser.process()?.kill("SIGKILL");
+        reject(new PtError(503,"PDF_RENDER_TIMEOUT"));
+      },phase14ChildFault("render-timeout")?350:20000);
+    });
+    try{
+      const bytes=await Promise.race([pending,phase14ChildFault("render-timeout")?
+       new Promise<never>(()=>{/* forced deadline tests actual live Chromium */}):deadline]);
+      // Always keep a real timer in the test-timeout mode as well.
+      if(bytes.length>4*1024*1024)throw new PtError(413,"PDF_OUTPUT_LIMIT");
+      if(bytes.subarray(0,5).toString()!=="%PDF-")throw new PtError(500,"INVALID_PDF_BYTES");
+      emitDiagnostic({kind:"REPORT_RENDER",classification:"OK",statusCode:200,
+        durationMs:Number(process.hrtime.bigint()-started)/1e6});
+      return bytes;
+    }finally{if(timeout)clearTimeout(timeout);}
+
    }finally{await context.close();}
   }finally{await browser.close();}
  }catch(e){
