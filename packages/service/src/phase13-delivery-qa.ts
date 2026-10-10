@@ -1,6 +1,6 @@
 /** Phase13 isolated synthetic delivery qualification only. NO network transport. */
 import {randomUUID} from "node:crypto";
-import {withTenant} from "../../database/src/index.js";
+import {withQaTenant} from "../../database/src/index.js";
 import {fingerprint} from "../../contracts/src/commercial-v13.js";
 const qa=()=>{if(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true")
  throw new Error("HOST_AUTHORITY_NOT_CONFIGURED");};
@@ -13,7 +13,7 @@ const event=async(tx:import("pg").PoolClient,t:string,d:string,code:string,attem
 /** CI-only opt-in: the actual immutable outbox is never moved from DISABLED. */
 export async function enqueueQaDelivery(tenant:string,outboxId:string){
  qa();safe(tenant);safe(outboxId);
- return withTenant(tenant,async tx=>{
+ return withQaTenant(tenant,async tx=>{
   const source=await tx.query("SELECT id FROM public.api_v13_outbox WHERE id=$1 AND payload->>'syntheticOnly'='true' AND delivery_state='DISABLED' AND attempt_count=0",[outboxId]);
   if(!source.rowCount)throw Error("QA_SOURCE_NOT_ELIGIBLE");
   const id=randomUUID();
@@ -27,7 +27,7 @@ export async function enqueueQaDelivery(tenant:string,outboxId:string){
 export async function claimQaDelivery(tenant:string,deliveryId:string,leaseSeconds=2){
  qa();safe(tenant);safe(deliveryId);
  if(!Number.isSafeInteger(leaseSeconds)||leaseSeconds<1||leaseSeconds>30)throw Error("INVALID_QA_LEASE");
- return withTenant(tenant,async tx=>{
+ return withQaTenant(tenant,async tx=>{
   const q=await tx.query("SELECT * FROM public.api_v13_qa_delivery WHERE id=$1 FOR UPDATE",[deliveryId]);
   if(!q.rowCount)throw Error("QA_DELIVERY_NOT_FOUND");
   const d=q.rows[0];const n=Number(d.attempt_count);
@@ -49,7 +49,7 @@ export async function claimQaDelivery(tenant:string,deliveryId:string,leaseSecon
 /** Synthetic sink persists only a redacted deterministic receipt, no HTTP or callback. */
 export async function consumeQaSink(tenant:string,deliveryId:string,token:string){
  qa();safe(tenant);safe(deliveryId);safe(token);
- return withTenant(tenant,async tx=>{
+ return withQaTenant(tenant,async tx=>{
   const d=await tx.query("SELECT state,lease_token,lease_until,outbox_id FROM public.api_v13_qa_delivery WHERE id=$1 FOR UPDATE",[deliveryId]);
   if(!d.rowCount||d.rows[0].state!=="LEASED"||d.rows[0].lease_token!==token||Date.parse(String(d.rows[0].lease_until))<=Date.now())throw Error("QA_STALE_LEASE");
   const o=await tx.query("SELECT source_usage_id,payload FROM public.api_v13_outbox WHERE id=$1 AND delivery_state='DISABLED'",[d.rows[0].outbox_id]);
@@ -62,7 +62,7 @@ export async function consumeQaSink(tenant:string,deliveryId:string,token:string
 }
 export async function ackQaDelivery(tenant:string,deliveryId:string,token:string){
  qa();safe(tenant);safe(deliveryId);safe(token);
- return withTenant(tenant,async tx=>{
+ return withQaTenant(tenant,async tx=>{
   const q=await tx.query("SELECT state,lease_token,lease_until,attempt_count FROM public.api_v13_qa_delivery WHERE id=$1 FOR UPDATE",[deliveryId]);
   if(!q.rowCount)throw Error("QA_DELIVERY_NOT_FOUND");
   const d=q.rows[0];
@@ -78,7 +78,7 @@ export async function ackQaDelivery(tenant:string,deliveryId:string,token:string
 /** No unsafe exception strings, URLs, tokens or payloads in durable diagnostics. */
 export async function failQaDelivery(tenant:string,deliveryId:string,token:string){
  qa();safe(tenant);safe(deliveryId);safe(token);
- return withTenant(tenant,async tx=>{
+ return withQaTenant(tenant,async tx=>{
   const q=await tx.query("SELECT state,lease_token,lease_until,attempt_count FROM public.api_v13_qa_delivery WHERE id=$1 FOR UPDATE",[deliveryId]);
   if(!q.rowCount||q.rows[0].state!=="LEASED"||q.rows[0].lease_token!==token||
    Date.parse(String(q.rows[0].lease_until))<=Date.now())throw Error("QA_STALE_LEASE");

@@ -8,6 +8,19 @@ export const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 
 // SELECT/UPDATE/DELETE/CLAIM queue records; never share these connection strings.
 export const workerPool = new Pool({ connectionString: process.env.WORKER_DATABASE_URL, max: 5, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 });
 export type Client = PoolClient;
+// Separate, ephemeral CI-only role; NO app/worker/privileged fallback.
+let qaPool: Pool|undefined;
+export function withQaTenant<T>(tenantId:string,fn:(tx:PoolClient)=>Promise<T>):Promise<T>{
+ if(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true"||
+  !process.env.PHASE13_QA_DB_PASSWORD||!process.env.DATABASE_URL)
+  throw new Error("PHASE13_CI_QA_DB_AUTHORITY_REQUIRED");
+ if(!qaPool){
+  const url=new URL(process.env.DATABASE_URL);
+  url.username="api_family_qa_ci";url.password=process.env.PHASE13_QA_DB_PASSWORD;
+  qaPool=new Pool({connectionString:url.toString(),max:4,connectionTimeoutMillis:5000,idleTimeoutMillis:30000});
+ }
+ return tenantTransaction(qaPool,tenantId,fn);
+}
 export function withTenant<T>(tenantId: string, fn: (tx: PoolClient) => Promise<T>, faultTag?: string): Promise<T> {
   return tenantTransaction(pool,tenantId,fn,faultTag);
 }
@@ -59,6 +72,7 @@ export async function migrate(): Promise<void> {
   const phase12 = resolve(fileURLToPath(new URL("../migrations/016_phase12_unified_experience_reports.sql", import.meta.url)));
   const phase13 = resolve(fileURLToPath(new URL("../migrations/017_phase13_commercial_entitlements_usage.sql", import.meta.url)));
   const phase13Recovery = resolve(fileURLToPath(new URL("../migrations/018_phase13_multi_meter_recovery.sql", import.meta.url)));
+  const qaIsolation19 = resolve(fileURLToPath(new URL("../migrations/019_phase13_qa_privilege_isolation.sql", import.meta.url)));
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -164,6 +178,11 @@ export async function migrate(): Promise<void> {
     if(!recovery18.rowCount){
       await owner.query(readFileSync(phase13Recovery,"utf8"));
       await owner.query("INSERT INTO api_schema_migrations(version) VALUES('018')");
+    }
+    const qa19=await owner.query("SELECT version FROM api_schema_migrations WHERE version='019'");
+    if(!qa19.rowCount){
+      await owner.query(readFileSync(qaIsolation19,"utf8"));
+      await owner.query("INSERT INTO api_schema_migrations(version) VALUES('019')");
     }
     await owner.query("COMMIT");
   } catch(error) {await owner.query("ROLLBACK"); throw error;}
@@ -337,4 +356,4 @@ export async function finishWorkerAttempt(claim:WorkerClaim):Promise<void>{
   }
  });
 }
-export async function closeDatabase(): Promise<void> { await pool.end(); await workerPool.end(); }
+export async function closeDatabase(): Promise<void> { await pool.end(); await workerPool.end(); if(qaPool)await qaPool.end(); }
