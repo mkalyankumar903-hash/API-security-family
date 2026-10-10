@@ -163,7 +163,7 @@ export function AutonomousVaptWorkspace({token,targetId}:{token:string;targetId:
       {policies.map(x=><option key={x.id} value={x.id}>{x.id} · {x.version}</option>)}
      </select></label>
      <label>Trusted fixture profile<select value={profile} onChange={e=>setProfile(e.target.value)}>
-      {["SECURE_BASELINE","MISSING_AUTH_ENFORCEMENT","MISSING_OBJECT_AUTHORIZATION","MISSING_FUNCTION_AUTHORIZATION","DATA_EXPOSURE"].map(x=><option key={x}>{x}</option>)}
+      {["SECURE_BASELINE","MISSING_AUTH_ENFORCEMENT","CROSS_USER_ACCESS_WEAKNESS","ROLE_RESTRICTION_WEAKNESS","SENSITIVE_RESPONSE_EXPOSURE","INSECURE_CACHE_POLICY"].map(x=><option key={x}>{x}</option>)}
      </select></label>
     </>}
   </div>
