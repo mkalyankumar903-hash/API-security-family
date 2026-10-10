@@ -39,7 +39,7 @@ CREATE TABLE public.api_v13_qa_delivery(
  CHECK((state='LEASED' AND lease_token IS NOT NULL AND lease_until IS NOT NULL AND acked_at IS NULL)
    OR(state='ACKED' AND lease_token IS NULL AND lease_until IS NULL AND acked_at IS NOT NULL)
    OR(state IN('PENDING','RETRY','DEAD_LETTER') AND lease_token IS NULL AND lease_until IS NULL AND acked_at IS NULL)),
- UNIQUE(tenant_id,outbox_id),
+ UNIQUE(tenant_id,outbox_id),UNIQUE(tenant_id,id),
  FOREIGN KEY(tenant_id,outbox_id) REFERENCES public.api_v13_outbox(tenant_id,id)
 );
 CREATE TABLE public.api_v13_qa_delivery_events(
