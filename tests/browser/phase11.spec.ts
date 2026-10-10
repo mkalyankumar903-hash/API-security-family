@@ -119,6 +119,13 @@ test("Phase11 Chromium: cancellation after completed offline analysis prevents a
  await panel.getByLabel("Authorized synthetic scope").selectOption(scopeId);
  await expect(panel.getByText("Permit readiness: VALID",{exact:false})).toBeVisible();
  await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ // Wait for persisted server admission before reading history; click starts an asynchronous request.
+ await expect(panel.getByText("Persisted execution progress")).toBeVisible({timeout:20000});
+ await expect.poll(async()=>{
+  const response=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
+  expect(response.status()).toBe(200);
+  return (await response.json() as {id:string}[]).length;
+ },{timeout:20000}).toBeGreaterThan(0);
  const history=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
  const id=(await history.json() as {id:string}[])[0]!.id;
  expect(await processOneJob()).toBe(true);
