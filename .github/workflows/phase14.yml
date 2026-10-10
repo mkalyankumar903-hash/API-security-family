@@ -25,6 +25,8 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
       - name: Frozen dependency installation
         run: npm ci --no-audit --no-fund
+      - name: Phase14 frozen lockfile and live production dependency advisory classification
+        run: node scripts/phase14-supply-chain.mjs
       - name: ESLint all source and tests
         run: npm run lint
       - name: TypeScript strict
@@ -105,6 +107,8 @@ jobs:
           echo "PHASE13_QA_DB_PASSWORD=$QA_PASS" >> "$GITHUB_ENV"
       - name: Frozen dependencies
         run: npm ci --no-audit --no-fund
+      - name: Phase14 frozen lockfile and live production dependency advisory classification
+        run: node scripts/phase14-supply-chain.mjs
       - name: Migrate fresh PostgreSQL schema through 019
         run: npm run migrate
       - name: Real tenant authorization, sharing, mutation and concurrency tests
@@ -311,6 +315,8 @@ jobs:
           echo "PHASE13_QA_DB_PASSWORD=$QA_PASS" >> "$GITHUB_ENV"
       - name: Frozen dependencies
         run: npm ci --no-audit --no-fund
+      - name: Phase14 frozen lockfile and live production dependency advisory classification
+        run: node scripts/phase14-supply-chain.mjs
       - name: ESLint
         run: npm run lint
       - name: Strict TypeScript
@@ -467,6 +473,8 @@ jobs:
           echo "PHASE13_QA_DB_PASSWORD=$QA_PASS" >> "$GITHUB_ENV"
       - name: Frozen dependencies
         run: npm ci --no-audit --no-fund
+      - name: Phase14 frozen lockfile and live production dependency advisory classification
+        run: node scripts/phase14-supply-chain.mjs
       - name: ESLint
         run: npm run lint
       - name: Strict TypeScript
@@ -686,6 +694,8 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
       - name: Frozen dependencies
         run: npm ci --no-audit --no-fund
+      - name: Phase14 frozen lockfile and live production dependency advisory classification
+        run: node scripts/phase14-supply-chain.mjs
       - name: Synthetic performance and bounded-load samples
         run: node --import tsx --test tests/phase14-performance.test.ts
       - name: Synthetic inventory/diff/SDK samples
