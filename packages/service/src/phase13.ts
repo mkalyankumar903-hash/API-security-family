@@ -74,7 +74,7 @@ async function qualifiedSource(tx:PoolClient,reportId:string,feature:Feature){
    pt.status AS pt_status,pr.fingerprint AS pt_fingerprint,pr.projection AS pt_projection,
    permit.token_hash AS permit_hash,permit.signed_body AS stored_permit_body,
    permit.claims AS stored_permit_claims,permit.revoked_at AS permit_revoked,
-   permit.scope_id AS stored_permit_scope_id,permit.expires_at AS stored_permit_expires_at,
+   permit.scope_id AS stored_permit_scope_id,permit.id AS stored_permit_id,permit.expires_at AS stored_permit_expires_at,
    pr.created_at AS pt_report_created_at
    FROM public.api_vapt11_reports r
    JOIN public.api_vapt11_assessments v ON v.tenant_id=r.tenant_id AND v.parent_assessment_id=r.parent_assessment_id
@@ -113,15 +113,15 @@ async function qualifiedSource(tx:PoolClient,reportId:string,feature:Feature){
     String(v.stored_permit_body),proofInstant);
   const lineage=await tx.query("SELECT "+
    "(SELECT count(*)::int FROM public.api_pt9_stages st WHERE st.assessment_id=$1 AND st.status<>'COMPLETED') AS unfinished,"+
-   "(SELECT count(*)::int FROM public.api_pt_receipts rec WHERE rec.assessment_id=$1 AND rec.permit_hash=$2 AND rec.decision='ALLOWED') AS authorized_receipts",
-   [String(v.pt_assessment_id),String(v.permit_hash)]);
-  if(signed.permitId===undefined||signed.scopeId!==v.stored_permit_scope_id||
+   "(SELECT count(*)::int FROM public.api_pt_detection_evaluations ev WHERE ev.assessment_id=$1 AND ev.state='CONSUMED') AS authorized_evaluations",
+   [String(v.pt_assessment_id)]);
+  if(signed.permitId!==v.stored_permit_id||signed.scopeId!==v.stored_permit_scope_id||
      signed.tenantId!==String((await tx.query("SELECT current_setting('api.tenant_id') AS id")).rows[0].id))
     throw new Error("SIGNED_PT_SCOPE_OR_TENANT_PROVENANCE_MISMATCH");
   if(Number(lineage.rows[0]?.unfinished)!==0)
     throw new Error("SIGNED_PT_STAGES_NOT_COMPLETED");
-  if(Number(lineage.rows[0]?.authorized_receipts)<1)
-    throw new Error("SIGNED_PT_AUTHORIZED_RECEIPT_NOT_FOUND");
+  if(Number(lineage.rows[0]?.authorized_evaluations)<1)
+    throw new Error("SIGNED_PT_CONSUMED_SYNTHETIC_EVALUATION_NOT_FOUND");
  }catch(error){
   // Reveal only a bounded code to isolated CI, never raw signed bodies, keys or claims.
   if(process.env.NODE_ENV==="test"&&process.env.SYNTHETIC_AUTH_ENABLED==="true"){
