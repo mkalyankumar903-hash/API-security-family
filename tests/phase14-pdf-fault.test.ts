@@ -105,3 +105,28 @@ test("Phase14 actual Chromium OS child death before page and during PDF render, 
   }finally{if(child.exitCode===null)child.kill("SIGKILL");}
  }
 });
+
+test("Phase14 actual Chromium PDF warmup, median/p95, resource and immutable fingerprint benchmark",async()=>{
+ const {performance}=await import("node:perf_hooks");
+ const report=document(),source=report.sourceFingerprint;
+ for(let i=0;i<2;i++)assert.equal((await renderPhase12Pdf(report)).subarray(0,5).toString(),"%PDF-");
+ const before=process.memoryUsage().heapUsed;
+ const samples:number[]=[];
+ for(let i=0;i<7;i++){
+  const start=performance.now();
+  const bytes=await renderPhase12Pdf(report);
+  samples.push(performance.now()-start);
+  assert.equal(bytes.subarray(0,5).toString(),"%PDF-");
+  assert(bytes.byteLength>1000&&bytes.byteLength<4*1024*1024);
+  assert.equal(report.sourceFingerprint,source,"render never mutates report authority");
+ }
+ samples.sort((a,b)=>a-b);
+ const medianMs=Number(samples[3]!.toFixed(3)),p95Ms=Number(samples[6]!.toFixed(3));
+ assert(p95Ms<20000,"actual renderer 20-second safety deadline, not production SLO");
+ console.log("PHASE14_ACTUAL_PDF_BENCHMARK "+JSON.stringify({
+  workload:"actual-private-Chromium-PDF",fixture:"12-operation-authorized-synthetic-report",
+  warmup:2,iterations:7,concurrency:1,errors:0,medianMs,p95Ms,
+  maxMs:p95Ms,heapDeltaBytes:process.memoryUsage().heapUsed-before,
+  runner:"GitHub-hosted Node22 Chromium, no external network",
+  performanceSLO:"NOT_ESTABLISHED",correctnessDeadlineMs:20000}));
+});
