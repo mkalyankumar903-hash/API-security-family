@@ -8,7 +8,7 @@ import {context,makePlan,checkPermit,stopped} from "./orchestrator.js";
 import {planFingerprint} from "../../pt/src/detection.js";
 import {DETECTION_FIXTURE} from "../../pt/src/security-fixture.js";
 import {AUTONOMOUS_VAPT_ENGINE,buildAutonomousVaptPlan,autonomousVaptFingerprint,
- type VaptInput,type VaptPlan,type VaptMode} from "../../pt/src/autonomous-vapt.js";
+ type VaptInput,type VaptPlan} from "../../pt/src/autonomous-vapt.js";
 import type {OrchestrationPlan} from "../../pt/src/orchestrator.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

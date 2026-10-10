@@ -24,7 +24,7 @@ export async function processAutonomousVaptJob(tenant:string,id:string,token:str
    throw new Error("VAPT11_IMMUTABLE_PLAN_INVALID");
   const stop=await tx.query("SELECT enabled FROM api_pt_stop WHERE tenant_id=$1 FOR UPDATE",[tenant]);
   const target=await tx.query("SELECT lifecycle,environment,verification_version,scope_revision FROM api_targets WHERE id=$1 FOR UPDATE",[v.target_id]);
-  let permit:any=null;
+  let permit:{id:string;revoked_at:string|null;expires_at:string}|null=null;
   if(v.pt_assessment_id){
    permit=(await tx.query("SELECT p.id,p.revoked_at,p.expires_at FROM api_pt_jobs j JOIN api_pt_permits p ON p.id=j.permit_id AND p.tenant_id=j.tenant_id WHERE j.assessment_id=$1 FOR UPDATE OF p",[v.pt_assessment_id])).rows[0]??null;
   }
@@ -91,7 +91,10 @@ export async function processAutonomousVaptJob(tenant:string,id:string,token:str
    offlineReport.rawFingerprint!==plan.specFingerprint||
    offlineReport.normalizedFingerprint!==plan.inventoryFingerprint)
    throw new Error("VAPT11_OFFLINE_REPORT_INTEGRITY_INVALID");
-  let ptReport:any=null;
+  let ptReport: {status:string;syntheticOnly:boolean;customerRuntimeVerified:boolean;verifiedFixed:boolean;
+  planFingerprint:string;accounting:{executed:number};coverage:{passed:number;rulesExecuted:number};
+  observations:{ruleId:string;revision:string;fingerprint:string;code:string;impact:string;
+    confidence:string;remediation:string}[]}|null=null;
   if(v.pt_assessment_id){
    ptReport=(await tx.query("SELECT projection FROM api_pt9_reports WHERE assessment_id=$1",[v.pt_assessment_id])).rows[0]?.projection;
    const stageStates=(await tx.query("SELECT stage_id,status FROM api_pt9_stages WHERE assessment_id=$1",[v.pt_assessment_id])).rows;
@@ -112,7 +115,7 @@ export async function processAutonomousVaptJob(tenant:string,id:string,token:str
   }));
   if(offlineFindings.some(x=>!VALID_HEX.test(x.fingerprint)||!x.ruleId.startsWith("API03_")))
    throw new Error("VAPT11_OFFLINE_FINDING_INTEGRITY_INVALID");
-  const ptObs:SyntheticObservation[]=(ptReport?.observations??[]).map((x:any)=>({
+  const ptObs:SyntheticObservation[]=(ptReport?.observations??[]).map(x=>({
    ruleId:x.ruleId,revision:x.revision,fingerprint:x.fingerprint,code:x.code,
    impact:x.impact??getRule(x.ruleId)?.impact??"LOW",
    confidence:x.confidence??"MEDIUM",remediation:x.remediation??getRule(x.ruleId)?.remediation??""
