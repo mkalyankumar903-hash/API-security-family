@@ -658,6 +658,8 @@ jobs:
           sudo apt-get install -y poppler-utils
       - name: Phase12 real Chromium PDF generation, page count, synthetic safety and Unicode checks
         run: node --import tsx --test tests/phase12-pdf-render.test.ts
+      - name: Phase14 real Chromium renderer failure, concurrency, recovery and injection safety
+        run: node --import tsx --test tests/phase14-pdf-fault.test.ts
       - name: Phase12 real Chromium React/Fastify/PostgreSQL customer journeys
         run: npx playwright test tests/browser/phase12.spec.ts
       - name: Create independent api_family_phase13_browser PostgreSQL16 database
