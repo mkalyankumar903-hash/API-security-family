@@ -46,6 +46,7 @@ export async function migrate(): Promise<void> {
   const pt8 = resolve(fileURLToPath(new URL("../migrations/012_phase8_complete_pt_product.sql", import.meta.url)));
   const pt9 = resolve(fileURLToPath(new URL("../migrations/013_phase9_deterministic_orchestrator.sql", import.meta.url)));
   const pt10 = resolve(fileURLToPath(new URL("../migrations/014_phase10_worker_execution_safety.sql", import.meta.url)));
+  const pt11 = resolve(fileURLToPath(new URL("../migrations/015_phase11_complete_autonomous_api_vapt.sql", import.meta.url)));
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -126,6 +127,11 @@ export async function migrate(): Promise<void> {
     if(!phase10.rowCount){
       await owner.query(readFileSync(pt10,"utf8"));
       await owner.query("INSERT INTO api_schema_migrations(version) VALUES('014')");
+    }
+    const phase11=await owner.query("SELECT version FROM api_schema_migrations WHERE version='015'");
+    if(!phase11.rowCount){
+      await owner.query(readFileSync(pt11,"utf8"));
+      await owner.query("INSERT INTO api_schema_migrations(version) VALUES('015')");
     }
     await owner.query("COMMIT");
   } catch(error) {await owner.query("ROLLBACK"); throw error;}
