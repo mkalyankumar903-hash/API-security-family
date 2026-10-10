@@ -71,7 +71,11 @@ export class V13Client{
  }
  private async get<T>(path:string,signal?:AbortSignal):Promise<T>{
   if(signal?.aborted)throw new V13ClientError(0,"ABORTED");
-  const combined=AbortSignal.any([AbortSignal.timeout(this.timeoutMs),...(signal?[signal]:[])]);
+  // Explicit ref-counted timer keeps Node CLI alive even when a custom provider or stream stalls.
+  const deadline=new AbortController();
+  const timer=setTimeout(()=>deadline.abort(),this.timeoutMs);
+  const combined=AbortSignal.any([deadline.signal,...(signal?[signal]:[])]);
+  try{
   let token:string;
   try{token=await this.abortable(Promise.resolve().then(()=>this.config.accessToken()),combined,signal);}
   catch(error){if(error instanceof V13ClientError)throw error;throw new V13ClientError(401,"AUTH_PROVIDER_FAILED");}
@@ -108,6 +112,7 @@ export class V13Client{
     payload.schemaVersion!=="api-family-commercial-v13")
    throw new V13ClientError(response.status,"SCHEMA_VERSION_MISMATCH");
   return payload as T;
+  }finally{clearTimeout(timer);}
  }
  private async backoff(attempt:number,signal:AbortSignal,caller?:AbortSignal):Promise<void>{
   await new Promise<void>((resolve,reject)=>{
