@@ -196,12 +196,18 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
  const started=process.hrtime.bigint();
  try{
   // GitHub-hosted deterministic executable-launch failure, never enabled in production.
-  const fault=process.env.NODE_ENV==="test"&&process.env.SYNTHETIC_AUTH_ENABLED==="true"&&
+  const unavailable=process.env.NODE_ENV==="test"&&process.env.SYNTHETIC_AUTH_ENABLED==="true"&&
     process.env.PHASE14_TEST_PDF_UNAVAILABLE==="true";
-  const browser=await chromium.launch({headless:true,timeout:15000,
-    ...(fault?{executablePath:"/phase14-disposable-ci-nonexistent-chromium"}:{})});
+  const processFault=["before-page","mid-render","render-timeout"].some(phase14ChildFault);
+  // Playwright's Browser does NOT expose a process handle. Only for real
+  // GitHub-hosted fault drills launch a private BrowserServer OS child.
+  const browserServer=processFault?await chromium.launchServer({headless:true,timeout:15000}):null;
+  const browser=browserServer?await chromium.connect(browserServer.wsEndpoint()):
+    await chromium.launch({headless:true,timeout:15000,
+      ...(unavailable?{executablePath:"/phase14-disposable-ci-nonexistent-chromium"}:{})});
   try{
-   if(phase14ChildFault("before-page"))await phase14RendererBarrier("PHASE14_BROWSER_LAUNCHED",browser.process()?.pid);
+   if(phase14ChildFault("before-page"))
+     await phase14RendererBarrier("PHASE14_BROWSER_LAUNCHED",browserServer?.process().pid);
    const context=await browser.newContext({javaScriptEnabled:false,acceptDownloads:false});
    try{
     await context.route("**/*",route=>route.abort("blockedbyclient"));
@@ -215,11 +221,12 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
     // Attach a rejection handler *before* the child can kill the real browser.
     void pending.catch(()=>undefined);
     if(phase14ChildFault("mid-render"))
-     await phase14RendererBarrier("PHASE14_RENDER_IN_FLIGHT",browser.process()?.pid);
+     await phase14RendererBarrier("PHASE14_RENDER_IN_FLIGHT",browserServer?.process().pid);
     let timeout:ReturnType<typeof setTimeout>|undefined;
     const deadline=new Promise<never>((_,reject)=>{
       timeout=setTimeout(()=>{
-        browser.process()?.kill("SIGKILL");
+        if(browserServer)browserServer.process().kill("SIGKILL");
+        else void browser.close().catch(()=>undefined);
         reject(new PtError(503,"PDF_RENDER_TIMEOUT"));
       },phase14ChildFault("render-timeout")?350:20000);
     });
@@ -235,7 +242,10 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
     }finally{if(timeout)clearTimeout(timeout);}
 
    }finally{await context.close();}
-  }finally{await browser.close();}
+  }finally{
+    await browser.close().catch(()=>undefined);
+    if(browserServer)await browserServer.close().catch(()=>undefined);
+  }
  }catch(e){
   emitDiagnostic({kind:"REPORT_RENDER",classification:"INTERNAL",statusCode:503,
     durationMs:Number(process.hrtime.bigint()-started)/1e6});
