@@ -88,6 +88,8 @@ test("Phase11 Chromium: offline-only genuinely executes without permit, no autho
  await panel.getByLabel("Assessment mode").selectOption("OFFLINE_ONLY");
  await panel.getByLabel("Immutable specification").selectOption(sid);
  await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ // The offline admission is asynchronous in React: await server-confirmed progress before private workers run.
+ await expect(panel.getByText("Persisted execution progress")).toBeVisible({timeout:20000});
  expect(await processOneJob()).toBe(true);expect(await processOneJob()).toBe(true);
  await expect(panel.getByText("Immutable composite security report")).toBeVisible({timeout:20000});
  await expect(panel.getByText("OFFLINE_ONLY — runtime testing NOT performed")).toBeVisible();
