@@ -240,6 +240,9 @@ jobs:
       - name: Real Chromium Phase13 tenant-scoped commercial workspace
         if: ${{ !contains(github.event.pull_request.title, '[phase14-p11]') }}
         run: npx playwright test tests/browser/phase13.spec.ts
+      - name: Phase14 Chromium failure, recovery and Host-blocked security
+        if: ${{ !contains(github.event.pull_request.title, '[phase14-p11]') }}
+        run: npx playwright test tests/browser/phase14.spec.ts
 
   historical:
     if: ${{ contains(github.event.pull_request.title, '[phase14-history]') }}
@@ -655,6 +658,8 @@ jobs:
         run: |
           npm run migrate
           npx playwright test tests/browser/phase13.spec.ts
+      - name: Phase14 real Chromium React Fastify PostgreSQL failure and recovery
+        run: npx playwright test tests/browser/phase14.spec.ts
 
 
 
