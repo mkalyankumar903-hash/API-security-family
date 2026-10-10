@@ -55,6 +55,18 @@ export function Phase12Workspace({token,targetId}:{token:string;targetId:string}
     URL.revokeObjectURL(url);
   }).catch(e=>setError(e instanceof Error?e.message:"EXPORT_FAILED"));
  }
+ function pdfExport(){
+  if(!reportId||!token)return;
+  void fetch(BASE+"/v12/reports/"+encodeURIComponent(reportId)+"/export.pdf",{
+   headers:{authorization:"Bearer "+token},cache:"no-store"}).then(async response=>{
+    if(!response.ok)throw new Error("PDF_EXPORT_DENIED");
+    if(!response.headers.get("content-type")?.startsWith("application/pdf"))throw new Error("INVALID_PDF_RESPONSE");
+    const blob=await response.blob();if(blob.size>4*1024*1024)throw new Error("PDF_TOO_LARGE");
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");
+    a.href=url;a.download="lumicsec-api-presentation-"+reportId+".pdf";a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }).catch(e=>setError(e instanceof Error?e.message:"PDF_EXPORT_FAILED"));
+ }
  return <section id="phase12-workspace" aria-labelledby="phase12-heading">
   <h2 id="phase12-heading">Unified API security workspace — Phase 12</h2>
   <p>Read-only evidence and reporting over existing synthetic-only assessment engines. No customer production scanning or verified-fixed authority.</p>
@@ -94,6 +106,7 @@ export function Phase12Workspace({token,targetId}:{token:string;targetId:string}
    </article>)}
    <h4>Limitations</h4><ul>{report.limitations.map((l,i)=><li key={i}>{l}</li>)}</ul>
    <button type="button" onClick={jsonExport}>Download authorized JSON presentation</button>
+   <button type="button" onClick={pdfExport}>Download authorized PDF report</button>
   </div>}
   <h3>Optional read-only AI</h3><p role="status">{aiMode} — no model provider configured or invoked. The assistant cannot start scans or change security evidence.</p>
  </section>;
