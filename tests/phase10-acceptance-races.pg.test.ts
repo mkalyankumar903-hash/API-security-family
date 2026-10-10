@@ -229,6 +229,13 @@ test("Phase10 independent-session 25-case security acceptance rework: exact #7,#
    assert.equal(state.reports+state.ptReports,0);
    const q=await withTenant(TENANT,tx=>tx.query("SELECT count(*)::int AS n FROM api_worker_quarantine WHERE assessment_id=$1",[id]));
    assert.equal(q.rows[0].n,0,"a competing terminal is not retry-exhaustion quarantine");
+   // Terminal-commit race intentionally leaves its old private queue row for
+   // the durable negative assertions above. Remove *only this test fixture*
+   // after proving the terminal fence, so historical fairness tests operate
+   // on their own exactly seven queued tenant-A records.
+   const cleaned=await withWorkerTenant(TENANT,tx=>tx.query(
+    "DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND EXISTS (SELECT 1 FROM api_assessments WHERE id=$1 AND status='FAILED' AND error_code='SYNTHETIC_TERMINAL_RACE') RETURNING assessment_id",[id]));
+   assert.equal(cleaned.rowCount,1,"fixture cleanup only after verified terminal and zero reports");
   });
  }finally{
   await req("POST","/v6/pt/test-authority/resume",{},undefined,true).catch(()=>null);
