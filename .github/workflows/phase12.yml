@@ -87,3 +87,78 @@ jobs:
         run: npm run migrate
       - name: Real tenant authorization, sharing, mutation and concurrency tests
         run: node --import tsx --test --test-concurrency=1 tests/phase12.pg.test.ts
+
+  browser-targeted:
+    if: ${{ contains(github.event.pull_request.title, '[phase12-e2e]') || contains(github.event.pull_request.title, '[phase12-full]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      SYNTHETIC_VERIFICATION_ENABLED: "true"
+      PT_TEST_AUTHORITY_ENABLED: "true"
+      PHASE1_SYNTHETIC_SIGNING_KEY: "LUMICSEC_TEST_ONLY_NEVER_PRODUCTION_phase01_test_fixture_key_2026"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+      WORKER_DATABASE_URL: postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family
+      MIGRATION_DATABASE_URL: postgres://postgres:local_admin_only@127.0.0.1:55432/api_family
+      VITE_API_BASE: http://127.0.0.1:3001
+      VITE_DEV_TOKEN: local-test-token-alpha
+    steps:
+      - name: Ephemeral test-only permit signing authority
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Exact SHA must match PR head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Initialize isolated database roles
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Install frozen dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Fresh migration 001-016
+        run: npm run migrate
+      - name: Assert no inherited test queue, permits or assessments
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM public.api_schema_migrations')" = "16"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM public.api_assessments')" = "0"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')" = "0"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM public.api_pt_permits')" = "0"
+      - name: Build React customer application
+        run: npm run build
+      - name: Install maintained Chromium PDF and browser renderer
+        run: npx playwright install --with-deps chromium
+      - name: Independent Poppler PDF parse tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y poppler-utils
+      - name: Real PDF structure, text, multipage, Unicode and security tests
+        run: node --import tsx --test tests/phase12-pdf-render.test.ts
+      - name: Real React Fastify PostgreSQL Chromium Phase12 customer journeys
+        run: npx playwright test tests/browser/phase12.spec.ts
