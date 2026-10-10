@@ -54,8 +54,19 @@ export async function makeApp(): Promise<FastifyInstance> {
   const identities = setupSyntheticAuthority();
   const app = Fastify({ logger: false, bodyLimit: 1100000, genReqId: () => uuid() });
   const requestStart = new WeakMap<FastifyRequest,bigint>();
-  app.addHook("onRequest",async(req)=>{requestStart.set(req,process.hrtime.bigint());});
+  // Local admission is deliberately NOT scanning authorization or an entitlement.
+  const MAX_HTTP_INFLIGHT=128;
+  let inflight=0;
+  const counted=new WeakSet<FastifyRequest>();
+  const release=(req:FastifyRequest)=>{if(counted.delete(req))inflight--;};
+  app.addHook("onRequest",async(req)=>{
+    requestStart.set(req,process.hrtime.bigint());
+    if(inflight>=MAX_HTTP_INFLIGHT)throw new ApiError(429,"HTTP_INFLIGHT_CAPACITY_EXCEEDED");
+    inflight++;counted.add(req);
+  });
+  app.addHook("onRequestAbort",async(req)=>{release(req);});
   app.addHook("onResponse",async(req,reply)=>{
+    release(req);
     const start=requestStart.get(req);
     const elapsed=start===undefined?undefined:Number(process.hrtime.bigint()-start)/1e6;
     emitDiagnostic({kind:reply.statusCode>=400?"HTTP_REJECTED":"HTTP_COMPLETED",
