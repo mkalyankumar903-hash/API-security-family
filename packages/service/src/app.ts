@@ -86,9 +86,9 @@ export async function makeApp(): Promise<FastifyInstance> {
   app.setErrorHandler((error,req,reply) => {
     const e = error as Error & { statusCode?:number; code?:string };
     const known=e instanceof ApiError||e instanceof OnboardingError||e instanceof TargetInputError||e instanceof ImportError||e instanceof DetectionError||e instanceof AuthFixtureError||e instanceof UnifiedError||e instanceof PtError;
-    const status = known ? (e instanceof TargetInputError?400:(e as ApiError|OnboardingError|ImportError).statusCode) : e.statusCode === 413 ? 413 : e.code === "23505" ? 409 : e.code === "PT001" ? 429 : 500;
+    const status = known ? (e instanceof TargetInputError?400:(e as ApiError|OnboardingError|ImportError).statusCode) : e.statusCode === 413 ? 413 : e.statusCode === 415 ? 415 : e.statusCode === 400 ? 400 : e.code === "23505" ? 409 : e.code === "PT001" ? 429 : 500;
     req.log.error({requestId:req.id,code:status},"request failed");
-    reply.code(status).send({ error: known ? (e instanceof TargetInputError?e.reason:(e as ApiError|OnboardingError|ImportError).code) : status === 413 ? "BODY_TOO_LARGE" : status === 409 ? "CONFLICT" : status === 429 ? "QUEUE_TENANT_CAPACITY_EXCEEDED" : "INTERNAL_ERROR", requestId:req.id });
+    reply.code(status).send({ error: known ? (e instanceof TargetInputError?e.reason:(e as ApiError|OnboardingError|ImportError).code) : status === 413 ? "BODY_TOO_LARGE" : status === 415 ? "UNSUPPORTED_CONTENT_TYPE" : status === 400 ? "INVALID_REQUEST_BODY" : status === 409 ? "CONFLICT" : status === 429 ? "QUEUE_TENANT_CAPACITY_EXCEEDED" : "INTERNAL_ERROR", requestId:req.id });
   });
   app.get("/health/live",async()=> ({ok:true,service:"api-family",scope:"SPEC_ONLY"}));
   app.post("/v1/targets", async (req,reply) => {
