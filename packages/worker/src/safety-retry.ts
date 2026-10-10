@@ -16,6 +16,23 @@ export async function scheduleConservativeRetry(claim:WorkerClaim,error:unknown)
  if(classifyWorkerFailure(error)!=="TRANSIENT_PRE_EXECUTION")return "NOT_RETRYABLE";
  const code=(error as {code:string}).code;
  return withWorkerTenant(claim.tenant_id,async tx=>{
+  // Match canonical renewal authority lock order: stop -> job/permit/target
+  // -> private queue -> assessment. A concurrent revocation, emergency stop,
+  // or deadline transition must serialize before retry eligibility is decided.
+  const stop=await tx.query("SELECT enabled FROM api_pt_stop WHERE tenant_id=$1 FOR UPDATE",[claim.tenant_id]);
+  if(stop.rows[0]?.enabled===true)return "NOT_RETRYABLE";
+  const authority=await tx.query(`SELECT j.job_deadline,p.expires_at,p.revoked_at,
+   t.lifecycle,t.environment,(t.scope_revision=s.target_scope_revision AND
+    t.verification_version=s.target_verification_version) AS scope_ok
+   FROM api_pt_jobs j JOIN api_pt_permits p ON p.id=j.permit_id AND p.tenant_id=j.tenant_id
+   JOIN api_pt_scopes s ON s.id=j.scope_id AND s.tenant_id=j.tenant_id
+   JOIN api_targets t ON t.id=j.target_id AND t.tenant_id=j.tenant_id
+   WHERE j.assessment_id=$1 FOR UPDATE OF j,p,t`,[claim.assessment_id]);
+  if(authority.rowCount){
+   const a=authority.rows[0];
+   const ok=await tx.query("SELECT $1::timestamptz>clock_timestamp() AND $2::timestamptz>clock_timestamp() AS valid",[a.job_deadline,a.expires_at]);
+   if(a.revoked_at||a.lifecycle!=="ACTIVE"||a.environment!=="SYNTHETIC"||!a.scope_ok||!ok.rows[0].valid)return "NOT_RETRYABLE";
+  }
   const q=await tx.query("SELECT claim_token,claim_generation,locked_until>clock_timestamp() AS lease_valid,retry_count FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[claim.assessment_id]);
   if(q.rows[0]?.claim_token!==claim.claim_token||Number(q.rows[0]?.claim_generation)!==claim.claim_generation||
    q.rows[0]?.lease_valid!==true)return "STALE";
@@ -27,20 +44,6 @@ export async function scheduleConservativeRetry(claim:WorkerClaim,error:unknown)
    EXISTS(SELECT 1 FROM api_pt_detection_evaluations WHERE assessment_id=$1) OR
    EXISTS(SELECT 1 FROM api_pt9_stages WHERE assessment_id=$1 AND status <> 'PENDING') AS unsafe`,[claim.assessment_id]);
   if(unsafe.rows[0]?.unsafe)return "NOT_RETRYABLE";
-  const authority=await tx.query(`SELECT j.job_deadline,p.expires_at,p.revoked_at,
-   t.lifecycle,t.environment,(t.scope_revision=s.target_scope_revision AND
-    t.verification_version=s.target_verification_version) AS scope_ok,
-   COALESCE(st.enabled,false) AS stopped
-   FROM api_pt_jobs j JOIN api_pt_permits p ON p.id=j.permit_id
-   JOIN api_pt_scopes s ON s.id=j.scope_id
-   JOIN api_targets t ON t.id=j.target_id
-   LEFT JOIN api_pt_stop st ON st.tenant_id=j.tenant_id
-   WHERE j.assessment_id=$1`,[claim.assessment_id]);
-  if(authority.rowCount){
-   const a=authority.rows[0];
-   const ok=await tx.query("SELECT $1::timestamptz>clock_timestamp() AND $2::timestamptz>clock_timestamp() AS valid",[a.job_deadline,a.expires_at]);
-   if(a.revoked_at||a.stopped||a.lifecycle!=="ACTIVE"||a.environment!=="SYNTHETIC"||!a.scope_ok||!ok.rows[0].valid)return "NOT_RETRYABLE";
-  }
   const count=Number(q.rows[0].retry_count);
   if(count>=3){
    await tx.query("UPDATE api_assessments SET status='FAILED',error_code='WORKER_RETRY_EXHAUSTED',completed_at=clock_timestamp() WHERE id=$1 AND status='PROCESSING'",[claim.assessment_id]);
