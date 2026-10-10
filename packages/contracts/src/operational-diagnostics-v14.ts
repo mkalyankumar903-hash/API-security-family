@@ -1,14 +1,22 @@
 /** Phase14: allowlisted, bounded synthetic diagnostics. No arbitrary Error or payload serialization. */
-export type DiagnosticKind="HTTP_REJECTED"|"HTTP_COMPLETED"|"ASSESSMENT_ADMISSION"|"QUEUE_CLAIM"|"LEASE_RENEWAL"|"WORKER_RETRY"|"WORKER_TERMINAL"|"DB_CONTENTION"|"RESOURCE_REJECTED"|"REPORT_RENDER"|"METER_SETTLEMENT"|"QA_DELIVERY";
+export type DiagnosticKind="HTTP_REJECTED"|"HTTP_COMPLETED"|"ASSESSMENT_ADMISSION"|"QUEUE_CLAIM"|"LEASE_RENEWAL"|"WORKER_RETRY"|"WORKER_TERMINAL"|"DB_CONTENTION"|"RESOURCE_REJECTED"|"REPORT_RENDER"|"REPORT_FINALIZED"|"METER_RESERVATION"|"METER_SETTLEMENT"|"METER_EXPIRY"|"METER_CORRECTION"|"METER_RECONCILIATION"|"METER_ENTITLEMENT"|"ASSESSMENT_TRANSITION"|"WORKER_SHUTDOWN"|"QA_DELIVERY";
 export type DiagnosticClass="AUTH"|"VALIDATION"|"CAPACITY"|"TIMEOUT"|"CONFLICT"|"INTERNAL"|"OK"|"STALE"|"RETRY"|"EXHAUSTED";
 export type DiagnosticInput={
  kind:DiagnosticKind;classification:DiagnosticClass;statusCode:number;durationMs?:number;
- requestId?:unknown;attempt?:number;queueWaitMs?:number;
+ requestId?:unknown;attempt?:number;queueWaitMs?:number;feature?:unknown;state?:unknown;
 };
 const safeId=/^[a-f0-9-]{1,64}$/i;
+const FEATURES=new Set(["IMMUTABLE_REPORT_OBSERVED","OFFLINE_API_ASSESSMENT_COMPLETED",
+ "SIGNED_GOVERNED_PT_CONSUMED"]);
+const STATES=new Set(["RESERVED","SETTLED","EXPIRED","RELEASED","RETRY","DEAD_LETTER",
+ "CLAIMED","ACKED","MATCHED","MISMATCH","PENDING_EXTERNAL_AUTHORITY",
+ "COMPLETED","FAILED","CANCELLED","LOST","QUARANTINED","ISSUED","REVOKED",
+ "PENDING","STALE"]);
 const KINDS=new Set<DiagnosticKind>(["HTTP_REJECTED","HTTP_COMPLETED","ASSESSMENT_ADMISSION",
  "QUEUE_CLAIM","LEASE_RENEWAL","WORKER_RETRY","WORKER_TERMINAL","DB_CONTENTION",
- "RESOURCE_REJECTED","REPORT_RENDER","METER_SETTLEMENT","QA_DELIVERY"]);
+ "RESOURCE_REJECTED","REPORT_RENDER","REPORT_FINALIZED","METER_RESERVATION","METER_SETTLEMENT",
+ "METER_EXPIRY","METER_CORRECTION","METER_RECONCILIATION","METER_ENTITLEMENT",
+ "ASSESSMENT_TRANSITION","WORKER_SHUTDOWN","QA_DELIVERY"]);
 const CLASSES=new Set<DiagnosticClass>(["AUTH","VALIDATION","CAPACITY","TIMEOUT","CONFLICT",
  "INTERNAL","OK","STALE","RETRY","EXHAUSTED"]);
 function bounded(value:unknown,max:number):number|null {
@@ -25,7 +33,9 @@ export function makeDiagnostic(input:DiagnosticInput){
   requestId:typeof input.requestId==="string"&&safeId.test(input.requestId)?input.requestId:null,
   durationMs:bounded(input.durationMs,3600000),
   attempt:bounded(input.attempt,100),
-  queueWaitMs:bounded(input.queueWaitMs,3600000)
+  queueWaitMs:bounded(input.queueWaitMs,3600000),
+  feature:typeof input.feature==="string"&&FEATURES.has(input.feature)?input.feature:null,
+  state:typeof input.state==="string"&&STATES.has(input.state)?input.state:null
  };
 }
 /** Local/CI output only. Never enable telemetry or a privileged read endpoint. */
