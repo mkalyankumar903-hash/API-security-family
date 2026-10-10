@@ -18,7 +18,7 @@ function latest(name,major){
 }
 const versions={fastify:latest("fastify",5),yaml:latest("yaml",2),ajv:latest("ajv",8)};
 for(const [name,version] of Object.entries(versions))pkg.dependencies[name]=version;
-writeFileSync("package.json",JSON.stringify(pkg,null,2)+"\\n");
+writeFileSync("package.json",JSON.stringify(pkg,null,2)+String.fromCharCode(10));
 const install=spawnSync("npm",["install","--package-lock-only","--ignore-scripts","--no-audit","--no-fund"],{
  encoding:"utf8",timeout:120000,maxBuffer:8*1024*1024});
 if(install.error||install.status!==0)throw Error("LOCK_REGEN_INSTALL_FAILED_"+String(install.status)+"_"+(install.stderr??"").slice(0,500));
