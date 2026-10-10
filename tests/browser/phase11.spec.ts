@@ -51,6 +51,40 @@ async function open(page:import("@playwright/test").Page,tid:string){
  await expect(panel.getByText("NO CUSTOMER VULNERABILITY IS CONFIRMED BY SYNTHETIC FIXTURES")).toBeVisible();
  return panel;
 }
+/** One visible heading is static UI chrome, NOT proof of completed PostgreSQL admission.
+ * Verify both the committed history identity and its authoritative parent+child status. */
+async function admitted(request:APIRequestContext,tid:string,mode:"OFFLINE_ONLY"|"GOVERNED_SYNTHETIC"){
+ await expect.poll(async()=>{
+  const h=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
+  if(h.status()!==200)return 0;
+  const rows=await h.json() as {id:string;mode:string}[];
+  return rows.filter(x=>x.mode===mode).length;
+ },{timeout:20000,message:"Phase11 committed PostgreSQL parent admission"}).toBe(1);
+ const r=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
+ expect(r.status()).toBe(200);
+ const rows=await r.json() as {id:string;mode:string}[];
+ const id=rows.find(x=>x.mode===mode)?.id;
+ expect(id).toBeTruthy();
+ const state=await request.get(API+"/v11/api-vapt/assessments/"+id,{headers:auth});
+ expect(state.status()).toBe(200);
+ const v=await state.json() as {id:string;status:string;children:{engine_version:string;status:string}[]};
+ expect(v.id).toBe(id);
+ expect(v.status).toBe("QUEUED");
+ expect(v.children.length).toBe(mode==="OFFLINE_ONLY"?1:2);
+ expect(v.children.every(x=>x.status==="QUEUED")).toBe(true);
+ return id!;
+}
+async function actualProgress(request:APIRequestContext,id:string,expected:{parent:string;offline:string;pt?:string}){
+ const r=await request.get(API+"/v11/api-vapt/assessments/"+id,{headers:auth});
+ expect(r.status(),await r.text()).toBe(200);
+ const v=await r.json() as {status:string;children:{engine_version:string;status:string}[]};
+ expect(v.status).toBe(expected.parent);
+ const offline=v.children.find(x=>x.engine_version.startsWith("inventory-"));
+ expect(offline?.status).toBe(expected.offline);
+ if(expected.pt){
+  expect(v.children.find(x=>x.engine_version==="pt-orchestrator-v1")?.status).toBe(expected.pt);
+ }
+}
 test("Phase11 Chromium: one-click real offline→governed PT→unified findings/report/JSON, no customer network",async({page,request})=>{
  test.setTimeout(150000);
  const outside:string[]=[];page.on("request",r=>{if(r.url().includes(".fixture.invalid"))outside.push(r.url());});
@@ -60,14 +94,15 @@ test("Phase11 Chromium: one-click real offline→governed PT→unified findings/
  await expect(panel.getByText("Planned evaluations: 14",{exact:false})).toBeVisible({timeout:20000});
  await expect(panel.getByText("Permit readiness: VALID",{exact:false})).toBeVisible();
  await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
- await expect(panel.getByText("Persisted execution progress")).toBeVisible();
- const h=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
- expect(h.status()).toBe(200);
- const id=(await h.json() as {id:string}[])[0]!.id;
+ const id=await admitted(request,tid,"GOVERNED_SYNTHETIC");
+ await expect(panel.getByText("Parent: QUEUED",{exact:false})).toBeVisible({timeout:20000});
  expect(await processOneJob()).toBe(true);
+ await actualProgress(request,id,{parent:"QUEUED",offline:"COMPLETED",pt:"QUEUED"});
  await expect(panel.getByText("inventory-v2: COMPLETED",{exact:false})).toBeVisible({timeout:20000});
  expect(await processOneJob()).toBe(true);
+ await actualProgress(request,id,{parent:"QUEUED",offline:"COMPLETED",pt:"COMPLETED"});
  expect(await processOneJob()).toBe(true);
+ await actualProgress(request,id,{parent:"COMPLETED",offline:"COMPLETED",pt:"COMPLETED"});
  await expect(panel.getByText("Immutable composite security report")).toBeVisible({timeout:20000});
  await expect(panel.getByText("PT rules 8/8",{exact:false})).toBeVisible();
  await expect(panel.getByText("evaluations 14/14",{exact:false})).toBeVisible();
@@ -88,13 +123,14 @@ test("Phase11 Chromium: offline-only genuinely executes without permit, no autho
  await panel.getByLabel("Assessment mode").selectOption("OFFLINE_ONLY");
  await panel.getByLabel("Immutable specification").selectOption(sid);
  await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
- // The offline admission is asynchronous in React: await server-confirmed progress before private workers run.
- await expect(panel.getByText("Persisted execution progress")).toBeVisible({timeout:20000});
- expect(await processOneJob()).toBe(true);expect(await processOneJob()).toBe(true);
+ const id=await admitted(request,tid,"OFFLINE_ONLY");
+ await expect(panel.getByText("Parent: QUEUED",{exact:false})).toBeVisible({timeout:20000});
+ expect(await processOneJob()).toBe(true);
+ await actualProgress(request,id,{parent:"QUEUED",offline:"COMPLETED"});
+ expect(await processOneJob()).toBe(true);
+ await actualProgress(request,id,{parent:"COMPLETED",offline:"COMPLETED"});
  await expect(panel.getByText("Immutable composite security report")).toBeVisible({timeout:20000});
  await expect(panel.getByText("OFFLINE_ONLY — runtime testing NOT performed")).toBeVisible();
- const h=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
- const id=(await h.json() as {id:string}[])[0]!.id;
  const report=await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth});
  expect(report.status()).toBe(200);
  expect((await report.json() as {coverage:{ptEvaluationsExecuted:number}}).coverage.ptEvaluationsExecuted).toBe(0);
