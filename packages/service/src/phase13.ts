@@ -116,9 +116,12 @@ async function qualifiedSource(tx:PoolClient,reportId:string,feature:Feature){
    "(SELECT count(*)::int FROM public.api_pt_receipts rec WHERE rec.assessment_id=$1 AND rec.permit_hash=$2 AND rec.decision='ALLOWED') AS authorized_receipts",
    [String(v.pt_assessment_id),String(v.permit_hash)]);
   if(signed.permitId===undefined||signed.scopeId!==v.stored_permit_scope_id||
-     signed.tenantId!==String((await tx.query("SELECT current_setting('api.tenant_id') AS id")).rows[0].id)||
-     Number(lineage.rows[0]?.unfinished)!==0||Number(lineage.rows[0]?.authorized_receipts)<1)
-    fail("SIGNED_GOVERNED_PT_EVIDENCE_MISSING");
+     signed.tenantId!==String((await tx.query("SELECT current_setting('api.tenant_id') AS id")).rows[0].id))
+    throw new Error("SIGNED_PT_SCOPE_OR_TENANT_PROVENANCE_MISMATCH");
+  if(Number(lineage.rows[0]?.unfinished)!==0)
+    throw new Error("SIGNED_PT_STAGES_NOT_COMPLETED");
+  if(Number(lineage.rows[0]?.authorized_receipts)<1)
+    throw new Error("SIGNED_PT_AUTHORIZED_RECEIPT_NOT_FOUND");
  }catch(error){
   // Reveal only a bounded code to isolated CI, never raw signed bodies, keys or claims.
   if(process.env.NODE_ENV==="test"&&process.env.SYNTHETIC_AUTH_ENABLED==="true"){
