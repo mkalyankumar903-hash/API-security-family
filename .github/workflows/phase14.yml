@@ -128,6 +128,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase13.pg.test.ts
       - name: Phase13 real PostgreSQL separate-principal QA privilege denial and FORCE RLS
         run: node --import tsx --test --test-concurrency=1 tests/phase13-qa-isolation.pg.test.ts
+      - name: Phase14 PostgreSQL16 transaction, deadlock, tenant isolation and recovery
+        run: node --import tsx --test --test-concurrency=1 tests/phase14.pg.test.ts
       - name: Populated Phase12 016-to-017-to-018-to-019 immutable preservation
         run: node --import tsx --test --test-concurrency=1 tests/phase13-upgrade.pg.test.ts
       - name: Separate PostgreSQL16 database for actual child-process SIGKILL recovery
@@ -514,6 +516,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase13.pg.test.ts
       - name: Phase13 real PostgreSQL separate-principal QA privilege denial and FORCE RLS
         run: node --import tsx --test --test-concurrency=1 tests/phase13-qa-isolation.pg.test.ts
+      - name: Phase14 PostgreSQL16 transaction, deadlock, tenant isolation and recovery
+        run: node --import tsx --test --test-concurrency=1 tests/phase14.pg.test.ts
       - name: Populated Phase12 016-to-017-to-018-to-019 immutable preservation
         run: node --import tsx --test --test-concurrency=1 tests/phase13-upgrade.pg.test.ts
       - name: Separate PostgreSQL16 database for actual child-process SIGKILL recovery
