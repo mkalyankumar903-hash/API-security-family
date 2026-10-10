@@ -1,6 +1,6 @@
 /** Phase12 presentation facade: no execution, queue, governor or permit imports. */
 import type {FastifyInstance,FastifyRequest} from "fastify";
-import {withTenant} from "../../database/src/index.js";
+import {withTenant,uuid} from "../../database/src/index.js";
 import {planFingerprint} from "../../pt/src/detection.js";
 import {PtError} from "./pt.js";
 
@@ -67,15 +67,18 @@ const page=(q:Record<string,unknown>)=>{
   throw new PtError(400,"INVALID_FILTER");
  return {limit,offset,status};
 };
-async function stored(tenant:string,reportId:string){
+async function stored(tenant:string,reportId:string,action:"PRESENTATION_VIEWED"|"JSON_EXPORTED"){
  return withTenant(tenant,async tx=>{
   const r=await tx.query(
    "SELECT r.id,r.parent_assessment_id,r.fingerprint,r.created_at,r.projection "+
    "FROM public.api_vapt11_reports r WHERE r.parent_assessment_id=$1 LIMIT 1",[reportId]);
   if(!r.rowCount)throw new PtError(404,"REPORT_NOT_FOUND_OR_NOT_READY");
   const x=r.rows[0];
-  return presentVaptReport(x.projection,{id:x.id,assessmentId:x.parent_assessment_id,
+  const projection=presentVaptReport(x.projection,{id:x.id,assessmentId:x.parent_assessment_id,
    fingerprint:x.fingerprint,createdAt:x.created_at instanceof Date?x.created_at.toISOString():String(x.created_at)});
+  if(Buffer.byteLength(JSON.stringify(projection),"utf8")>1024*1024)throw new PtError(413,"REPORT_PRESENTATION_LIMIT");
+  await tx.query("INSERT INTO api_v12_report_audit(id,tenant_id,parent_assessment_id,action) VALUES($1,$2,$3,$4)",[uuid(),tenant,reportId,action]);
+  return projection;
  });
 }
 export function registerPhase12Routes(app:FastifyInstance,identity:(req:FastifyRequest)=>string){
@@ -113,11 +116,11 @@ export function registerPhase12Routes(app:FastifyInstance,identity:(req:FastifyR
  });
  app.get("/v12/reports/:id/presentation",async req=>{
   const reportId=id((req.params as Record<string,unknown>).id);
-  return stored(identity(req),reportId);
+  return stored(identity(req),reportId,"PRESENTATION_VIEWED");
  });
  app.get("/v12/reports/:id/export.json",async(req,reply)=>{
   const reportId=id((req.params as Record<string,unknown>).id);
-  const report=await stored(identity(req),reportId);
+  const report=await stored(identity(req),reportId,"JSON_EXPORTED");
   const json=JSON.stringify({...report,export:{schemaVersion:"phase12-json-export-v1",sourceFingerprint:report.sourceFingerprint}});
   if(Buffer.byteLength(json,"utf8")>1024*1024)throw new PtError(413,"REPORT_EXPORT_LIMIT");
   reply.header("Cache-Control","no-store").header("X-Content-Type-Options","nosniff")

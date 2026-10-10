@@ -50,7 +50,7 @@ function setupSyntheticAuthority(): Map<string,string> {
 export async function makeApp(): Promise<FastifyInstance> {
   const identities = setupSyntheticAuthority();
   const app = Fastify({ logger: false, bodyLimit: 1100000, genReqId: () => uuid() });
-  await app.register(cors, { origin:["http://127.0.0.1:5173","http://localhost:5173"], allowedHeaders: ["authorization","content-type","idempotency-key"], methods: ["GET","POST","PATCH","DELETE","OPTIONS"] });
+  await app.register(cors, { origin:["http://127.0.0.1:5173","http://localhost:5173"], allowedHeaders: ["authorization","content-type","idempotency-key"], methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"] });
   app.addHook("preHandler", async (req) => {
     if (req.url === "/health/live") return;
     const authorization = req.headers.authorization;
