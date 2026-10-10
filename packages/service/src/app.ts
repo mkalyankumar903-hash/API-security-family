@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
+import {emitDiagnostic,classifyHttp} from "./diagnostics-v14.js";
 import { parseAndValidateSpec } from "../../assessment-engine/src/index.js";
 import { withTenant, uuid } from "../../database/src/index.js";
 import { validatePlan } from "../../contracts/src/policy.js";
@@ -52,8 +53,17 @@ function setupSyntheticAuthority(): Map<string,string> {
 export async function makeApp(): Promise<FastifyInstance> {
   const identities = setupSyntheticAuthority();
   const app = Fastify({ logger: false, bodyLimit: 1100000, genReqId: () => uuid() });
+  const requestStart = new WeakMap<FastifyRequest,bigint>();
+  app.addHook("onRequest",async(req)=>{requestStart.set(req,process.hrtime.bigint());});
+  app.addHook("onResponse",async(req,reply)=>{
+    const start=requestStart.get(req);
+    const elapsed=start===undefined?undefined:Number(process.hrtime.bigint()-start)/1e6;
+    emitDiagnostic({kind:reply.statusCode>=400?"HTTP_REJECTED":"HTTP_COMPLETED",
+      classification:classifyHttp(reply.statusCode),statusCode:reply.statusCode,
+      durationMs:elapsed,requestId:req.id});
+  });
   await app.register(cors, { origin:["http://127.0.0.1:5173","http://localhost:5173"], allowedHeaders: ["authorization","content-type","idempotency-key"], methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"] });
-  app.addHook("onSend",async (req,reply,payload)=>{if(req.method==="GET")reply.header("Cache-Control","no-store").header("Pragma","no-cache");return payload;});
+  app.addHook("onSend",async (_req,reply,payload)=>{reply.header("Cache-Control","no-store").header("Pragma","no-cache").header("X-Content-Type-Options","nosniff").header("Referrer-Policy","no-referrer").header("X-Frame-Options","DENY");return payload;});
   app.addHook("preHandler", async (req) => {
     if (req.url === "/health/live") return;
     const authorization = req.headers.authorization;
