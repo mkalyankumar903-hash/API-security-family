@@ -91,9 +91,21 @@ jobs:
         env:
           PGPASSWORD: local_admin_only
         run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Provision isolated Phase13 QA login with masked ephemeral CI password
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          QA_PASS="$(openssl rand -hex 32)"
+          echo "::add-mask::$QA_PASS"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -v "qa_password=$QA_PASS" <<'SQL'
+          ALTER ROLE api_family_qa_ci PASSWORD :'qa_password';
+          SQL
+          echo "PHASE13_QA_DB_PASSWORD=$QA_PASS" >> "$GITHUB_ENV"
       - name: Frozen dependencies
         run: npm ci --no-audit --no-fund
-      - name: Migrate fresh PostgreSQL schema through 018
+      - name: Migrate fresh PostgreSQL schema through 019
         run: npm run migrate
       - name: Real tenant authorization, sharing, mutation and concurrency tests
         run: node --import tsx --test --test-concurrency=1 tests/phase12.pg.test.ts
@@ -106,15 +118,17 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase13_pg_targeted;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_pg_targeted -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_pg_targeted TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_pg_targeted -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_pg_targeted TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase13_pg_targeted" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase13_pg_targeted" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase13_pg_targeted" >> "$GITHUB_ENV"
-      - name: Fresh migration 018 and strict tenant/worker grants
+      - name: Fresh migration 019 and strict tenant/worker grants
         run: npm run migrate
       - name: Phase13 real PostgreSQL signed events, concurrent quota contention, usage and RLS
         run: node --import tsx --test --test-concurrency=1 tests/phase13.pg.test.ts
-      - name: Populated Phase12 016-to-017-to-018 immutable preservation
+      - name: Phase13 real PostgreSQL separate-principal QA privilege denial and FORCE RLS
+        run: node --import tsx --test --test-concurrency=1 tests/phase13-qa-isolation.pg.test.ts
+      - name: Populated Phase12 016-to-017-to-018-to-019 immutable preservation
         run: node --import tsx --test --test-concurrency=1 tests/phase13-upgrade.pg.test.ts
       - name: Separate PostgreSQL16 database for actual child-process SIGKILL recovery
         shell: bash
@@ -123,7 +137,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase13_crash_targeted;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_crash_targeted -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_crash_targeted TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_crash_targeted -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_crash_targeted TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase13_crash_targeted" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase13_crash_targeted" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase13_crash_targeted" >> "$GITHUB_ENV"
@@ -181,15 +195,27 @@ jobs:
         env:
           PGPASSWORD: local_admin_only
         run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Provision isolated Phase13 QA login with masked ephemeral CI password
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          QA_PASS="$(openssl rand -hex 32)"
+          echo "::add-mask::$QA_PASS"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -v "qa_password=$QA_PASS" <<'SQL'
+          ALTER ROLE api_family_qa_ci PASSWORD :'qa_password';
+          SQL
+          echo "PHASE13_QA_DB_PASSWORD=$QA_PASS" >> "$GITHUB_ENV"
       - name: Install frozen dependencies
         run: npm ci --no-audit --no-fund
-      - name: Fresh migration 001-018
+      - name: Fresh migration 001-019
         run: npm run migrate
       - name: Assert no inherited test queue, permits or assessments
         env:
           PGPASSWORD: local_admin_only
         run: |
-          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM public.api_schema_migrations')" = "18"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM public.api_schema_migrations')" = "19"
           test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM public.api_assessments')" = "0"
           test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')" = "0"
           test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM public.api_pt_permits')" = "0"
@@ -264,6 +290,18 @@ jobs:
         env:
           PGPASSWORD: local_admin_only
         run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Provision isolated Phase13 QA login with masked ephemeral CI password
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          QA_PASS="$(openssl rand -hex 32)"
+          echo "::add-mask::$QA_PASS"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -v "qa_password=$QA_PASS" <<'SQL'
+          ALTER ROLE api_family_qa_ci PASSWORD :'qa_password';
+          SQL
+          echo "PHASE13_QA_DB_PASSWORD=$QA_PASS" >> "$GITHUB_ENV"
       - name: Frozen dependencies
         run: npm ci --no-audit --no-fund
       - name: ESLint
@@ -282,7 +320,7 @@ jobs:
           node --input-type=module -e "import fs from 'node:fs'; const a=JSON.parse(fs.readFileSync('/tmp/phase13-sdk-contents.json','utf8'))[0].files.map(f=>f.path);if(!a.includes('dist/v13.js')||!a.includes('dist/v13.d.ts')||!a.includes('README.md'))throw Error('SDK_PACKAGE_MISSING_BUILD_ASSETS');if(a.some(f=>f.endsWith('.env')||f.includes('secret')))throw Error('SDK_PACKAGE_FORBIDDEN_ASSET')"
       - name: Full unit, contract and security negative suite
         run: npm test
-      - name: Real PostgreSQL 001-018 plus historical upgrade, worker and isolation
+      - name: Real PostgreSQL 001-019 plus historical upgrade, worker and isolation
         run: npm run test:pg
       # The preceding exhaustive PostgreSQL race/recovery suite deliberately
       # preserves pending jobs, consumed permits and tenant stop state.
@@ -295,7 +333,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_browser;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_browser TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
@@ -309,7 +347,7 @@ jobs:
           versions="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM public.api_schema_migrations')"
           assessments="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM public.api_assessments')"
           queued="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')"
-          test "$versions" = "18"
+          test "$versions" = "19"
           test "$assessments" = "0"
           test "$queued" = "0"
           echo "Chromium isolated PG16: 18 migrations; zero assessments; zero private queue records."
@@ -333,7 +371,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase11_browser;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase11_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase11_browser TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
@@ -348,7 +386,7 @@ jobs:
           assessments="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM public.api_assessments')"
           queue="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')"
           permits="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM public.api_pt_permits')"
-          test "$versions" = "18"
+          test "$versions" = "19"
           test "$assessments" = "0"
           test "$queue" = "0"
           test "$permits" = "0"
@@ -408,6 +446,18 @@ jobs:
         env:
           PGPASSWORD: local_admin_only
         run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Provision isolated Phase13 QA login with masked ephemeral CI password
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          QA_PASS="$(openssl rand -hex 32)"
+          echo "::add-mask::$QA_PASS"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -v "qa_password=$QA_PASS" <<'SQL'
+          ALTER ROLE api_family_qa_ci PASSWORD :'qa_password';
+          SQL
+          echo "PHASE13_QA_DB_PASSWORD=$QA_PASS" >> "$GITHUB_ENV"
       - name: Frozen dependencies
         run: npm ci --no-audit --no-fund
       - name: ESLint
@@ -426,7 +476,7 @@ jobs:
           node --input-type=module -e "import fs from 'node:fs'; const a=JSON.parse(fs.readFileSync('/tmp/phase13-sdk-contents.json','utf8'))[0].files.map(f=>f.path);if(!a.includes('dist/v13.js')||!a.includes('dist/v13.d.ts')||!a.includes('README.md'))throw Error('SDK_PACKAGE_MISSING_BUILD_ASSETS');if(a.some(f=>f.endsWith('.env')||f.includes('secret')))throw Error('SDK_PACKAGE_FORBIDDEN_ASSET')"
       - name: Full unit, contract and security negative suite
         run: npm test
-      - name: Real PostgreSQL 001-018 plus historical upgrade, worker and isolation
+      - name: Real PostgreSQL 001-019 plus historical upgrade, worker and isolation
         run: npm run test:pg
       - name: Create independent Phase12 PostgreSQL qualification database
         shell: bash
@@ -435,7 +485,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase12_pg;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_pg -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase12_pg TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_pg -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase12_pg TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase12_pg" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase12_pg" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase12_pg" >> "$GITHUB_ENV"
@@ -452,15 +502,17 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase13_pg_full;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_pg_full -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_pg_full TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_pg_full -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_pg_full TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase13_pg_full" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase13_pg_full" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase13_pg_full" >> "$GITHUB_ENV"
-      - name: Fresh migration 018 and strict tenant/worker grants
+      - name: Fresh migration 019 and strict tenant/worker grants
         run: npm run migrate
       - name: Phase13 real PostgreSQL signed events, concurrent quota contention, usage and RLS
         run: node --import tsx --test --test-concurrency=1 tests/phase13.pg.test.ts
-      - name: Populated Phase12 016-to-017-to-018 immutable preservation
+      - name: Phase13 real PostgreSQL separate-principal QA privilege denial and FORCE RLS
+        run: node --import tsx --test --test-concurrency=1 tests/phase13-qa-isolation.pg.test.ts
+      - name: Populated Phase12 016-to-017-to-018-to-019 immutable preservation
         run: node --import tsx --test --test-concurrency=1 tests/phase13-upgrade.pg.test.ts
       - name: Separate PostgreSQL16 database for actual child-process SIGKILL recovery
         shell: bash
@@ -469,7 +521,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase13_crash_full;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_crash_full -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_crash_full TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_crash_full -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_crash_full TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase13_crash_full" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase13_crash_full" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase13_crash_full" >> "$GITHUB_ENV"
@@ -487,7 +539,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_browser;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_browser TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
@@ -501,7 +553,7 @@ jobs:
           versions="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM public.api_schema_migrations')"
           assessments="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM public.api_assessments')"
           queued="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')"
-          test "$versions" = "18"
+          test "$versions" = "19"
           test "$assessments" = "0"
           test "$queued" = "0"
           echo "Chromium isolated PG16: 18 migrations; zero assessments; zero private queue records."
@@ -525,7 +577,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase11_browser;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase11_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase11_browser TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
@@ -540,7 +592,7 @@ jobs:
           assessments="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM public.api_assessments')"
           queue="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')"
           permits="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM public.api_pt_permits')"
-          test "$versions" = "18"
+          test "$versions" = "19"
           test "$assessments" = "0"
           test "$queue" = "0"
           test "$permits" = "0"
@@ -554,7 +606,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase12_browser;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase12_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase12_browser TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase12_browser" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase12_browser" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase12_browser" >> "$GITHUB_ENV"
@@ -565,7 +617,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run migrate
-          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -Atc 'SELECT count(*) FROM public.api_schema_migrations')" = "18"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -Atc 'SELECT count(*) FROM public.api_schema_migrations')" = "19"
           test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -Atc 'SELECT count(*) FROM public.api_assessments')" = "0"
           test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')" = "0"
           test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -Atc 'SELECT count(*) FROM public.api_pt_permits')" = "0"
@@ -584,7 +636,7 @@ jobs:
         run: |
           set -euo pipefail
           psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase13_browser;"
-          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_browser TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
           echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase13_browser" >> "$GITHUB_ENV"
           echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase13_browser" >> "$GITHUB_ENV"
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase13_browser" >> "$GITHUB_ENV"

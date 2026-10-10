@@ -5,7 +5,7 @@ import {fork} from "node:child_process";
 import {fileURLToPath} from "node:url";
 import {readFileSync} from "node:fs";
 import {randomBytes,randomUUID,createHmac} from "node:crypto";
-import {migrate,withTenant,pool,closeDatabase} from "../packages/database/src/index.js";
+import {migrate,withTenant,withQaTenant,pool,closeDatabase} from "../packages/database/src/index.js";
 import {makeApp} from "../packages/service/src/app.js";
 import {processOneJob} from "../packages/worker/src/index.js";
 import {reserveObservedReport,settleObservedReport,projection,ingestSyntheticEntitlement} from "../packages/service/src/phase13.js";
@@ -43,7 +43,7 @@ test("Phase13 018 independent PostgreSQL committed-vs-uncommitted SIGKILL recove
  if(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true")throw Error("TEST_AUTHORITY_REQUIRED");
  await migrate();await migrate();
  const versions=await pool.query("SELECT count(*)::int AS n FROM public.api_schema_migrations");
- assert.equal(versions.rows[0].n,18);
+ assert.equal(versions.rows[0].n,19);
  const app=await makeApp();
  try{
   const call=async(method:"GET"|"POST",url:string,payload?:object,idem?:string)=>{
@@ -120,9 +120,9 @@ test("Phase13 018 independent PostgreSQL committed-vs-uncommitted SIGKILL recove
    const result=retried.value as {sent:{replay:boolean};ack:{state:string}};
    assert.equal(result.sent.replay,true);
    assert.equal(result.ack.state,"ACKED");
-   const receipt=await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_qa_sink_receipts"));
+   const receipt=await withQaTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_qa_sink_receipts"));
    assert.equal(receipt.rows[0].n,1);
-   assert.equal((await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_qa_sink_receipts"))).rows[0].n,0);
+   assert.equal((await withQaTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_qa_sink_receipts"))).rows[0].n,0);
    assert.equal((await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_outbox WHERE delivery_state='DISABLED' AND attempt_count=0"))).rows[0].n,2);
   });
  }finally{await app.close();await closeDatabase();}

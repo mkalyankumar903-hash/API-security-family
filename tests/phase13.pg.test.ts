@@ -3,7 +3,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {randomUUID,randomBytes,createHmac} from "node:crypto";
-import {migrate,withTenant,pool,closeDatabase} from "../packages/database/src/index.js";
+import {migrate,withTenant,withQaTenant,pool,closeDatabase} from "../packages/database/src/index.js";
 import {makeApp} from "../packages/service/src/app.js";
 import {processOneJob} from "../packages/worker/src/index.js";
 import {V13} from "../packages/contracts/src/commercial-v13.js";
@@ -12,7 +12,7 @@ import {ingestSyntheticEntitlement,projection,reserveObservedReport,settleObserv
 import {enqueueQaDelivery,claimQaDelivery,consumeQaSink,ackQaDelivery,failQaDelivery} from "../packages/service/src/phase13-delivery-qa.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
-test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=>{
+test("Phase13 PostgreSQL 19 real tenant capability and quota decisions",async t=>{
  await Promise.all([migrate(),migrate(),migrate()]);
  const app=await makeApp(),key=randomBytes(48),entitlementId=randomUUID();
  const call=(method:"GET"|"POST",url:string,payload?:unknown,beta=false,idem?:string)=>
@@ -31,8 +31,8 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
   return {raw,signature:createHmac("sha256",key).update(raw).digest("hex")};
  };
  try{
-  await t.test("exact 001-018 idempotent migration, FORCE RLS and no worker commercial access",async()=>{
-   assert.equal((await pool.query("SELECT count(*)::int AS n FROM public.api_schema_migrations")).rows[0].n,18);
+  await t.test("exact 001-019 idempotent migration, FORCE RLS and no worker commercial access",async()=>{
+   assert.equal((await pool.query("SELECT count(*)::int AS n FROM public.api_schema_migrations")).rows[0].n,19);
    const tabs=await pool.query("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname LIKE 'api_v13_%' AND relkind='r'");
    assert.equal(tabs.rowCount,11);assert(tabs.rows.every(r=>r.relrowsecurity&&r.relforcerowsecurity));
    const a=await pool.query("SELECT count(*)::int AS n FROM pg_class WHERE relname='api_pt_permits'");
@@ -382,13 +382,13 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
    }
    assert.deepEqual(backoffs,[1,2,4,0]);
    assert.equal((await claimQaDelivery(A,second.id)).state,"DEAD_LETTER");
-   const events=await withTenant(A,tx=>tx.query("SELECT code,attempt_count FROM public.api_v13_qa_delivery_events WHERE delivery_id=$1 ORDER BY created_at,id",[second.id]));
+   const events=await withQaTenant(A,tx=>tx.query("SELECT code,attempt_count FROM public.api_v13_qa_delivery_events WHERE delivery_id=$1 ORDER BY created_at,id",[second.id]));
    assert.equal(events.rows.filter(x=>x.code==="CLAIMED").length,4);
    assert.equal(events.rows.filter(x=>x.code==="DEAD_LETTER").length,1);
    const immutable=await withTenant(A,tx=>tx.query("SELECT delivery_state,attempt_count,delivered_at,last_attempt_at FROM public.api_v13_outbox WHERE id=$1",[out.rows[0].id]));
    assert.deepEqual(immutable.rows[0],{delivery_state:"DISABLED",attempt_count:0,delivered_at:null,last_attempt_at:null});
-   assert.equal((await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_qa_delivery"))).rows[0].n,0);
-   await assert.rejects(()=>withTenant(A,tx=>tx.query("DELETE FROM public.api_v13_qa_delivery WHERE id=$1",[first.id])));
+   assert.equal((await withQaTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_qa_delivery"))).rows[0].n,0);
+   await assert.rejects(()=>withTenant(A,tx=>tx.query("DELETE FROM public.api_v13_qa_delivery WHERE id=$1",[first.id])),(e:unknown)=>(e as {code?:string}).code==="42501");
   });
   await t.test("018 forged offline source fingerprint cannot settle into immutable ledger or emit outbox",async()=>{
    const fresh=await produceReport(),rid=randomUUID();

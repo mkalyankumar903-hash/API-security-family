@@ -108,6 +108,8 @@ test("Phase13 populated 016→018 preserves original immutable reports, VAPT lin
   try{
    await database.query(readFileSync(new URL("../packages/database/migrations/018_phase13_multi_meter_recovery.sql",import.meta.url),"utf8"));
    await database.query("INSERT INTO public.api_schema_migrations(version) VALUES('018')");
+   await database.query(readFileSync(new URL("../packages/database/migrations/019_phase13_qa_privilege_isolation.sql",import.meta.url),"utf8"));
+   await database.query("INSERT INTO public.api_schema_migrations(version) VALUES('019')");
    await database.query("COMMIT");
   }catch(e){await database.query("ROLLBACK");throw e;}
   const retained=await database.query("SELECT (SELECT count(*) FROM public.api_v13_entitlement_events)::int AS entitlement,(SELECT count(*) FROM public.api_v13_reservations)::int AS reservations,(SELECT count(*) FROM public.api_v13_usage_ledger)::int AS usage,(SELECT count(*) FROM public.api_v13_outbox)::int AS outbox");
@@ -116,7 +118,7 @@ test("Phase13 populated 016→018 preserves original immutable reports, VAPT lin
   const after=await snapshot();
   assert.deepEqual(after,before,"Migration 016 altered original historical reports or queue");
   const versions=await database.query("SELECT version FROM public.api_schema_migrations ORDER BY version");
-  assert.equal(versions.rowCount,18);
+  assert.equal(versions.rowCount,19);
   const report=await database.query("SELECT fingerprint,projection FROM public.api_vapt11_reports WHERE parent_assessment_id=$1",[parent]);
   assert.equal(report.rows[0].fingerprint,digest(parentProjection));
   assert.deepEqual(report.rows[0].projection,parentProjection);

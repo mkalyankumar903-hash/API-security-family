@@ -57,3 +57,12 @@
 
 ## Production deployment restrictions
 No customer scanning, production permits, invoice authority, payment lifecycle, Host JWT minting, public npm publishing, automatic merge or release. PR stays OPEN/DRAFT/UNMERGED for independent security acceptance. The complete historical test logs, failures and source hashes are inspected in GitHub Actions; passing CI does not certify full original product requirements.
+
+
+## Phase13 migration 019 independent QA privilege repair (forward-only)
+
+- Original migrations 001–018 remain immutable. Independent security review found that migration 018 granted ordinary api_family SQL rights to purportedly CI-only QA delivery tables; a NODE_ENV guard cannot enforce SQL role isolation.
+- Additive migration 019 revokes PUBLIC/application/worker rights on all three QA tables; separate optional CI principal api_family_qa_ci receives restricted QA table access and read-only access to DISABLED outbox. No QA principal creation or QA grants are required for production installs lacking that role.
+- GitHub Actions provisions an independent NOINHERIT, non-superuser QA principal with a masked random per-job password. No production credentials, runtime fallback, elevated QA API routes, or network delivery.
+- Real PostgreSQL separate-identity negative tests cover SELECT/INSERT/UPDATE/DELETE denial, all four FORCE RLS 018 tables, tenant isolation, denied outbox updates and immutable DISABLED/zero-attempt output; synthetic sink and SIGKILL recovery retain explicit QA-only authority.
+- Previous authoritative Full CI at acf734db2f510df4ea77b7963318d6dfd037eefe did not qualify this finding; new comprehensive Full CI and independent security acceptance are pending.
