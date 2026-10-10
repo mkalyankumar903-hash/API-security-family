@@ -30,3 +30,41 @@ test("Phase13 Chromium commercial workspace remains host-blocked, scoped and acc
  await page.getByLabel("Synthetic development token (never a production login)").fill("local-test-token-beta");
  await expect(section).toHaveCount(0);
 });
+
+test("Phase13 real Chromium keyboard, narrow layout, 200-percent text, RTL, reduced motion and tenant-switch stale rejection",async({page,request})=>{
+ const auth={authorization:"Bearer local-test-token-alpha"};
+ const seed=async()=>{
+  const r=await request.post("http://127.0.0.1:3001/v1/targets",{headers:auth,data:{
+   name:"Phase13 accessible "+randomUUID().slice(0,8),environment:"SYNTHETIC",
+   baseUrl:"https://phase13-a11y-"+randomUUID().slice(0,8)+".fixture.invalid"}});
+  expect(r.status(),await r.text()).toBe(201);
+  return (await r.json() as {id:string}).id;
+ };
+ const old=await seed(),next=await seed();
+ await page.setViewportSize({width:360,height:740});
+ await page.emulateMedia({reducedMotion:"reduce"});
+ await page.goto("/");
+ await page.getByLabel("Select target").selectOption(old);
+ const section=page.locator("#phase13-commercial");
+ await expect(section).toBeVisible();
+ await expect(section).toContainText(old.slice(0,12));
+ const selector=section.locator("#phase13-locale");
+ await selector.focus();
+ await expect(selector).toBeFocused();
+ await page.keyboard.press("ArrowDown");
+ await expect(selector).toHaveValue("en-XA");
+ await expect(section.getByRole("heading",{level:2})).toContainText("⟦");
+ await selector.selectOption("en-XB");
+ await expect(section).toHaveAttribute("dir","rtl");
+ await expect(section.getByRole("table",{name:"Observed report capacity — not a bill or subscription"})).toBeVisible();
+ await expect(section.locator("th[scope='col']")).toHaveCount(5);
+ expect(await page.evaluate(()=>matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
+ await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});
+ await expect(section.getByRole("heading",{level:2})).toBeVisible();
+ await expect(section.getByRole("table",{name:"Observed report capacity — not a bill or subscription"})).toBeVisible();
+ await page.getByLabel("Select target").selectOption(next);
+ await expect(section).toContainText(next.slice(0,12));
+ await expect(section).not.toContainText(old.slice(0,12),"old tenant/target identifier must not be retained after context switch");
+ const check=await request.get("http://127.0.0.1:3001/v13/decisions",{headers:auth});
+ expect((await check.json() as {allowed:boolean}).allowed).toBe(false);
+});
