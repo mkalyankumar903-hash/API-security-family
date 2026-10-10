@@ -29,7 +29,7 @@ export function presentVaptReport(value:unknown,meta:PresentationMetadata){
  if(all.length>1000)throw new PtError(413,"REPORT_PRESENTATION_LIMIT");
  const findings=all.map((item:unknown)=>{
    const f=record(item),priority=record(f.priority);
-   return {key:text(f.key,70),source:text(f.source,30),ruleId:text(f.ruleId,96),
+   return {key:text(f.key,70),source:text(f.source,30),ruleId:text(f.ruleId,96),revision:text(f.revision,64),
     category:text(f.category,50),impact:text(f.impact,50),confidence:text(f.confidence,50),
     operationKey:text(f.operationKey,512),explanation:text(f.explanation,1000),
     remediation:text(f.remediation,1000),evidenceFingerprint:text(f.evidenceFingerprint,70),
@@ -38,6 +38,18 @@ export function presentVaptReport(value:unknown,meta:PresentationMetadata){
  });
  const limitations=Array.isArray(r.limitations)?r.limitations.slice(0,100).map(x=>text(x,500)):[];
  const mode=r.mode==="GOVERNED_SYNTHETIC"?"GOVERNED_SYNTHETIC":"OFFLINE_ONLY";
+ const imported=record(r.inventory),offline=record(r.offline),pt=record(r.pt);
+ const components=Array.isArray(r.components)?r.components.slice(0,20).map(x=>{
+  const z=record(x);return {id:typeof z.id==="string"&&UUID.test(z.id)?z.id:null,
+   engine:text(z.engine,64),status:text(z.status,30)};
+ }):[];
+ const operations=Array.isArray(imported.operations)?imported.operations.slice(0,1000).map(x=>{
+  const z=record(x);
+  return {key:text(z.key??z.operationKey,180),method:text(z.method,16),path:text(z.path,512)};
+ }):[];
+ const stages=Array.isArray(r.stageDefinitions)?r.stageDefinitions.slice(0,50).map(x=>{
+  const z=record(x);return {stageId:text(z.stageId??z.id,64),engine:text(z.engine,64)};
+ }):[];
  return {
   schemaVersion:"api-security-report-presentation-v1",
   reportId:meta.id,assessmentId:meta.assessmentId,sourceFingerprint:meta.fingerprint,
@@ -45,7 +57,12 @@ export function presentVaptReport(value:unknown,meta:PresentationMetadata){
   verifiedFixed:false,customerNetworkRequests:0,disclaimer,
   scope:{targetId:id(r.targetId),specificationId:id(r.specificationId),
    specificationVersion:num(r.specificationVersion),engineVersion:text(r.engineVersion,60),
-   specimenFingerprint:text(r.specFingerprint,64),fixtureVersion:r.fixtureVersion??null},
+   specimenFingerprint:text(r.specFingerprint,64),fixtureVersion:r.fixtureVersion??null,
+   fixtureId:text(r.fixtureId,80),fixtureProfile:text(r.fixtureProfile,70),
+   planFingerprint:text(r.planFingerprint,64),inventoryFingerprint:text(r.inventoryFingerprint,64),
+   offlineEngine:text(r.offlineEngine,64),ptPolicy:text(r.ptPolicy,80),
+   permitFingerprint:text(r.permitFingerprint,64),
+   scopeRevision:num(r.scopeRevision)},
   summary:{findingCount:findings.length,offlineOnly:mode==="OFFLINE_ONLY",
    fullAuthorizedSyntheticAssessment:mode==="GOVERNED_SYNTHETIC"&&r.fullAuthorizedVaptCompleted===true},
   coverage:{importedOperations:num(coverage.importedOperations),
@@ -53,6 +70,19 @@ export function presentVaptReport(value:unknown,meta:PresentationMetadata){
    ptRulesExecuted:num(coverage.ptRulesExecuted),ptEvaluationsPlanned:num(coverage.ptEvaluationsPlanned),
    ptEvaluationsExecuted:num(coverage.ptEvaluationsExecuted),
    notTested:coverage.ptNotTested===true},
+  evidenceClassification:{offline:"SPEC_ONLY",runtime:"ISOLATED_SYNTHETIC_FIXTURE",
+   realCustomerRuntime:"NOT_TESTED",fixedVerification:"NOT_AUTHORIZED"},
+  components,inventory:{operations,importedCount:num(imported.operationsImported),
+   supportedSyntheticOperations:num(imported.supportedRuntimeOperations)},
+  offline:{operationsAnalyzed:num(offline.operationsAnalyzed),
+   warning:"Document-only observations; not runtime security confirmation"},
+  syntheticPt:{plannedEvaluations:num(pt.plannedEvaluations),
+   executedEvaluations:num(pt.executedEvaluations),
+   secureNegativeChecks:num(pt.secureNegativeChecks),
+   syntheticObservations:num(pt.syntheticObservations)},
+  autonomous:{requiredStages:num(coverage.requiredStages),completedStages:num(coverage.completedStages),
+   stages,unstartedOrUnknown:num(coverage.requiredStages)>num(coverage.completedStages)},
+  lineageParentId:typeof r.lineageParentId==="string"&&UUID.test(r.lineageParentId)?r.lineageParentId:null,
   findings,limitations:[...limitations,disclaimer]
  };
 }
