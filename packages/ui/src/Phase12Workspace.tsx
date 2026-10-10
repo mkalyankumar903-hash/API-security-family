@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from "react";
 import {Phase12ReportControls} from "./Phase12ReportControls.js";
+import {msg,recognizedLocale,localeDirection,utcDateTime,count,type Phase12Locale} from "./phase12-locale.js";
 const BASE=(typeof import.meta.env==="object"&&import.meta.env.VITE_API_BASE)||"http://127.0.0.1:3001";
 const UUID_V12=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 function persistReport(id:string){
@@ -31,6 +32,16 @@ export function Phase12Workspace({token,targetId}:{token:string;targetId:string}
  const [reportId,setReportId]=useState(""),[report,setReport]=useState<Report|null>(null);
  const [busy,setBusy]=useState(false),[error,setError]=useState("");
  const [aiMode,setAiMode]=useState("DISABLED");
+ const [locale,setLocale]=useState<Phase12Locale>(()=>typeof window==="undefined"?"en":
+  recognizedLocale(new URLSearchParams(window.location.search).get("apiLocale")??navigator.language));
+ const changeLocale=(value:string)=>{
+  const next=recognizedLocale(value);setLocale(next);
+  if(typeof window!=="undefined"){
+   const u=new URL(window.location.href);
+   if(next==="en")u.searchParams.delete("apiLocale");else u.searchParams.set("apiLocale",next);
+   window.history.replaceState(null,"",u.pathname+u.search+u.hash);
+  }
+ };
  useEffect(()=>{let active=true;setOverview(null);setRuns([]);setReport(null);setReportId("");
   setError("");if(!token||!targetId)return()=>{active=false;};
   setBusy(true);
@@ -60,7 +71,7 @@ export function Phase12Workspace({token,targetId}:{token:string;targetId:string}
   return()=>{active=false;};
  },[token,targetId,reportId]);
  const finished=runs.filter(r=>r.isAutonomousVapt&&r.status==="COMPLETED"&&r.reportId);
- const date=(v:string)=>new Intl.DateTimeFormat("en",{dateStyle:"medium",timeStyle:"short",timeZone:"UTC"}).format(new Date(v));
+ const date=(v:string)=>utcDateTime(v,locale);
  function jsonExport(){
   if(!reportId||!token)return;
   // Request uses bearer authentication; do not put synthetic bearer values in URLs.
@@ -85,48 +96,54 @@ export function Phase12Workspace({token,targetId}:{token:string;targetId:string}
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   }).catch(e=>setError(e instanceof Error?e.message:"PDF_EXPORT_FAILED"));
  }
- return <section id="phase12-workspace" aria-labelledby="phase12-heading">
-  <h2 id="phase12-heading">Unified API security workspace — Phase 12</h2>
-  <p>Read-only evidence and reporting over existing synthetic-only assessment engines. No customer production scanning or verified-fixed authority.</p>
+ return <section id="phase12-workspace" aria-labelledby="phase12-heading" dir={localeDirection(locale)}>
+  <h2 id="phase12-heading">{msg("title",locale)}</h2>
+  <p>{msg("summary",locale)}</p>
+  <label htmlFor="phase12-locale">{msg("language",locale)}</label>
+  <select id="phase12-locale" value={locale} onChange={e=>changeLocale(e.target.value)}>
+   <option value="en">English (complete)</option>
+   <option value="en-XA">Pseudo-LTR — QA only, NOT a translation</option>
+   <option value="en-XB">Pseudo-RTL — QA only, NOT a translation</option>
+  </select>
   {busy&&<p role="status">Loading authorized evidence…</p>}
   {error&&<p role="alert" className="error">{error}</p>}
   {overview&&<div>
-   <h3>Evidence-backed overview</h3>
-   <p>{overview.specificationCount} imported specifications · {overview.immutableCompositeReports} immutable composite reports</p>
-   <table><caption>Actual target lifecycles</caption><thead><tr><th scope="col">Lifecycle</th><th scope="col">Targets</th></tr></thead>
+   <h3>{msg("overview",locale)}</h3>
+   <p>{count(overview.specificationCount,locale)} imported specifications · {count(overview.immutableCompositeReports,locale)} immutable composite reports</p>
+   <table><caption>{msg("targets",locale)}</caption><thead><tr><th scope="col">Lifecycle</th><th scope="col">Targets</th></tr></thead>
     <tbody>{overview.targets.map(t=><tr key={t.lifecycle}><th scope="row">{t.lifecycle}</th><td>{t.count}</td></tr>)}</tbody></table>
-   <table><caption>Actual assessment status and engine</caption><thead><tr><th scope="col">Status</th><th scope="col">Mode</th><th scope="col">Engine</th><th scope="col">Count</th></tr></thead>
+   <table><caption>{msg("assessments",locale)}</caption><thead><tr><th scope="col">Status</th><th scope="col">Mode</th><th scope="col">Engine</th><th scope="col">Count</th></tr></thead>
     <tbody>{overview.assessments.map((a,i)=><tr key={i}><th scope="row">{a.status}</th><td>{a.mode}</td><td>{a.engine_version}</td><td>{a.count}</td></tr>)}</tbody></table>
   </div>}
-  <h3>Historical assessments</h3>
-  <p>Past runs are retrieved from the authorized PostgreSQL tenant, not browser-generated results.</p>
+  <h3>{msg("history",locale)}</h3>
+  <p>{msg("historyHelp",locale)}</p>
   {runs.length===0?<p>No assessments for the selected target.</p>:
   <table><thead><tr><th scope="col">Run</th><th scope="col">Status</th><th scope="col">Mode</th><th scope="col">Created (UTC)</th></tr></thead><tbody>
    {runs.map(r=><tr key={r.id}><th scope="row"><code>{r.id.slice(0,12)}</code></th><td>{r.status}</td><td>{r.mode}</td><td>{date(r.createdAt)}</td></tr>)}
   </tbody></table>}
-  <label htmlFor="v12-report">Select a completed immutable composite report</label>
+  <label htmlFor="v12-report">{msg("selectReport",locale)}</label>
   <select id="v12-report" value={reportId} onChange={e=>{setError("");setReportId(e.target.value);persistReport(e.target.value);}}>
-   <option value="">Choose authorized report</option>
+   <option value="">{msg("selectReportOption",locale)}</option>
    {finished.map(r=><option key={r.id} value={r.id}>{r.id.slice(0,12)} · {r.mode}</option>)}
   </select>
   {report&&<div>
-   <h3>Immutable report presentation</h3>
+   <h3>{msg("report",locale)}</h3>
    <p>Mode: {report.mode} · Findings observed: {report.summary.findingCount}</p>
    <p>Source fingerprint <code>{report.sourceFingerprint}</code></p>
    <p>Operations analyzed: {report.coverage.offlineOperations}/{report.coverage.importedOperations}.
     Synthetic evaluations: {report.coverage.ptEvaluationsExecuted}/{report.coverage.ptEvaluationsPlanned}.</p>
-   <h4>Correlated findings and remediation</h4>
-   {report.findings.length===0&&<p>No observed findings. This does not establish security.</p>}
+   <h4>{msg("correlated",locale)}</h4>
+   {report.findings.length===0&&<p>{msg("noFindings",locale)}</p>}
    {report.findings.map((f,i)=><article className="finding" key={f.key+"-"+i}>
     <strong>{f.ruleId}</strong> · {f.source} · {f.impact} · <code>{f.operationKey}</code>
     <p>{f.explanation}</p><p>Remediation guidance: {f.remediation}</p>
     <p>Redacted evidence fingerprint <code>{f.evidenceFingerprint}</code></p>
    </article>)}
-   <h4>Limitations</h4><ul>{report.limitations.map((l,i)=><li key={i}>{l}</li>)}</ul>
-   <button type="button" onClick={jsonExport}>Download authorized JSON presentation</button>
-   <button type="button" onClick={pdfExport}>Download authorized PDF report</button>
+   <h4>{msg("limits",locale)}</h4><ul>{report.limitations.map((l,i)=><li key={i}>{l}</li>)}</ul>
+   <button type="button" onClick={jsonExport}>{msg("jsonDownload",locale)}</button>
+   <button type="button" onClick={pdfExport}>{msg("pdfDownload",locale)}</button>
    <Phase12ReportControls key={targetId+reportId+token} token={token} targetId={targetId} reportId={reportId} findings={report.findings}/>
   </div>}
-  <h3>Optional read-only AI</h3><p role="status">{aiMode} — no model provider configured or invoked. The assistant cannot start scans or change security evidence.</p>
+  <h3>{msg("ai",locale)}</h3><p role="status">{aiMode} — {msg("aiDisabled",locale)}</p>
  </section>;
 }
