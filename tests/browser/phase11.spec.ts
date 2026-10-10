@@ -130,7 +130,7 @@ test("Phase11 Chromium: cancellation after completed offline analysis prevents a
 });
 test("Phase11 Chromium: controlled reassessment creates fresh identity without rewriting historical report",async({request})=>{
  test.setTimeout(150000);
- const {tid,scopeId}=await seed(request);
+ const {scopeId}=await seed(request);
  const requestData={mode:"GOVERNED_SYNTHETIC",scopeId,
   policyId:"SYNTHETIC_PT_AUTHORIZATION_FOCUSED",profile:"SECURE_BASELINE"};
  const first=await request.post(API+"/v11/api-vapt/assessments",{
