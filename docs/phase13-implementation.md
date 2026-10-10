@@ -8,7 +8,7 @@ This phase builds a test-only, tenant-scoped, commercially inert foundation on a
 - `IMMUTABLE_REPORT_OBSERVED` is a single non-billable **observation unit** tied to an existing, fingerprinted, immutable Phase 11 report. A render/button click does not meter usage. No historical usage is backcharged.
 - A real PostgreSQL transaction takes a tenant+feature advisory lock; deduplicated reservations, bounded units, expiry and settlements create exactly one immutable ledger row and exactly one unsent outbox row. Database clock governs the month and expiry.
 - `/v13` read APIs return only session-bound, tenant-RLS projections. Every decision is `allowed:false` until real Host authority is approved. Existing accepted Phase 00–12 routes stay synthetic-only and are **not claimed to be under commercial quotas**.
-- SDK provides a typed GET-only API facade with caller-injected tokens, origin validation, timeout/AbortSignal, bounded pagination and structured errors. No npm publish; no SDK-created credentials.
+- SDK provides a typed GET-only API facade with caller-injected tokens, origin validation, timeout/AbortSignal, bounded pagination and structured errors. GitHub Actions builds ESM + TypeScript declarations and inspects a private dry-run package; no npm publish or SDK-created credentials.
 - Signed CI-only usage corrections are append-only, source-bound, range-bounded and cannot raise effective units above the original immutable ledger quantity. Corrections participate in quota projections and reconciliation without altering original rows.
 - No real payment, invoice, settlement, provider callbacks, external transmission, customer execution or VERIFIED_FIXED write paths.
 
@@ -27,6 +27,7 @@ This phase builds a test-only, tenant-scoped, commercially inert foundation on a
 | Real RLS migration | `packages/database/migrations/017_phase13_commercial_entitlements_usage.sql` | `tests/phase13.pg.test.ts` | IMPLEMENTED_NOT_YET_VERIFIED |
 | Signed immutable usage corrections | `packages/contracts/src/commercial-v13.ts`, `packages/service/src/phase13.ts` | PG signature/replay/cross-tenant/adjustment negatives | IMPLEMENTED_NOT_YET_VERIFIED |
 | Bounded report quota and ledger | `packages/service/src/phase13.ts` | `tests/phase13.pg.test.ts` | IMPLEMENTED_NOT_YET_VERIFIED |
+| SDK ESM/typed declaration packaging | `packages/sdk/tsconfig.build.json`, `packages/sdk/package.json` | GitHub-hosted private `npm pack --dry-run` | IMPLEMENTED_NOT_YET_VERIFIED |
 | Read-only API and SDK | `packages/service/src/phase13.ts`, `packages/sdk/src/v13.ts` | unit/PG/browser | IMPLEMENTED_NOT_YET_VERIFIED |
 | Customer workspace | `packages/ui/src/Phase13Workspace.tsx` | `tests/browser/phase13.spec.ts` | IMPLEMENTED_NOT_YET_VERIFIED |
 | Live Host identity and billing | Main Platform not frozen | Missing external authority | HOST_BLOCKED |

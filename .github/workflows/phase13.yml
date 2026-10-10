@@ -29,6 +29,16 @@ jobs:
         run: npm run lint
       - name: TypeScript strict
         run: npm run typecheck
+      - name: Private Phase13 SDK ESM, declarations and package-content qualification (NO PUBLISH)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/tsc --project packages/sdk/tsconfig.build.json
+          test -s packages/sdk/dist/v13.js
+          test -s packages/sdk/dist/v13.d.ts
+          node --input-type=module -e "import {V13Client} from './packages/sdk/dist/v13.js'; if(typeof V13Client!=='function')process.exit(1)"
+          (cd packages/sdk && npm pack --dry-run --ignore-scripts --json) > /tmp/phase13-sdk-contents.json
+          node --input-type=module -e "import fs from 'node:fs'; const a=JSON.parse(fs.readFileSync('/tmp/phase13-sdk-contents.json','utf8'))[0].files.map(f=>f.path);if(!a.includes('dist/v13.js')||!a.includes('dist/v13.d.ts')||!a.includes('README.md'))throw Error('SDK_PACKAGE_MISSING_BUILD_ASSETS');if(a.some(f=>f.endsWith('.env')||f.includes('secret')))throw Error('SDK_PACKAGE_FORBIDDEN_ASSET')"
       - name: Unit contract and security regressions
         run: npm test
       - name: React production build
@@ -247,6 +257,16 @@ jobs:
         run: npm run lint
       - name: Strict TypeScript
         run: npm run typecheck
+      - name: Private Phase13 SDK ESM, declarations and package-content qualification (NO PUBLISH)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/tsc --project packages/sdk/tsconfig.build.json
+          test -s packages/sdk/dist/v13.js
+          test -s packages/sdk/dist/v13.d.ts
+          node --input-type=module -e "import {V13Client} from './packages/sdk/dist/v13.js'; if(typeof V13Client!=='function')process.exit(1)"
+          (cd packages/sdk && npm pack --dry-run --ignore-scripts --json) > /tmp/phase13-sdk-contents.json
+          node --input-type=module -e "import fs from 'node:fs'; const a=JSON.parse(fs.readFileSync('/tmp/phase13-sdk-contents.json','utf8'))[0].files.map(f=>f.path);if(!a.includes('dist/v13.js')||!a.includes('dist/v13.d.ts')||!a.includes('README.md'))throw Error('SDK_PACKAGE_MISSING_BUILD_ASSETS');if(a.some(f=>f.endsWith('.env')||f.includes('secret')))throw Error('SDK_PACKAGE_FORBIDDEN_ASSET')"
       - name: Full unit, contract and security negative suite
         run: npm test
       - name: Real PostgreSQL 001-017 plus historical upgrade, worker and isolation
@@ -381,6 +401,16 @@ jobs:
         run: npm run lint
       - name: Strict TypeScript
         run: npm run typecheck
+      - name: Private Phase13 SDK ESM, declarations and package-content qualification (NO PUBLISH)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/tsc --project packages/sdk/tsconfig.build.json
+          test -s packages/sdk/dist/v13.js
+          test -s packages/sdk/dist/v13.d.ts
+          node --input-type=module -e "import {V13Client} from './packages/sdk/dist/v13.js'; if(typeof V13Client!=='function')process.exit(1)"
+          (cd packages/sdk && npm pack --dry-run --ignore-scripts --json) > /tmp/phase13-sdk-contents.json
+          node --input-type=module -e "import fs from 'node:fs'; const a=JSON.parse(fs.readFileSync('/tmp/phase13-sdk-contents.json','utf8'))[0].files.map(f=>f.path);if(!a.includes('dist/v13.js')||!a.includes('dist/v13.d.ts')||!a.includes('README.md'))throw Error('SDK_PACKAGE_MISSING_BUILD_ASSETS');if(a.some(f=>f.endsWith('.env')||f.includes('secret')))throw Error('SDK_PACKAGE_FORBIDDEN_ASSET')"
       - name: Full unit, contract and security negative suite
         run: npm test
       - name: Real PostgreSQL 001-017 plus historical upgrade, worker and isolation
