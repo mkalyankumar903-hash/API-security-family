@@ -65,6 +65,9 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
    return reportId;
   }
   const r1=await produceReport(),r2=await produceReport();
+  // A parallel race may legitimately choose either source; subsequent checks must
+  // exercise the actual unconsumed source rather than assume call order.
+  let unconsumedReport=r2;
   const initial=await call("GET","/v13/usage/summary");
   assert.equal(initial.json().quota,0);
   const first=envelope("ISSUED",1,1);
@@ -88,6 +91,8 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
    assert.equal(wins.length,1,JSON.stringify(racers));assert.equal(losses.length,1);
    assert.match(String((losses[0] as PromiseRejectedResult).reason),/QUOTA_EXCEEDED/);
    const reservation=(wins[0] as PromiseFulfilledResult<{id:string;state:string}>).value;
+   const chosen=(await withTenant(A,tx=>tx.query("SELECT source_report_id FROM public.api_v13_reservations WHERE id=$1",[reservation.id]))).rows[0].source_report_id as string;
+   unconsumedReport=chosen===r1?r2:r1;
    assert.equal((await projection(A)).reserved,1);
    const a=await settleObservedReport(A,reservation.id);
    assert.equal(a.state,"SETTLED");
@@ -110,7 +115,7 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
    const noOutput=await withTenant(B,tx=>tx.query("SELECT id FROM api_v13_outbox"));
    assert.equal(noOutput.rowCount,0);
    await assert.rejects(()=>reserveObservedReport(A,randomUUID(),"phase13-no-evidence-"+randomUUID()),/IMMUTABLE_REPORT_NOT_FOUND/);
-   await assert.rejects(()=>reserveObservedReport(A,r2,"phase13-repeat-"+randomUUID()),/QUOTA_EXCEEDED/);
+   await assert.rejects(()=>reserveObservedReport(A,unconsumedReport,"phase13-repeat-"+randomUUID()),/QUOTA_EXCEEDED/);
    assert.equal((await call("GET","/v13/reservations",undefined,true)).body,"[]");
   });
   await t.test("independent signed accounting snapshot mismatch, replay and stale revision",async()=>{
@@ -153,20 +158,20 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
    const revoked=envelope("REVOKED",2,0);
    await ingestSyntheticEntitlement(revoked.raw,revoked.signature,key);
    assert.equal((await projection(A)).quota,0);
-   await assert.rejects(()=>reserveObservedReport(A,r2,"phase13-revoked-"+randomUUID()),/ENTITLEMENT_UNAVAILABLE/);
+   await assert.rejects(()=>reserveObservedReport(A,unconsumedReport,"phase13-revoked-"+randomUUID()),/ENTITLEMENT_UNAVAILABLE/);
    const renewed=envelope("ISSUED",3,3);
    await ingestSyntheticEntitlement(renewed.raw,renewed.signature,key);
-   const reserved=await reserveObservedReport(A,r2,"phase13-short-"+randomUUID(),1);
+   const reserved=await reserveObservedReport(A,unconsumedReport,"phase13-short-"+randomUUID(),1);
    assert.equal((await projection(A)).reserved,1);
-   const replay=await reserveObservedReport(A,r2,"phase13-short-"+randomUUID(),1).then(()=>false).catch(()=>true);
+   const replay=await reserveObservedReport(A,unconsumedReport,"phase13-short-"+randomUUID(),1).then(()=>false).catch(()=>true);
    assert.equal(replay,true,"Different idempotency key for active source must not bypass reservation uniqueness");
    await new Promise(resolve=>setTimeout(resolve,1100));
    await assert.rejects(()=>settleObservedReport(A,reserved.id),/RESERVATION_EXPIRED/);
-   const retry=await reserveObservedReport(A,r2,"phase13-expiry-retry-"+randomUUID());
+   const retry=await reserveObservedReport(A,unconsumedReport,"phase13-expiry-retry-"+randomUUID());
    assert.notEqual(retry.id,reserved.id);
    const released=await closeReservation(A,retry.id);
    assert.equal(released.state,"RELEASED");
-   const retryAfterRelease=await reserveObservedReport(A,r2,"phase13-release-retry-"+randomUUID());
+   const retryAfterRelease=await reserveObservedReport(A,unconsumedReport,"phase13-release-retry-"+randomUUID());
    assert.equal((await settleObservedReport(A,retryAfterRelease.id)).state,"SETTLED");
    assert.equal((await projection(A)).consumed,2);
    const late=await reconcilePending(A);
