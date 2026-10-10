@@ -61,7 +61,9 @@ export async function ingestSyntheticEntitlement(raw:Uint8Array,signature:string
   return {eventId:e.eventId,replay:false};
  });
 }
-export async function reserveObservedReport(t:string,reportId:string,key:string){
+export async function reserveObservedReport(t:string,reportId:string,key:string,ttlSeconds=300){
+ if(!Number.isSafeInteger(ttlSeconds)||ttlSeconds<1||ttlSeconds>300)fail("INVALID_RESERVATION_TTL",400);
+ if(ttlSeconds!==300&&(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true"))fail("HOST_AUTHORITY_NOT_CONFIGURED",403);
  id(t);id(reportId);checkKey(key);
  return withTenant(t,async tx=>{
   await lock(tx,t,"IMMUTABLE_REPORT_OBSERVED");
@@ -81,8 +83,8 @@ export async function reserveObservedReport(t:string,reportId:string,key:string)
   const m=await month(tx),usage=await totals(tx,m);
   if(usage.consumed+usage.reserved+1>e.limit_units)fail("QUOTA_EXCEEDED",429);
   const reservationId=randomUUID();
-  await tx.query("INSERT INTO public.api_v13_reservations(id,tenant_id,entitlement_id,feature,source_report_id,month_start,idempotency_key,units,expires_at) VALUES($1,$2,$3,'IMMUTABLE_REPORT_OBSERVED',$4,$5,$6,1,clock_timestamp()+interval '5 minutes')",
-   [reservationId,t,e.entitlement_id,reportId,m,key]);
+  await tx.query("INSERT INTO public.api_v13_reservations(id,tenant_id,entitlement_id,feature,source_report_id,month_start,idempotency_key,units,expires_at) VALUES($1,$2,$3,'IMMUTABLE_REPORT_OBSERVED',$4,$5,$6,1,clock_timestamp()+$7::int*interval '1 second')",
+   [reservationId,t,e.entitlement_id,reportId,m,key,ttlSeconds]);
   return {id:reservationId,state:"RESERVED",replay:false};
  });
 }
@@ -128,8 +130,8 @@ export async function reconcilePending(t:string){
  return withTenant(t,async tx=>{
   await lock(tx,t,"IMMUTABLE_REPORT_OBSERVED");
   const m=await month(tx),tot=await totals(tx,m);
-  const prior=await tx.query("SELECT id,state FROM public.api_v13_reconciliation WHERE feature='IMMUTABLE_REPORT_OBSERVED' AND month_start=$1 AND external_revision IS NULL ORDER BY created_at DESC,id DESC LIMIT 1",[m]);
-  if(prior.rowCount)return prior.rows[0];
+  const prior=await tx.query("SELECT id,state,local_units FROM public.api_v13_reconciliation WHERE feature='IMMUTABLE_REPORT_OBSERVED' AND month_start=$1 AND external_revision IS NULL ORDER BY created_at DESC,id DESC LIMIT 1",[m]);
+  if(prior.rowCount&&Number(prior.rows[0].local_units)===tot.consumed)return prior.rows[0];
   const rid=randomUUID();
   await tx.query("INSERT INTO public.api_v13_reconciliation(id,tenant_id,feature,month_start,local_units,state) VALUES($1,$2,'IMMUTABLE_REPORT_OBSERVED',$3,$4,'PENDING_EXTERNAL_AUTHORITY')",
    [rid,t,m,tot.consumed]);

@@ -20,7 +20,7 @@ CREATE TABLE public.api_v13_reservations(
  units integer NOT NULL CHECK(units BETWEEN 1 AND 1000000),
  state text NOT NULL DEFAULT 'RESERVED' CHECK(state IN ('RESERVED','SETTLED','RELEASED','EXPIRED')),
  expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
- settled_at timestamptz, UNIQUE(tenant_id,idempotency_key),
+ settled_at timestamptz, CHECK(expires_at>created_at), UNIQUE(tenant_id,idempotency_key),
  UNIQUE(tenant_id,id),
  FOREIGN KEY(tenant_id,source_report_id) REFERENCES public.api_vapt11_reports(tenant_id,parent_assessment_id));
 CREATE INDEX api_v13_reservations_account ON public.api_v13_reservations(tenant_id,feature,month_start,state,expires_at);

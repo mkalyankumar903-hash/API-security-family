@@ -94,7 +94,7 @@ export function verifySyntheticExternalSnapshot(raw:Uint8Array,signature:string,
   start=Date.parse(e.monthStart+"T00:00:00Z");
  if(!Number.isFinite(issued)||!Number.isFinite(expires)||!Number.isFinite(watermark)||!Number.isFinite(start)||
   now-issued>300000||issued-now>30000||expires<=now||watermark<start||watermark>now+30000||
-  watermark>=Date.parse(new Date(start).toISOString().slice(0,7)+"-01T00:00:00Z")+32*86400000)
+  watermark>=Date.UTC(new Date(start).getUTCFullYear(),new Date(start).getUTCMonth()+1,1))
   throw new CommercialContractError("INVALID_SNAPSHOT_PERIOD");
  unit(e.observedUnits,1000000000);
  if(typeof e.revision!=="number"||!Number.isSafeInteger(e.revision)||e.revision<1||e.revision>1000000)

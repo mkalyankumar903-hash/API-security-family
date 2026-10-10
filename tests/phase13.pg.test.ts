@@ -8,7 +8,7 @@ import {makeApp} from "../packages/service/src/app.js";
 import {processOneJob} from "../packages/worker/src/index.js";
 import {V13} from "../packages/contracts/src/commercial-v13.js";
 import {ingestSyntheticEntitlement,projection,reserveObservedReport,settleObservedReport,
- reconcilePending,reconcileSyntheticExternalSnapshot} from "../packages/service/src/phase13.js";
+ closeReservation,reconcilePending,reconcileSyntheticExternalSnapshot} from "../packages/service/src/phase13.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
 test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=>{
@@ -141,6 +141,23 @@ test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=
    await ingestSyntheticEntitlement(revoked.raw,revoked.signature,key);
    assert.equal((await projection(A)).quota,0);
    await assert.rejects(()=>reserveObservedReport(A,r2,"phase13-revoked-"+randomUUID()),/ENTITLEMENT_UNAVAILABLE/);
+   const renewed=envelope("ISSUED",3,3);
+   await ingestSyntheticEntitlement(renewed.raw,renewed.signature,key);
+   const reserved=await reserveObservedReport(A,r2,"phase13-short-"+randomUUID(),1);
+   assert.equal((await projection(A)).reserved,1);
+   const replay=await reserveObservedReport(A,r2,"phase13-short-"+randomUUID(),1).then(()=>false).catch(()=>true);
+   assert.equal(replay,true,"Different idempotency key for active source must not bypass reservation uniqueness");
+   await new Promise(resolve=>setTimeout(resolve,1100));
+   await assert.rejects(()=>settleObservedReport(A,reserved.id),/RESERVATION_EXPIRED/);
+   const retry=await reserveObservedReport(A,r2,"phase13-expiry-retry-"+randomUUID());
+   assert.notEqual(retry.id,reserved.id);
+   const released=await closeReservation(A,retry.id);
+   assert.equal(released.state,"RELEASED");
+   const retryAfterRelease=await reserveObservedReport(A,r2,"phase13-release-retry-"+randomUUID());
+   assert.equal((await settleObservedReport(A,retryAfterRelease.id)).state,"SETTLED");
+   assert.equal((await projection(A)).consumed,2);
+   const late=await reconcilePending(A);
+   assert.notEqual(late.id,firstPending.id,"Late-arriving usage must generate new immutable pending evidence");
    assert.equal((await call("GET","/v13/decisions")).json().allowed,false);
   });
  }finally{await app.close();await closeDatabase();}
