@@ -147,7 +147,7 @@ export async function reserveFeatureObservation(t:string,reportId:string,key:str
  id(t);id(reportId);checkKey(key);
  return withTenant(t,async tx=>{
   await lock(tx,t,feature);
-  await tx.query("UPDATE public.api_v13_reservations SET state='EXPIRED' WHERE state='RESERVED' AND expires_at<=clock_timestamp()");
+  await tx.query("UPDATE public.api_v13_reservations SET state='EXPIRED' WHERE feature=$1 AND state='RESERVED' AND expires_at<=clock_timestamp()",[feature]);
   const old=await tx.query("SELECT * FROM public.api_v13_reservations WHERE idempotency_key=$1",[key]);
   if(old.rowCount){
    if(old.rows[0].source_report_id!==reportId||old.rows[0].feature!==feature)fail("IDEMPOTENCY_CONFLICT");
