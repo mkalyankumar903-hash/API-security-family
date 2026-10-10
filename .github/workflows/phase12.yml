@@ -1,0 +1,35 @@
+name: Phase 12 API Presentation Development Qualification
+on:
+  pull_request:
+    branches: ["work/phase11-complete-autonomous-api-vapt"]
+    types: [opened, synchronize, edited, reopened]
+permissions:
+  contents: read
+concurrency:
+  group: phase12-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify checked-out PR HEAD
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Frozen dependency installation
+        run: npm ci --no-audit --no-fund
+      - name: ESLint all source and tests
+        run: npm run lint
+      - name: TypeScript strict
+        run: npm run typecheck
+      - name: Unit contract and security regressions
+        run: npm test
+      - name: React production build
+        run: npm run build
