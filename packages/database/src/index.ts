@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from "pg";
+import {emitDiagnostic} from "../../contracts/src/operational-diagnostics-v14.js";
 import { readFileSync } from "node:fs";
 import { randomUUID,createHash } from "node:crypto";
 import { resolve } from "node:path";
@@ -203,7 +204,7 @@ export async function claimJob():Promise<WorkerClaim|null>{
   const gate=await tx.query("SELECT id FROM api_queue.api_worker_claim_gate WHERE id=true FOR UPDATE");
   if(!gate.rowCount){await tx.query("COMMIT");return null;}
   const picked=await tx.query(
-   `SELECT q.assessment_id,q.tenant_id,q.claim_generation FROM api_queue.api_assessment_queue q
+   `SELECT q.assessment_id,q.tenant_id,q.claim_generation,q.created_at FROM api_queue.api_assessment_queue q
      LEFT JOIN api_queue.api_worker_tenant_schedule s ON s.tenant_id=q.tenant_id
      WHERE (q.locked_until IS NULL OR q.locked_until < clock_timestamp())
        AND (q.next_eligible_at IS NULL OR q.next_eligible_at <= clock_timestamp())
@@ -212,7 +213,7 @@ export async function claimJob():Promise<WorkerClaim|null>{
      ORDER BY COALESCE(s.last_claimed_at,'epoch'::timestamptz),q.created_at,q.assessment_id
      LIMIT 1 FOR UPDATE OF q SKIP LOCKED`);
   if(!picked.rowCount){await tx.query("COMMIT");return null;}
-  const q=picked.rows[0] as {assessment_id:string;tenant_id:string;claim_generation:string};
+  const q=picked.rows[0] as {assessment_id:string;tenant_id:string;claim_generation:string;created_at:Date};
   await tx.query("SELECT set_config('api.tenant_id',$1,true)",[q.tenant_id]);
   const current=await tx.query("SELECT status FROM public.api_assessments WHERE id=$1 FOR UPDATE",[q.assessment_id]);
   if(!current.rowCount||["COMPLETED","CANCELLED","FAILED"].includes(current.rows[0].status)){
@@ -231,15 +232,17 @@ export async function claimJob():Promise<WorkerClaim|null>{
    [uuid(),q.tenant_id,q.assessment_id,attempt,Number(q.claim_generation)>0?"TAKEOVER":"CLAIMED","LEASE_OWNED"]);
   await tx.query("INSERT INTO api_queue.api_worker_tenant_schedule(tenant_id,last_claimed_at) VALUES($1,clock_timestamp()) ON CONFLICT(tenant_id) DO UPDATE SET last_claimed_at=EXCLUDED.last_claimed_at",[q.tenant_id]);
   await tx.query("COMMIT");
+  emitDiagnostic({kind:"QUEUE_CLAIM",classification:Number(q.claim_generation)>0?"STALE":"OK",statusCode:200,
+    queueWaitMs:Math.max(0,Date.now()-new Date(q.created_at).getTime()),attempt:Number(claimed.rows[0].claim_generation)});
   return {assessment_id:q.assessment_id,tenant_id:q.tenant_id,claim_token:token,
    claim_generation:Number(claimed.rows[0].claim_generation),attempt_id:attempt};
- }catch(e){await tx.query("ROLLBACK");throw e;}finally{tx.release();}
+ }catch(e){await tx.query("ROLLBACK");emitDiagnostic({kind:"DB_CONTENTION",classification:"INTERNAL",statusCode:503});throw e;}finally{tx.release();}
 }
 
 /** Renewal follows accepted stop -> permit/target -> queue lock order.
  * Success means only processing ownership; the governor remains sole execution authority. */
 export async function renewWorkerClaim(claim:WorkerClaim):Promise<boolean>{
- return withWorkerTenant(claim.tenant_id,async tx=>{
+ const result=await withWorkerTenant(claim.tenant_id,async tx=>{
   const stop=await tx.query("SELECT enabled FROM public.api_pt_stop WHERE tenant_id=$1 FOR UPDATE",[claim.tenant_id]);
   if(stop.rows[0]?.enabled===true)return false;
   const pt=await tx.query(
@@ -276,6 +279,8 @@ export async function renewWorkerClaim(claim:WorkerClaim):Promise<boolean>{
    [claim.attempt_id,claim.claim_token]);
   return true;
  });
+ emitDiagnostic({kind:"LEASE_RENEWAL",classification:result?"OK":"STALE",statusCode:result?200:409,attempt:claim.claim_generation});
+ return result;
 }
 
 /** Only call immediately after a claim and BEFORE beginning processing. Once a
