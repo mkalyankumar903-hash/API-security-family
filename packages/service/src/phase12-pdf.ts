@@ -1,6 +1,7 @@
 /** Printable Phase12 document from an already tenant-authorized immutable report.
  * No network access or model/execution/tool authority. Browser is a renderer only. */
 import {chromium} from "@playwright/test";
+import {emitDiagnostic} from "../../contracts/src/operational-diagnostics-v14.js";
 import {PtError} from "./pt.js";
 import type {presentVaptReport} from "./phase12.js";
 type Report=ReturnType<typeof presentVaptReport>;
@@ -173,6 +174,7 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
  const html=buildPhase12PdfHtml(report,branding);
  if(Buffer.byteLength(html,"utf8")>1024*1024)throw new PtError(413,"PDF_SOURCE_LIMIT");
  running++;
+ const started=process.hrtime.bigint();
  try{
   const browser=await chromium.launch({headless:true,timeout:15000});
   try{
@@ -188,10 +190,14 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
     });
     if(bytes.length>4*1024*1024)throw new PtError(413,"PDF_OUTPUT_LIMIT");
     if(bytes.subarray(0,5).toString()!=="%PDF-")throw new PtError(500,"INVALID_PDF_BYTES");
+    emitDiagnostic({kind:"REPORT_RENDER",classification:"OK",statusCode:200,
+      durationMs:Number(process.hrtime.bigint()-started)/1e6});
     return bytes;
    }finally{await context.close();}
   }finally{await browser.close();}
  }catch(e){
+  emitDiagnostic({kind:"REPORT_RENDER",classification:"INTERNAL",statusCode:503,
+    durationMs:Number(process.hrtime.bigint()-started)/1e6});
   if(e instanceof PtError)throw e;
   throw new PtError(503,"PDF_RENDERER_UNAVAILABLE_OR_TIMED_OUT");
  }finally{running--;}
