@@ -116,7 +116,7 @@ test("Phase11 real PostgreSQL: offline then signed-governed child then atomic un
   const compare=await call("GET","/v11/api-vapt/assessments/"+parent+"/compare/"+secondId);
   ok(compare,200);
   assert.equal(compare.json().compatibility,"INCOMPATIBLE","different authority scopes cannot be treated as equivalent observations");
-  const wrongTarget=await target(false);
+
 
   await assert.rejects(()=>withTenant(A,tx=>tx.query("UPDATE api_vapt11_reports SET fingerprint=$1 WHERE parent_assessment_id=$2",["a".repeat(64),parent])),
    /permission denied|immutable/i);
