@@ -39,6 +39,9 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
    assert.equal(a.rows[0].n,1);
    const grants=await pool.query("SELECT has_table_privilege('api_family_queue','public.api_v13_usage_ledger','SELECT') AS can_read");
    assert.equal(grants.rows[0].can_read,false);
+   const denied=await pool.query("SELECT has_table_privilege('api_family_queue','public.api_v13_feature_sources','SELECT') AS sources,has_table_privilege('api_family_queue','public.api_v13_qa_delivery','SELECT') AS qa");
+   assert.equal(denied.rows[0].sources,false);
+   assert.equal(denied.rows[0].qa,false);
   });
   assert.equal((await call("GET","/v13/decisions")).json().allowed,false);
   assert.equal((await call("GET","/v13/decisions")).json().code,"HOST_AUTHORITY_NOT_CONFIGURED");
@@ -241,6 +244,8 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
    };
    const grant=sign(1,1);
    assert.equal((await ingestSyntheticEntitlement(grant.raw,grant.sig,key)).replay,false);
+   const reportKey=(await withTenant(A,tx=>tx.query("SELECT idempotency_key FROM public.api_v13_reservations WHERE feature='IMMUTABLE_REPORT_OBSERVED' LIMIT 1"))).rows[0].idempotency_key as string;
+   await assert.rejects(()=>reserveFeatureObservation(A,r1,reportKey,feature),/IDEMPOTENCY_CONFLICT/,"cross-feature replay of a report-only key is denied");
    const race=await Promise.allSettled([
     reserveFeatureObservation(A,r1,"phase13-offline-quota-"+randomUUID(),feature),
     reserveFeatureObservation(A,r2,"phase13-offline-quota-"+randomUUID(),feature)
