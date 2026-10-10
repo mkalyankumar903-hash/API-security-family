@@ -224,8 +224,8 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
       },phase14ChildFault("render-timeout")?350:20000);
     });
     try{
-      const bytes=await Promise.race([pending,phase14ChildFault("render-timeout")?
-       new Promise<never>(()=>{/* forced deadline tests actual live Chromium */}):deadline]);
+      const bytes=await Promise.race(phase14ChildFault("render-timeout")?
+        [deadline]:[pending,deadline]);
       // Always keep a real timer in the test-timeout mode as well.
       if(bytes.length>4*1024*1024)throw new PtError(413,"PDF_OUTPUT_LIMIT");
       if(bytes.subarray(0,5).toString()!=="%PDF-")throw new PtError(500,"INVALID_PDF_BYTES");
