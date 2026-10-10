@@ -420,6 +420,36 @@ test("Phase13 PostgreSQL 19 real tenant capability and quota decisions",async t=
    assert.deepEqual(after.rows,before.rows,"untrusted source fingerprint cannot create usage or outbox events");
    assert.equal((await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_feature_sources WHERE reservation_id=$1",[rid]))).rows[0].n,0);
   });
+  // Measure real committed PostgreSQL idempotent reservation/settlement and
+  // reconciliation read/write-gate paths without creating extra billable units.
+  const benchmarkSource=await withTenant(A,tx=>tx.query(
+   "SELECT id,source_report_id,idempotency_key FROM api_v13_reservations WHERE feature='IMMUTABLE_REPORT_OBSERVED' AND state='SETTLED' ORDER BY settled_at DESC LIMIT 1"));
+  assert.equal(benchmarkSource.rowCount,1,"historical fixture must contain immutable settled source");
+  const bm=benchmarkSource.rows[0] as {id:string;source_report_id:string;idempotency_key:string};
+  const timings:{name:string;samples:number[];warmup:number}[]=[
+   {name:"actual-postgres-reservation-idempotent-replay",samples:[],warmup:4},
+   {name:"actual-postgres-settlement-idempotent-replay",samples:[],warmup:4},
+   {name:"actual-postgres-reconciliation-pending",samples:[],warmup:4}];
+  const operations=[
+   async()=>{const v=await reserveObservedReport(A,bm.source_report_id,bm.idempotency_key);assert(v.replay);},
+   async()=>{const v=await settleObservedReport(A,bm.id);assert(v.replay);},
+   async()=>{const v=await reconcilePending(A);assert(v.state==="PENDING_EXTERNAL_AUTHORITY");}
+  ];
+  for(let k=0;k<operations.length;k++){
+   const op=operations[k]!,target=timings[k]!;
+   for(let i=0;i<target.warmup;i++)await op();
+   const heap=process.memoryUsage().heapUsed;
+   for(let i=0;i<30;i++){
+    const start=performance.now();await op();target.samples.push(performance.now()-start);
+   }
+   const sorted=[...target.samples].sort((a,b)=>a-b);
+   console.log("PHASE14_METER_IDEMPOTENT_BENCHMARK "+JSON.stringify({
+    workload:target.name,warmup:target.warmup,samples:sorted.length,concurrency:1,
+    medianMs:Number(sorted[14]!.toFixed(3)),p95Ms:Number(sorted[28]!.toFixed(3)),
+    errors:0,heapDeltaBytes:process.memoryUsage().heapUsed-heap,
+    acceptance:"only successful durable SQL and unchanged usage ledger; not initial-write cost",
+    runtime:"GitHub-hosted PostgreSQL16; synthetic no billing"}));
+  }
  }finally{
   process.stderr.write=originalWrite;
   if(originalDiagnostics===undefined)delete process.env.API_FAMILY_DIAGNOSTICS;
