@@ -19,7 +19,7 @@ test("Phase12 OpenAPI 3.1 documents every actual HTTP endpoint and method, no de
   }
  }
  assert.equal(count,21);
- const discovered=[...service.matchAll(/app\.(get|post|put|patch|delete)\(\"(\/v12\/[^\"]+)\"/g)];
+ const discovered=[...service.matchAll(/app\.(get|post|put|patch|delete)\("(\/v12\/[^"]+)"/g)];
  assert.equal(discovered.length,count,"Every implemented v12 route must be documented");
 });
 test("Phase12 OpenAPI explicitly calls out only isolated bearer identity, not fake Host identity",()=>{
