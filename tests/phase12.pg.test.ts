@@ -7,7 +7,7 @@ import {makeApp} from "../packages/service/src/app.js";
 import {processOneJob} from "../packages/worker/src/index.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-type Result={statusCode:number;body:string;json:()=>Record<string,unknown>};
+type Result={statusCode:number;body:string;headers:Record<string,string|string[]|undefined>;json:()=>Record<string,unknown>};
 const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
 test("Phase12 PostgreSQL 16 authorized report workflow and isolation",async t=>{
  await migrate();const app=await makeApp();
@@ -91,9 +91,14 @@ test("Phase12 PostgreSQL 16 authorized report workflow and isolation",async t=>{
    const privileged=process.env.MIGRATION_DATABASE_URL;
    assert(privileged);
    const {Pool}=await import("pg");const admin=new Pool({connectionString:privileged,max:1});
-   try{await admin.query("UPDATE public.api_v12_shares SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",[sid]);}
-   catch{ /* Protected expiry field blocks direct mutation; test DB must retain constraints. */ }
-   finally{await admin.end();}
+   const expiredId=randomUUID();
+   try{
+    await assert.rejects(()=>admin.query("UPDATE public.api_v12_shares SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",[sid]),
+     /PHASE12_SHARE_IMMUTABLE_OR_REVOKED/);
+    await admin.query("INSERT INTO public.api_v12_shares(id,tenant_id,parent_assessment_id,idempotency_key,duration_seconds,created_at,expires_at) VALUES($1,$2,$3,$4,300,clock_timestamp()-interval '2 hours',clock_timestamp()-interval '1 hour')",
+     [expiredId,A,rid,"phase12-old-"+randomUUID()]);
+   }finally{await admin.end();}
+   assert.equal((await call("GET","/v12/shares/"+expiredId)).statusCode,404);
    const active=await call("GET","/v12/shares/"+sid);ok(active,200);
    assert.equal((await call("GET","/v12/reports/"+rid+"/shares")).statusCode,200);
   });
