@@ -41,7 +41,8 @@ function validateSummary(value:unknown):value is CommercialSummary{
   value.hostAuthority!=="HOST_AUTHORITY_NOT_CONFIGURED"||
   value.billable!==false||!boundedStr(value.tenantContext)||
   !boundedStr(value.feature)||!boundedStr(value.meterUnit)||
-  !boundedStr(value.monthStart,20)||!boundedStr(value.decision,300))return false;
+  !(boundedStr(value.monthStart,40)&& /^\\d{4}-\\d{2}-\\d{2}(?:T00:00:00\\.000Z)?$/.test(value.monthStart))||
+  !boundedStr(value.decision,300))return false;
  for(const k of ["quota","consumed","reserved","remaining"]){
   if(!whole(value[k]))return false;
  }
