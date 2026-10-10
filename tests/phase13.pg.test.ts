@@ -11,7 +11,7 @@ import {ingestSyntheticEntitlement,projection,reserveObservedReport,settleObserv
  closeReservation,reconcilePending,reconcileSyntheticExternalSnapshot,ingestSyntheticUsageCorrection} from "../packages/service/src/phase13.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
-test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=>{
+test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=>{
  await migrate();await migrate();
  const app=await makeApp(),key=randomBytes(48),entitlementId=randomUUID();
  const call=(method:"GET"|"POST",url:string,payload?:unknown,beta=false,idem?:string)=>
@@ -30,10 +30,10 @@ test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=
   return {raw,signature:createHmac("sha256",key).update(raw).digest("hex")};
  };
  try{
-  await t.test("exact 001-017 idempotent migration, FORCE RLS and no worker commercial access",async()=>{
-   assert.equal((await pool.query("SELECT count(*)::int AS n FROM public.api_schema_migrations")).rows[0].n,17);
+  await t.test("exact 001-018 idempotent migration, FORCE RLS and no worker commercial access",async()=>{
+   assert.equal((await pool.query("SELECT count(*)::int AS n FROM public.api_schema_migrations")).rows[0].n,18);
    const tabs=await pool.query("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname LIKE 'api_v13_%' AND relkind='r'");
-   assert.equal(tabs.rowCount,7);assert(tabs.rows.every(r=>r.relrowsecurity&&r.relforcerowsecurity));
+   assert.equal(tabs.rowCount,11);assert(tabs.rows.every(r=>r.relrowsecurity&&r.relforcerowsecurity));
    const a=await pool.query("SELECT count(*)::int AS n FROM pg_class WHERE relname='api_pt_permits'");
    assert.equal(a.rows[0].n,1);
    const grants=await pool.query("SELECT has_table_privilege('api_family_queue','public.api_v13_usage_ledger','SELECT') AS can_read");
