@@ -35,13 +35,13 @@ test("Phase14 SDK hostile response: wrong media, incomplete JSON, huge body, sec
  await rejects(truncated.summary(),"INVALID_RESPONSE");
  const huge=client((async()=>new Response("x".repeat(1048578),{headers:{"content-type":"application/json"}})) as typeof fetch);
  await rejects(huge.summary(),"RESPONSE_SIZE_LIMIT");
- const secret=client((async()=>new Response(JSON.stringify({error:"SECRET_TOKEN_12345"}),{status:403})) as typeof fetch);
+ const secret=client((async()=>new Response(JSON.stringify({error:"SECRET_TOKEN_12345"}),{status:403,headers:{"content-type":"application/json"}})) as typeof fetch);
  await rejects(secret.summary(),"API_ERROR");
 });
 test("Phase14 SDK never retries 401,403,404,409,500, rejects unsafe base origins",async()=>{
  for(const code of [401,403,404,409,500]){
   let calls=0;
-  const sdk=client((async()=>{calls++;return new Response(JSON.stringify({error:"DENIED"}),{status:code});}) as typeof fetch,1000,2);
+  const sdk=client((async()=>{calls++;return new Response(JSON.stringify({error:"DENIED"}),{status:code,headers:{"content-type":"application/json"}});}) as typeof fetch,1000,2);
   await assert.rejects(sdk.summary(),(e:unknown)=>e instanceof V13ClientError&&e.status===code);
   assert.equal(calls,1,"do not amplify non-retryable status "+code);
  }
@@ -55,7 +55,7 @@ test("Phase14 SDK abort cancels retry backoff before making another request",asy
  const ctrl=new AbortController();let hits=0;
  const sdk=client((async()=>{
   hits++;if(hits===1){queueMicrotask(()=>ctrl.abort());}
-  return new Response(JSON.stringify({error:"CAPACITY"}),{status:429});
+  return new Response(JSON.stringify({error:"CAPACITY"}),{status:429,headers:{"content-type":"application/json"}});
  }) as typeof fetch,1000,2);
  await rejects(sdk.summary(ctrl.signal),"ABORTED");
  assert.equal(hits,1);
