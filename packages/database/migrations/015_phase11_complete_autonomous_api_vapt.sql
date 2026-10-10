@@ -139,3 +139,61 @@ END $$;
 REVOKE ALL ON FUNCTION public.api_vapt11_dependency_wakeup() FROM PUBLIC;
 CREATE TRIGGER api_vapt11_dependency_wakeup AFTER UPDATE OF status ON public.api_assessments
  FOR EACH ROW EXECUTE FUNCTION public.api_vapt11_dependency_wakeup();
+
+-- Database-level success authority: the worker cannot insert a composite success
+-- before the accepted offline and governed PT child authorities genuinely finish.
+-- This complements (never replaces) the fenced private worker's verification.
+CREATE FUNCTION public.api_vapt11_success_guard() RETURNS trigger
+ LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog,public AS $$
+DECLARE v record; parent_status text; offline_status text; runtime_status text;
+BEGIN
+ SELECT * INTO v FROM public.api_vapt11_assessments
+  WHERE tenant_id=NEW.tenant_id AND parent_assessment_id=NEW.parent_assessment_id;
+ IF NOT FOUND THEN RAISE EXCEPTION 'VAPT11_PARENT_CONTEXT_MISSING' USING ERRCODE='23514';END IF;
+ SELECT status INTO parent_status FROM public.api_assessments
+  WHERE tenant_id=NEW.tenant_id AND id=NEW.parent_assessment_id;
+ SELECT status INTO offline_status FROM public.api_assessments
+  WHERE tenant_id=NEW.tenant_id AND id=v.offline_assessment_id;
+ IF parent_status IS DISTINCT FROM 'PROCESSING' OR offline_status IS DISTINCT FROM 'COMPLETED'
+  OR NOT EXISTS (SELECT 1 FROM public.api_reports o
+    WHERE o.tenant_id=NEW.tenant_id AND o.assessment_id=v.offline_assessment_id
+     AND o.projection->>'mode'='SPEC_ONLY')
+ THEN RAISE EXCEPTION 'VAPT11_OFFLINE_OR_PARENT_NOT_COMPLETE' USING ERRCODE='23514';END IF;
+ IF NEW.projection->>'assessmentId' IS DISTINCT FROM NEW.parent_assessment_id::text OR
+  NEW.projection->>'offlineAssessmentId' IS DISTINCT FROM v.offline_assessment_id::text OR
+  NEW.projection->>'mode' IS DISTINCT FROM v.mode OR
+  NEW.projection->>'planFingerprint' IS DISTINCT FROM v.fingerprint OR
+  NEW.projection->>'customerNetworkRequests' IS DISTINCT FROM '0'
+ THEN RAISE EXCEPTION 'VAPT11_REPORT_CONTEXT_MISMATCH' USING ERRCODE='23514';END IF;
+ IF EXISTS(SELECT 1 FROM public.api_vapt11_terminal t
+   WHERE t.tenant_id=NEW.tenant_id AND t.parent_assessment_id=NEW.parent_assessment_id)
+ THEN RAISE EXCEPTION 'VAPT11_TERMINAL_ALREADY_SET' USING ERRCODE='23514';END IF;
+ IF v.pt_assessment_id IS NULL THEN
+  IF v.mode IS DISTINCT FROM 'OFFLINE_ONLY' OR
+   NEW.projection->>'fullAuthorizedVaptCompleted' IS DISTINCT FROM 'false' OR
+   NEW.projection->>'ptAssessmentId' IS NOT NULL
+  THEN RAISE EXCEPTION 'VAPT11_OFFLINE_CANNOT_CLAIM_RUNTIME' USING ERRCODE='23514';END IF;
+ ELSE
+  SELECT status INTO runtime_status FROM public.api_assessments
+   WHERE tenant_id=NEW.tenant_id AND id=v.pt_assessment_id;
+  IF runtime_status IS DISTINCT FROM 'COMPLETED' OR v.mode IS DISTINCT FROM 'GOVERNED_SYNTHETIC'
+   OR NEW.projection->>'fullAuthorizedVaptCompleted' IS DISTINCT FROM 'true' OR
+   NEW.projection->>'ptAssessmentId' IS DISTINCT FROM v.pt_assessment_id::text OR
+   NOT EXISTS(SELECT 1 FROM public.api_pt9_reports r
+    WHERE r.tenant_id=NEW.tenant_id AND r.assessment_id=v.pt_assessment_id
+     AND r.projection->>'status'='COMPLETED' AND r.projection->>'syntheticOnly'='true'
+     AND r.projection->>'customerRuntimeVerified'='false' AND
+     r.projection->>'verifiedFixed'='false') OR
+   NOT EXISTS(SELECT 1 FROM public.api_pt9_stages x
+     WHERE x.tenant_id=NEW.tenant_id AND x.assessment_id=v.pt_assessment_id) OR
+   EXISTS(SELECT 1 FROM public.api_pt9_stages x
+     WHERE x.tenant_id=NEW.tenant_id AND x.assessment_id=v.pt_assessment_id AND x.status<>'COMPLETED') OR
+   EXISTS(SELECT 1 FROM public.api_pt_detection_evaluations e
+     WHERE e.tenant_id=NEW.tenant_id AND e.assessment_id=v.pt_assessment_id AND e.state<>'CONSUMED')
+  THEN RAISE EXCEPTION 'VAPT11_RUNTIME_COMPONENT_NOT_COMPLETE' USING ERRCODE='23514';END IF;
+ END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION public.api_vapt11_success_guard() FROM PUBLIC;
+CREATE TRIGGER api_vapt11_success_guard BEFORE INSERT ON public.api_vapt11_reports
+ FOR EACH ROW EXECUTE FUNCTION public.api_vapt11_success_guard();
