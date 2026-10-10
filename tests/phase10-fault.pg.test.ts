@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {spawn} from "node:child_process";
 import {readFileSync} from "node:fs";
+import {Pool} from "pg";
 import {migrate,withTenant,withWorkerTenant,closeDatabase} from "../packages/database/src/index.js";
 import {makeApp} from "../packages/service/src/app.js";
 import {processOneJob} from "../packages/worker/src/index.js";
@@ -11,7 +12,7 @@ const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SECURITY_SOURCE=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
 type Response={statusCode:number;body:string;json:()=>Record<string,unknown>};
 const SUPPORTED=["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"];
-test("Phase10 real child SIGKILL: governed evaluation and durable checkpoint recovery without fixture replay",async()=>{
+test("Phase10 real child SIGKILL and backend disconnect: reservation, fixture, receipt and finalization are replay-safe",async()=>{
  await migrate();
  const app=await makeApp();
  const call=async(method:"GET"|"POST",url:string,data?:object,key?:string,authority=false):Promise<Response>=>
@@ -33,7 +34,8 @@ test("Phase10 real child SIGKILL: governed evaluation and durable checkpoint rec
    const value=(normalized.json() as unknown as {method:string;path:string;key:string}[]).find(x=>x.path===path&&x.method==="GET")?.key;
    assert.ok(value,path);return value;
   });
-  for(const scenario of ["after-evaluation","after-checkpoint","after-report"]){
+  for(const scenario of ["before-reservation","after-reservation","after-fixture-before-receipt",
+   "db-disconnect-before-receipt","after-evaluation","after-checkpoint","before-finalization","after-report"]){
    const scope=await call("POST","/v6/pt/targets/"+tid+"/scopes",{
     specificationId:sid,operationKeys:keys,fixtureId:"pt-security-v1",exclusions:[],
     maxEvaluations:4,ratePerMinute:4,maxConcurrency:1,deadlineMs:30000,validityMinutes:15
@@ -71,6 +73,21 @@ test("Phase10 real child SIGKILL: governed evaluation and durable checkpoint rec
      assert.equal(before.ledger.filter(x=>x.state==="CONSUMED").length,4);
      assert.equal(before.stages.find(x=>x.stage_id==="finalization")?.status,"COMPLETED");
     }
+    if(scenario==="before-reservation")assert.equal(before.ledger.length,0);
+    if(["after-reservation","after-fixture-before-receipt","db-disconnect-before-receipt"].includes(scenario))
+     assert.deepEqual(before.ledger.map(x=>x.state),["RESERVED"],
+      "durable governor reservation must exist without forged receipt or consumption");
+    if(scenario==="before-finalization"){
+     assert.equal(before.ledger.filter(x=>x.state==="CONSUMED").length,4);
+     assert.equal(before.stages.find(x=>x.stage_id==="finalization")?.status,"RUNNING");
+    }
+    if(scenario==="db-disconnect-before-receipt"){
+     const admin=new Pool({connectionString:process.env.MIGRATION_DATABASE_URL,max:1});
+     try{
+      const ended=await admin.query("SELECT pg_terminate_backend($1::int) AS disconnected",[Number(event.detail)]);
+      assert.equal(ended.rows[0].disconnected,true,"real worker PostgreSQL backend terminated during in-flight receipt");
+     }finally{await admin.end();}
+    }
     const dead=new Promise<NodeJS.Signals|null>(resolve=>child.once("exit",(_code,signal)=>resolve(signal)));
     child.kill("SIGKILL");
     assert.equal(await dead,"SIGKILL","real kernel kill, not a thrown exception");
@@ -84,10 +101,15 @@ test("Phase10 real child SIGKILL: governed evaluation and durable checkpoint rec
      assert.equal(queue.rowCount,0,"report committed and queued acknowledgment in one transaction");
     }
     const completed=await call("GET","/v9/pt/orchestrations/"+jid);ok(completed,200);
-    assert.equal(completed.json().status,"COMPLETED",completed.body);
-    const report=await call("GET","/v9/pt/orchestrations/"+jid+"/report");ok(report,200);
+    const uncertain=["after-reservation","after-fixture-before-receipt",
+     "db-disconnect-before-receipt"].includes(scenario);
+    assert.equal(completed.json().status,uncertain?"FAILED":"COMPLETED",completed.body);
+    const report=await call("GET","/v9/pt/orchestrations/"+jid+"/report");
+    ok(report,uncertain?409:200);
+    if(!uncertain){
     assert.equal(report.json().customerNetworkRequests,0);
     assert.equal(report.json().verifiedFixed,false);
+    }
     const persisted=await withTenant(A,async tx=>{
      const ledger=await tx.query("SELECT evaluation_key,state FROM api_pt_detection_evaluations WHERE assessment_id=$1 ORDER BY evaluation_key",[jid]);
      const permit=await tx.query("SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[permitId]);
@@ -95,6 +117,14 @@ test("Phase10 real child SIGKILL: governed evaluation and durable checkpoint rec
      const reports=await tx.query("SELECT count(*)::int AS n FROM api_pt9_reports WHERE assessment_id=$1",[jid]);
      return {ledger:ledger.rows,permit:permit.rows[0],attempts:attempts.rows,reports:reports.rows[0].n};
     });
+    if(uncertain){
+     assert.equal(persisted.ledger.length,1,"at most one possibly invoked fixture; never replay");
+     assert.equal(persisted.ledger[0].state,"UNCERTAIN","no RESERVED may become presumed successful");
+     assert.equal(persisted.permit.consumed,1,"unknown reservation consumes one governor budget");
+     assert.equal(persisted.permit.reserved,0,"no phantom budget reservation persists");
+     assert.equal(persisted.reports,0,"UNKNOWN / UNCERTAIN forbids successful report");
+     assert.deepEqual(persisted.attempts.map(x=>x.state),["LOST","FAILED"]);
+    }else{
     assert.equal(persisted.ledger.length,4,"no duplicate governed fixture interaction");
     assert.ok(persisted.ledger.every(x=>x.state==="CONSUMED"));
     assert.equal(persisted.permit.consumed,4);
@@ -103,6 +133,7 @@ test("Phase10 real child SIGKILL: governed evaluation and durable checkpoint rec
      scenario==="after-report"?["COMPLETED"]:["LOST","COMPLETED"],
      "attempt finalization must be committed atomically with the report, even after SIGKILL");
     assert.equal(persisted.reports,1,"exactly one authoritative report");
+    }
    }finally{if(child.exitCode===null&&!child.killed)child.kill("SIGKILL");}
   }
  }finally{await app.close();await closeDatabase();}
