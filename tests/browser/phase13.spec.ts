@@ -64,7 +64,7 @@ test("Phase13 real Chromium keyboard, narrow layout, 200-percent text, RTL, redu
  await expect(section.getByRole("table",{name:"Observed report capacity — not a bill or subscription"})).toBeVisible();
  await page.getByLabel("Select target").selectOption(next);
  await expect(section).toContainText(next.slice(0,12));
- await expect(section).not.toContainText(old.slice(0,12),"old tenant/target identifier must not be retained after context switch");
+ await expect(section).not.toContainText(old.slice(0,12));
  const check=await request.get("http://127.0.0.1:3001/v13/decisions",{headers:auth});
  expect((await check.json() as {allowed:boolean}).allowed).toBe(false);
 });
