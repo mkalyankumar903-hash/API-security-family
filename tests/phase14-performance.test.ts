@@ -11,7 +11,7 @@ function stats(samples:number[]){
   p95Ms:Number(ordered[Math.ceil(0.95*ordered.length)-1]!.toFixed(3)),
   minMs:Number(ordered[0]!.toFixed(3)),maxMs:Number(ordered[ordered.length-1]!.toFixed(3))};
 }
-const fixture=JSON.stringify({openapi:"3.0.3",info:{title:"Phase14 bounded synthetic",version:"1.0.0"},
+const fixture=JSON.stringify({openapi:"3.1.0",info:{title:"Phase14 bounded synthetic",version:"1.0.0"},
  paths:Object.fromEntries(Array.from({length:120},(_,i)=>["/offline/test-"+i,
   {get:{operationId:"synthetic"+i,responses:{"200":{description:"fixture"}}}}]))});
 test("Phase14 repeatable fixed 120-operation offline parsing and assessment benchmark",()=>{
