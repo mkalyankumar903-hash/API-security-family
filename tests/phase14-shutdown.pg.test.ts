@@ -88,6 +88,14 @@ test("Phase14 genuine active claim cooperative SIGTERM releases unstarted lease 
   assert.equal(db.status,"PROCESSING");
   assert.equal(db.reports,0);assert.equal(db.ledger,0);
   assert.equal(db.attempts[0].state,"LOST");
+  // Terminally cancel this intentionally unstarted fixture so the following
+  // real stalled-worker test can only claim its own fresh eligible job.
+  const app=await makeApp();
+  try{
+   const cancel=await app.inject({method:"POST",url:"/v1/assessments/"+id+"/cancel",
+    payload:{},headers:{authorization:"Bearer local-test-token-alpha"}});
+   assert.equal(cancel.statusCode,200,cancel.body);
+  }finally{await app.close();}
  }finally{if(child.exitCode===null)child.kill("SIGKILL");}
 });
 test("Phase14 real blocked worker exceeds bounded deadline then fresh worker recovers fenced PostgreSQL claim",async()=>{
