@@ -122,12 +122,16 @@ test("Phase14 real React SDK Fastify PostgreSQL readback handles empty lists and
  await page.route("**/v13/reconciliations?*",route=>route.fulfill({
   status:503,contentType:"application/json",body:JSON.stringify({error:"HOST_UNAVAILABLE"})}));
  await page.reload();
+ // The dev token is intentionally React-only, never stored across a reload.
+ await page.getByLabel("Synthetic development token (never a production login)").fill("local-test-token-beta");
  await page.getByLabel("Select target").selectOption(id);
  await expect(section.getByRole("alert")).toContainText("HOST_UNAVAILABLE");
  await expect(section.getByRole("table")).toHaveCount(0);
  await expect(section.getByText("HOST_AUTHORITY_NOT_CONFIGURED")).toHaveCount(0);
  await page.unroute("**/v13/reconciliations?*");
  await page.reload();
+ // The dev token is intentionally React-only, never stored across a reload.
+ await page.getByLabel("Synthetic development token (never a production login)").fill("local-test-token-beta");
  await page.getByLabel("Select target").selectOption(id);
  await expect(section.getByText("HOST_AUTHORITY_NOT_CONFIGURED")).toBeVisible();
  await expect(section.getByRole("table",{name:"Observed report capacity — not a bill or subscription"})).toBeVisible();
