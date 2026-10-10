@@ -139,7 +139,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
     {targetId&&<PtConsole key={"pt6-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"}/>}
     {targetId&&<PtProductExplorer key={"pt8-"+targetId+token} token={token} targetId={targetId}/>}
     {targetId&&<PtOrchestrationConsole key={"pt9-"+targetId+token} token={token} targetId={targetId}/>}
-    {targetId&&<AutonomousVaptWorkspace key={"vapt11-"+targetId+token} token={token} targetId={targetId}/>}
+    {targetId&&<div id="vapt11-panel"><AutonomousVaptWorkspace key={"vapt11-"+targetId+token} token={token} targetId={targetId}/></div>}
     {targetId&&<TargetOnboarding key={targetId+token} token={token} targetId={targetId} onChanged={reloadTargets}/>}
     {targetId&&<SpecDiscoveryExplorer key={"discovery-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"} onSelected={async id=>{
       const updated=await call<Specification[]>(token,"/v1/targets/"+targetId+"/specifications");

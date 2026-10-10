@@ -1,4 +1,5 @@
 import React,{useEffect,useState} from "react";
+import {Phase12ReportControls} from "./Phase12ReportControls.js";
 const BASE=(typeof import.meta.env==="object"&&import.meta.env.VITE_API_BASE)||"http://127.0.0.1:3001";
 type Overview={targets:{lifecycle:string;count:number}[];specificationCount:number;
  assessments:{status:string;mode:string;engine_version:string;count:number}[];
@@ -107,6 +108,7 @@ export function Phase12Workspace({token,targetId}:{token:string;targetId:string}
    <h4>Limitations</h4><ul>{report.limitations.map((l,i)=><li key={i}>{l}</li>)}</ul>
    <button type="button" onClick={jsonExport}>Download authorized JSON presentation</button>
    <button type="button" onClick={pdfExport}>Download authorized PDF report</button>
+   <Phase12ReportControls key={targetId+reportId+token} token={token} targetId={targetId} reportId={reportId} findings={report.findings}/>
   </div>}
   <h3>Optional read-only AI</h3><p role="status">{aiMode} — no model provider configured or invoked. The assistant cannot start scans or change security evidence.</p>
  </section>;
