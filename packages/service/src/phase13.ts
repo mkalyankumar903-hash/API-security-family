@@ -4,6 +4,7 @@ import {randomUUID} from "node:crypto";
 import {withTenant,phase13TestFaultBarrier} from "../../database/src/index.js";
 import type {PoolClient} from "pg";
 import {PtError} from "./pt.js";
+import {verifyStoredTestPermit,type PtClaims} from "../../pt/src/permit.js";
 import {verifySyntheticEvent,verifySyntheticExternalSnapshot,verifySyntheticCorrection,fingerprint,unit,features,commercialFeatureCatalog,type Feature} from "../../contracts/src/commercial-v13.js";
 const fail=(code:string,status=409):never=>{throw new PtError(status,code);};
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -71,8 +72,10 @@ async function qualifiedSource(tx:PoolClient,reportId:string,feature:Feature){
    a.status AS parent_status,o.status AS offline_status,
    off.projection AS offline_projection,
    pt.status AS pt_status,pr.fingerprint AS pt_fingerprint,pr.projection AS pt_projection,
-   permit.token_hash AS permit_hash,permit.signed_token AS signed_permit,
-   permit.revoked_at AS permit_revoked
+   permit.token_hash AS permit_hash,permit.signed_body AS stored_permit_body,
+   permit.claims AS stored_permit_claims,permit.revoked_at AS permit_revoked,
+   permit.scope_id AS stored_permit_scope_id,permit.expires_at AS stored_permit_expires_at,
+   pr.created_at AS pt_report_created_at
    FROM public.api_vapt11_reports r
    JOIN public.api_vapt11_assessments v ON v.tenant_id=r.tenant_id AND v.parent_assessment_id=r.parent_assessment_id
    JOIN public.api_assessments a ON a.tenant_id=v.tenant_id AND a.id=v.parent_assessment_id
@@ -96,8 +99,20 @@ async function qualifiedSource(tx:PoolClient,reportId:string,feature:Feature){
    v.pt_projection?.status!=="COMPLETED"||v.pt_projection?.syntheticOnly!==true||
    v.pt_projection?.verifiedFixed!==false||v.pt_projection?.customerRuntimeVerified!==false||
    typeof v.permit_hash!=="string"||!/^[a-f0-9]{64}$/.test(v.permit_hash)||
-   typeof v.signed_permit!=="string"||v.signed_permit.length<32||v.permit_revoked)
+   typeof v.stored_permit_body!=="string"||v.stored_permit_body.length<32||
+   !v.stored_permit_claims||v.permit_revoked)
   fail("SIGNED_GOVERNED_PT_EVIDENCE_MISSING");
+ // Reconstruct and independently validate the original signed CI permit without
+ // persisting its bearer. Historical source validity is evaluated at durable PT
+ // terminal publication, not at observation time after the permit may expire.
+ try{
+  const signed=verifyStoredTestPermit(v.stored_permit_claims as PtClaims,
+    String(v.permit_hash),String(v.stored_permit_body),
+    Date.parse(String(v.pt_report_created_at)));
+  if(signed.permitId===undefined||signed.scopeId!==v.stored_permit_scope_id||
+     signed.tenantId!==String((await tx.query("SELECT current_setting('api.tenant_id') AS id")).rows[0].id))
+    fail("SIGNED_GOVERNED_PT_EVIDENCE_MISSING");
+ }catch{fail("SIGNED_GOVERNED_PT_EVIDENCE_MISSING");}
  return {fingerprint:fingerprint(JSON.stringify({report:v.report_fingerprint,ptId:v.pt_assessment_id,
    ptFingerprint:v.pt_fingerprint,permitHash:v.permit_hash})),child:String(v.pt_assessment_id),
    type:"SIGNED_GOVERNED_SYNTHETIC_PT",permit:String(v.permit_hash)};
