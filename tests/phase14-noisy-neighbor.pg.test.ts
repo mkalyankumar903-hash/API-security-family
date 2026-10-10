@@ -60,7 +60,7 @@ test("Phase14 PostgreSQL sustained 68:10 imbalanced tenant admission, fairness a
   const done=new Set<string>(),maxActive={A:0,B:0};
   const startedAt=performance.now();
   await Promise.all(Array.from({length:3},async()=>{
-   while(done.size<all.length&&performance.now()-startedAt<60000){
+   while(done.size<aIds.length+bIds.length&&performance.now()-startedAt<60000){
     const work=await processOneJob();
     if(!work)await new Promise(resolve=>setTimeout(resolve,30));
     const rows=await withTenant(A,tx=>tx.query(
