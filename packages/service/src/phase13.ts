@@ -113,8 +113,8 @@ async function qualifiedSource(tx:PoolClient,reportId:string,feature:Feature){
     String(v.stored_permit_body),proofInstant);
   const lineage=await tx.query("SELECT "+
    "(SELECT count(*)::int FROM public.api_pt9_stages st WHERE st.assessment_id=$1 AND st.status<>'COMPLETED') AS unfinished,"+
-   "(SELECT count(*)::int FROM public.api_pt_detection_evaluations ev WHERE ev.assessment_id=$1 AND ev.state='CONSUMED') AS authorized_evaluations",
-   [String(v.pt_assessment_id)]);
+   "(SELECT count(*)::int FROM public.api_pt_detection_evaluations ev WHERE ev.assessment_id=$1 AND ev.permit_id=$2 AND ev.state='CONSUMED') AS authorized_evaluations",
+   [String(v.pt_assessment_id),String(v.stored_permit_id)]);
   if(signed.permitId!==v.stored_permit_id||signed.scopeId!==v.stored_permit_scope_id||
      signed.tenantId!==String((await tx.query("SELECT current_setting('api.tenant_id') AS id")).rows[0].id))
     throw new Error("SIGNED_PT_SCOPE_OR_TENANT_PROVENANCE_MISMATCH");
