@@ -48,8 +48,10 @@ test("Phase12 populated 015→016 preserves original immutable reports, VAPT lin
    {id:offline,status:"COMPLETED",engine:"legacy-v1",key:"historic-offline-2026"},
    {id:parent,status:"PROCESSING",engine:"autonomous-api-vapt-v1",key:"historic-vapt-parent"},
    {id:queued,status:"QUEUED",engine:"legacy-v1",key:"historic-private-queue"}]){
-    await database.query("INSERT INTO public.api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version) VALUES($1,$2,$3,$4,$5,'SPEC_ONLY',$6,$7)",
-    [item.id,tenant,target,spec,item.status,item.key,item.engine]);
+    const advanced=item.engine!=="legacy-v1";
+    await database.query("INSERT INTO public.api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version,inventory_version,inventory_raw_fingerprint,inventory_fingerprint) VALUES($1,$2,$3,$4,$5,'SPEC_ONLY',$6,$7,$8,$9,$10)",
+    [item.id,tenant,target,spec,item.status,item.key,item.engine,
+     advanced?1:null,advanced?fingerprint:null,advanced?"b".repeat(64):null]);
   }
   await database.query("INSERT INTO public.api_reports(id,tenant_id,assessment_id,projection) VALUES($1,$2,$3,$4::jsonb)",
    [randomUUID(),tenant,offline,JSON.stringify(offlineProjection)]);
