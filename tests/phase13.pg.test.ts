@@ -390,5 +390,25 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
    assert.equal((await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_qa_delivery"))).rows[0].n,0);
    await assert.rejects(()=>withTenant(A,tx=>tx.query("DELETE FROM public.api_v13_qa_delivery WHERE id=$1",[first.id])));
   });
+  await t.test("018 forged offline source fingerprint cannot settle into immutable ledger or emit outbox",async()=>{
+   const fresh=await produceReport(),rid=randomUUID();
+   const before=await withTenant(A,tx=>tx.query("SELECT (SELECT count(*) FROM public.api_v13_usage_ledger)::int AS ledgers,(SELECT count(*) FROM public.api_v13_outbox)::int AS outbox"));
+   const source=await withTenant(A,tx=>tx.query("SELECT offline_assessment_id FROM public.api_vapt11_assessments WHERE parent_assessment_id=$1",[fresh]));
+   assert.equal(source.rowCount,1);
+   const entitlement=await withTenant(A,tx=>tx.query(
+    "SELECT entitlement_id,revision FROM public.api_v13_entitlement_events WHERE feature='OFFLINE_API_ASSESSMENT_COMPLETED' ORDER BY revision DESC LIMIT 1"));
+   assert.equal(entitlement.rowCount,1);
+   await withTenant(A,async tx=>{
+    await tx.query("INSERT INTO public.api_v13_reservations(id,tenant_id,entitlement_id,feature,source_report_id,month_start,idempotency_key,units,expires_at) VALUES($1,$2,$3,'OFFLINE_API_ASSESSMENT_COMPLETED',$4,date_trunc('month',clock_timestamp() AT TIME ZONE 'UTC')::date,$5,1,clock_timestamp()+interval '1 hour')",
+     [rid,A,entitlement.rows[0].entitlement_id,fresh,"phase13-forged-provenance-"+randomUUID()]);
+    await tx.query("INSERT INTO public.api_v13_feature_sources(id,tenant_id,reservation_id,feature,source_type,source_report_id,source_assessment_id,source_fingerprint,terminal_outcome,entitlement_revision) VALUES($1,$2,$3,'OFFLINE_API_ASSESSMENT_COMPLETED','PERSISTED_OFFLINE_REPORT',$4,$5,$6,'COMPLETED',$7)",
+     [randomUUID(),A,rid,fresh,source.rows[0].offline_assessment_id,"0".repeat(64),entitlement.rows[0].revision]);
+   });
+   await assert.rejects(()=>settleFeatureObservation(A,rid),/SOURCE_FINGERPRINT_OR_ENTITLEMENT_REVISION_MISMATCH/);
+   assert.equal((await closeReservation(A,rid)).state,"RELEASED");
+   const after=await withTenant(A,tx=>tx.query("SELECT (SELECT count(*) FROM public.api_v13_usage_ledger)::int AS ledgers,(SELECT count(*) FROM public.api_v13_outbox)::int AS outbox"));
+   assert.deepEqual(after.rows,before.rows,"untrusted source fingerprint cannot create usage or outbox events");
+   assert.equal((await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_feature_sources WHERE reservation_id=$1",[rid]))).rows[0].n,0);
+  });
  }finally{await app.close();await closeDatabase();}
 });
