@@ -13,7 +13,7 @@ import {enqueueQaDelivery,claimQaDelivery,consumeQaSink,ackQaDelivery,failQaDeli
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
 test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=>{
- await migrate();await migrate();
+ await Promise.all([migrate(),migrate(),migrate()]);
  const app=await makeApp(),key=randomBytes(48),entitlementId=randomUUID();
  const call=(method:"GET"|"POST",url:string,payload?:unknown,beta=false,idem?:string)=>
   app.inject({method,url,payload:payload as object|undefined,headers:{
