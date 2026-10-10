@@ -29,11 +29,36 @@ test -s "$DUMP"
 psql -X -v ON_ERROR_STOP=1 -h "$HOST" -p "$PORT" -U "$ADMIN" -d postgres -q -c "CREATE DATABASE $RESTORE_DB;"
 pg_restore -h "$HOST" -p "$PORT" -U "$ADMIN" -d "$RESTORE_DB" --no-owner --exit-on-error "$DUMP" >/dev/null
 test "$(admin_sql "$RESTORE_DB" "SELECT count(*) FROM public.api_schema_migrations")" = "19"
-for table in api_assessments api_v13_usage_ledger api_v13_usage_corrections api_v13_feature_sources api_v13_outbox api_v13_qa_sink_receipts; do
-  source_fp="$(fingerprint "$SOURCE_DB" "$table")"
-  restored_fp="$(fingerprint "$RESTORE_DB" "$table")"
+# Compare EVERY persisted business and private-queue table, not six hand-picked
+# tables. The same catalog-generated qualified identifiers are used in each DB.
+# This preserves targets/history, inventories, findings, PT permits, worker leases,
+# reports, usage/corrections, reconciliation and QA-only state byte-for-byte
+# at the logical row level. A newly added table cannot silently escape the drill.
+tables="$(admin_sql "$SOURCE_DB" "SELECT format('%I.%I',n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','api_queue') AND c.relkind='r' ORDER BY n.nspname,c.relname")"
+restore_tables="$(admin_sql "$RESTORE_DB" "SELECT format('%I.%I',n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','api_queue') AND c.relkind='r' ORDER BY n.nspname,c.relname")"
+if [[ -z "$tables" || "$tables" != "$restore_tables" ]]; then
+ echo "PHASE14_DR_TABLE_SET_MISMATCH"; exit 1
+fi
+table_count=0
+while IFS= read -r table; do
+  [[ -z "$table" ]] && continue
+  source_fp="$(admin_sql "$SOURCE_DB" "SELECT count(*)::text||':'||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'|' ORDER BY row_to_json(t)::text),'')) FROM $table t")"
+  restored_fp="$(admin_sql "$RESTORE_DB" "SELECT count(*)::text||':'||md5(COALESCE(string_agg(md5(row_to_json(t)::text),'|' ORDER BY row_to_json(t)::text),'')) FROM $table t")"
   if [[ "$source_fp" != "$restored_fp" ]]; then echo "PHASE14_DR_FINGERPRINT_MISMATCH $table"; exit 1; fi
+  table_count=$((table_count+1))
+done <<< "$tables"
+if (( table_count < 35 )); then echo "PHASE14_DR_UNEXPECTED_SCHEMA_COVERAGE"; exit 1; fi
+for database in "$SOURCE_DB" "$RESTORE_DB"; do
+  # Catalog checks cover both RLS-enable and FORCE-RLS bits on every table.
+  flags="$(admin_sql "$database" "SELECT string_agg(n.nspname||'.'||c.relname||':'||c.relrowsecurity||':'||c.relforcerowsecurity, '|' ORDER BY n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','api_queue') AND c.relkind='r'")"
+  if [[ "$database" == "$SOURCE_DB" ]]; then source_flags="$flags"
+  elif [[ "$flags" != "$source_flags" ]]; then echo "PHASE14_DR_RLS_CATALOG_MISMATCH"; exit 1
+  fi
 done
+# PostgreSQL's restored FK constraints must continue matching the source.
+source_constraints="$(admin_sql "$SOURCE_DB" "SELECT count(*) FROM pg_constraint WHERE contype IN ('f','u','p','c') AND connamespace IN (SELECT oid FROM pg_namespace WHERE nspname IN ('public','api_queue'))")"
+restore_constraints="$(admin_sql "$RESTORE_DB" "SELECT count(*) FROM pg_constraint WHERE contype IN ('f','u','p','c') AND connamespace IN (SELECT oid FROM pg_namespace WHERE nspname IN ('public','api_queue'))")"
+test "$source_constraints" = "$restore_constraints"
 for table in api_v13_usage_ledger api_v13_qa_delivery api_v13_qa_delivery_events api_v13_qa_sink_receipts; do
   secure="$(admin_sql "$RESTORE_DB" "SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid='public.$table'::regclass")"
   test "$secure" = "t"
@@ -54,4 +79,4 @@ if pg_restore -h "$HOST" -p "$PORT" -U "$ADMIN" -d "$BAD_DB" --exit-on-error "$B
   echo "PHASE14_DR_MALFORMED_RESTORE_FALSE_SUCCESS"; exit 1
 fi
 ended="$(date +%s%3N)"
-echo "PHASE14_SYNTHETIC_BACKUP_RESTORE_PASS elapsedMs=$((ended-started)) tableFingerprints=6 migrationCount=19 rls=FORCED qaPrivilege=DENIED malformedRestore=REJECTED"
+echo "PHASE14_SYNTHETIC_BACKUP_RESTORE_PASS elapsedMs=$((ended-started)) tableFingerprints=$table_count migrationCount=19 rls=FORCED qaPrivilege=DENIED malformedRestore=REJECTED"
