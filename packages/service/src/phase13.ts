@@ -289,7 +289,7 @@ export async function reconcileSyntheticExternalSnapshot(t:string,raw:Uint8Array
 export function registerPhase13Routes(app:FastifyInstance,identity:(req:FastifyRequest)=>string){
  app.get("/v13/capabilities",async()=>({schemaVersion:"api-family-commercial-v13",syntheticOnly:true,
   productionHostIntegration:false,hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",
-  meterDefinitions:commercialFeatureCatalog.map(x=>({feature:x.feature,version:x.version,unit:x.evidence,billable:false,syntheticOnly:true})),
+  meterDefinitions:commercialFeatureCatalog.map(x=>({feature:x.feature,version:x.version,unit:x.meterUnit,billable:false,syntheticOnly:true})),
   featureDefinitions:commercialFeatureCatalog,
   scanningAuthority:false,verifiedFixedAuthority:false}));
  app.get("/v13/entitlements",async req=>({projection:await projection(identity(req))}));
