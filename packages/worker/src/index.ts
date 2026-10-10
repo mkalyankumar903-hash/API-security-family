@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import {emitDiagnostic} from "../../contracts/src/operational-diagnostics-v14.js";
 import { assess, parseAndValidateSpec } from "../../assessment-engine/src/index.js";
 import {detectInventory} from "../../assessment-engine/src/inventory.js";
 import {detectRichInventory} from "../../assessment-engine/src/rich.js";
@@ -179,7 +178,7 @@ export async function processOneJob(options:{signal?:AbortSignal}={}): Promise<b
       reason:null;
     const disposition=await scheduleConservativeRetry(lease,error).catch(()=>"NOT_RETRYABLE" as const);
     if(disposition==="RETRY_SCHEDULED"||disposition==="RETRY_EXHAUSTED")return true;
-    emitDiagnostic({kind:"WORKER_TERMINAL",classification:poison?"VALIDATION":disposition==="STALE"?"STALE":"INTERNAL",statusCode:409,attempt:lease.claim_generation});
+    // Terminal diagnostics are emitted only by finishWorkerAttempt after SQL commit.
     // Failed work is auditable; never mark a failed assessment as successful.
     await withWorkerTenant(tenant, async tx => {
       const leaseCheck = await tx.query("SELECT claim_token,claim_generation,locked_until>clock_timestamp() AS lease_valid FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
