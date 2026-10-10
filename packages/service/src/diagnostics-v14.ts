@@ -1,11 +1,16 @@
 /** Phase14: allowlisted, bounded synthetic diagnostics. No arbitrary Error or payload serialization. */
-export type DiagnosticKind="HTTP_REJECTED"|"HTTP_COMPLETED"|"WORKER_RETRY"|"DB_CONTENTION"|"RESOURCE_REJECTED";
-export type DiagnosticClass="AUTH"|"VALIDATION"|"CAPACITY"|"TIMEOUT"|"CONFLICT"|"INTERNAL"|"OK";
+export type DiagnosticKind="HTTP_REJECTED"|"HTTP_COMPLETED"|"ASSESSMENT_ADMISSION"|"QUEUE_CLAIM"|"LEASE_RENEWAL"|"WORKER_RETRY"|"WORKER_TERMINAL"|"DB_CONTENTION"|"RESOURCE_REJECTED"|"REPORT_RENDER"|"METER_SETTLEMENT"|"QA_DELIVERY";
+export type DiagnosticClass="AUTH"|"VALIDATION"|"CAPACITY"|"TIMEOUT"|"CONFLICT"|"INTERNAL"|"OK"|"STALE"|"RETRY"|"EXHAUSTED";
 export type DiagnosticInput={
  kind:DiagnosticKind;classification:DiagnosticClass;statusCode:number;durationMs?:number;
  requestId?:unknown;attempt?:number;queueWaitMs?:number;
 };
 const safeId=/^[a-f0-9-]{1,64}$/i;
+const KINDS=new Set<DiagnosticKind>(["HTTP_REJECTED","HTTP_COMPLETED","ASSESSMENT_ADMISSION",
+ "QUEUE_CLAIM","LEASE_RENEWAL","WORKER_RETRY","WORKER_TERMINAL","DB_CONTENTION",
+ "RESOURCE_REJECTED","REPORT_RENDER","METER_SETTLEMENT","QA_DELIVERY"]);
+const CLASSES=new Set<DiagnosticClass>(["AUTH","VALIDATION","CAPACITY","TIMEOUT","CONFLICT",
+ "INTERNAL","OK","STALE","RETRY","EXHAUSTED"]);
 function bounded(value:unknown,max:number):number|null {
  return typeof value==="number"&&Number.isFinite(value)&&value>=0
   ?Math.min(max,Math.round(value*100)/100):null;
@@ -14,8 +19,8 @@ function bounded(value:unknown,max:number):number|null {
 export function makeDiagnostic(input:DiagnosticInput){
  return {
   schemaVersion:"api-family-diagnostic-v1" as const,
-  kind:input.kind,
-  classification:input.classification,
+  kind:KINDS.has(input.kind)?input.kind:"RESOURCE_REJECTED" as const,
+  classification:CLASSES.has(input.classification)?input.classification:"INTERNAL" as const,
   statusCode:Number.isInteger(input.statusCode)&&input.statusCode>=100&&input.statusCode<=599?input.statusCode:500,
   requestId:typeof input.requestId==="string"&&safeId.test(input.requestId)?input.requestId:null,
   durationMs:bounded(input.durationMs,3600000),
@@ -25,7 +30,7 @@ export function makeDiagnostic(input:DiagnosticInput){
 }
 /** Local/CI output only. Never enable telemetry or a privileged read endpoint. */
 export function emitDiagnostic(input:DiagnosticInput):void{
- if(process.env.NODE_ENV==="production"||process.env.API_FAMILY_DIAGNOSTICS!=="true")return;
+ if(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true"||process.env.API_FAMILY_DIAGNOSTICS!=="true")return;
  process.stderr.write("API_FAMILY_DIAGNOSTIC "+JSON.stringify(makeDiagnostic(input))+"\n");
 }
 export function classifyHttp(status:number):DiagnosticClass{
