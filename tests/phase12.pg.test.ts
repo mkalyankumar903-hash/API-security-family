@@ -63,7 +63,7 @@ test("Phase12 PostgreSQL 16 authorized report workflow and isolation",async t=>{
   await t.test("versioned branding, concurrent optimistic conflict, separate tenant",async()=>{
    const body={displayName:"Independent Demo",reportTitle:"API Evidence",accentHex:"#123ABC",expectedVersion:0};
    const [x,y]=await Promise.all([call("PUT","/v12/branding",body),call("PUT","/v12/branding",body)]);
-   assert.deepEqual([x.statusCode,y.statusCode].sort(),[200,409],[x.body,y.body]);
+   assert.deepEqual([x.statusCode,y.statusCode].sort(),[200,409],x.body+" | "+y.body);
    const other=await call("GET","/v12/branding",undefined,undefined,true);ok(other,200);
    assert.equal(other.json().version,0);
    assert.equal((await call("PUT","/v12/branding",{...body,displayName:"LumicSec Verified"})).statusCode,400);
@@ -108,7 +108,7 @@ test("Phase12 PostgreSQL 16 authorized report workflow and isolation",async t=>{
     const request={stableKey:f,state:"FIX_CLAIMED",note:"Customer claim only",expectedVersion:0};
     const [x,y]=await Promise.all([call("POST","/v12/reports/"+rid+"/annotations",request),
      call("POST","/v12/reports/"+rid+"/annotations",request)]);
-    assert.deepEqual([x.statusCode,y.statusCode].sort(),[200,409],[x.body,y.body]);
+    assert.deepEqual([x.statusCode,y.statusCode].sort(),[200,409],x.body+" | "+y.body);
     assert.equal((x.statusCode===200?x:y).json().verifiedFixed,false);
     const historical=await withTenant(A,tx=>tx.query("SELECT version,state FROM api_v12_annotations WHERE parent_assessment_id=$1 AND stable_key=$2",[rid,f]));
     assert.equal(historical.rowCount,1);
