@@ -15,6 +15,7 @@ import {registerOrchestratorRoutes} from "./orchestrator.js";
 import {registerWorkerSafetyRoutes} from "./worker-safety.js";
 import {registerAutonomousVaptRoutes} from "./autonomous-vapt.js";
 import {registerPhase12Routes} from "./phase12.js";
+import {registerPhase12WorkflowRoutes} from "./phase12-workflows.js";
 
 class ApiError extends Error { constructor(public statusCode: number, public code: string) { super(code); } }
 const sessions = new WeakMap<FastifyRequest,string>();
@@ -192,5 +193,6 @@ export async function makeApp(): Promise<FastifyInstance> {
   registerWorkerSafetyRoutes(app,tenant);
   registerAutonomousVaptRoutes(app,tenant);
   registerPhase12Routes(app,tenant);
+  registerPhase12WorkflowRoutes(app,tenant);
   return app;
 }
