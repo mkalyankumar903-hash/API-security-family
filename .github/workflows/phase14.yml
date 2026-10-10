@@ -247,6 +247,8 @@ jobs:
           sudo apt-get install -y poppler-utils
       - name: Real PDF structure, text, multipage, Unicode and security tests
         run: node --import tsx --test tests/phase12-pdf-render.test.ts
+      - name: Phase14 genuine mid-render Chromium SIGKILL/timeout/recovery PDF test
+        run: node --import tsx --test tests/phase14-pdf-fault.test.ts
       - name: Real Chromium Phase11 focused asynchronous admission/cancellation regression
         if: ${{ contains(github.event.pull_request.title, '[phase14-p11]') }}
         run: npx playwright test tests/browser/phase11.spec.ts
