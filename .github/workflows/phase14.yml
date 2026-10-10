@@ -27,6 +27,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Phase14 frozen lockfile and live production dependency advisory classification
         run: node scripts/phase14-supply-chain.mjs
+      - name: Phase14 separate development tool advisory reachability audit
+        run: node scripts/phase14-dev-audit.mjs
       - name: ESLint all source and tests
         run: npm run lint
       - name: TypeScript strict
@@ -109,6 +111,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Phase14 frozen lockfile and live production dependency advisory classification
         run: node scripts/phase14-supply-chain.mjs
+      - name: Phase14 separate development tool advisory reachability audit
+        run: node scripts/phase14-dev-audit.mjs
       - name: Migrate fresh PostgreSQL schema through 019
         run: npm run migrate
       - name: Real tenant authorization, sharing, mutation and concurrency tests
@@ -323,6 +327,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Phase14 frozen lockfile and live production dependency advisory classification
         run: node scripts/phase14-supply-chain.mjs
+      - name: Phase14 separate development tool advisory reachability audit
+        run: node scripts/phase14-dev-audit.mjs
       - name: ESLint
         run: npm run lint
       - name: Strict TypeScript
@@ -481,6 +487,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Phase14 frozen lockfile and live production dependency advisory classification
         run: node scripts/phase14-supply-chain.mjs
+      - name: Phase14 separate development tool advisory reachability audit
+        run: node scripts/phase14-dev-audit.mjs
       - name: ESLint
         run: npm run lint
       - name: Strict TypeScript
@@ -713,6 +721,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Phase14 frozen lockfile and live production dependency advisory classification
         run: node scripts/phase14-supply-chain.mjs
+      - name: Phase14 separate development tool advisory reachability audit
+        run: node scripts/phase14-dev-audit.mjs
       - name: Synthetic performance and bounded-load samples
         run: node --import tsx --test tests/phase14-performance.test.ts
       - name: Synthetic inventory/diff/SDK samples
