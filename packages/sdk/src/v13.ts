@@ -28,6 +28,60 @@ export class V13ClientError extends Error{
 export type V13ClientOptions={
  baseUrl:string;accessToken:()=>string|Promise<string>;fetcher?:typeof fetch;timeoutMs?:number;maxRetries?:0|1|2;
 };
+const isObject=(v:unknown):v is Record<string,unknown>=>
+ typeof v==="object"&&v!==null&&!Array.isArray(v);
+const boundedStr=(v:unknown,max=256)=>typeof v==="string"&&v.length<=max;
+const whole=(v:unknown)=>typeof v==="number"&&Number.isSafeInteger(v)&&v>=0;
+function requireShape(ok:boolean):void{
+ if(!ok)throw new V13ClientError(200,"INVALID_RESPONSE");
+}
+function validateSummary(value:unknown):value is CommercialSummary{
+ if(!isObject(value))return false;
+ if(value.schemaVersion!=="api-family-commercial-v13"||
+  value.hostAuthority!=="HOST_AUTHORITY_NOT_CONFIGURED"||
+  value.billable!==false||!boundedStr(value.tenantContext)||
+  !boundedStr(value.feature)||!boundedStr(value.meterUnit)||
+  !boundedStr(value.monthStart,20)||!boundedStr(value.decision,300))return false;
+ for(const k of ["quota","consumed","reserved","remaining"]){
+  if(!whole(value[k]))return false;
+ }
+ if(value.entitlement!==null){
+  if(!isObject(value.entitlement)||!boundedStr(value.entitlement.id,80)||
+   !whole(value.entitlement.revision)||
+   !["ISSUED","REVOKED"].includes(String(value.entitlement.state))||
+   !boundedStr(value.entitlement.expiresAt,80)||
+   value.entitlement.syntheticOnly!==true)return false;
+ }
+ return true;
+}
+function validateV13Read(path:string,payload:unknown):void{
+ if(path==="/v13/capabilities"){
+  requireShape(isObject(payload)&&payload.schemaVersion==="api-family-commercial-v13"&&
+   payload.hostAuthority==="HOST_AUTHORITY_NOT_CONFIGURED"&&payload.scanningAuthority===false&&
+   Array.isArray(payload.meterDefinitions)&&payload.meterDefinitions.length<=20);
+ }else if(path==="/v13/usage/summary"){
+  requireShape(validateSummary(payload));
+ }else if(path==="/v13/entitlements"){
+  requireShape(isObject(payload)&&validateSummary(payload.projection));
+ }else if(path.startsWith("/v13/decisions?")){
+  requireShape(isObject(payload)&&payload.allowed===false&&
+   payload.code==="HOST_AUTHORITY_NOT_CONFIGURED"&&
+   typeof payload.syntheticProjectionWouldAllow==="boolean");
+ }else if(["/v13/usage/events?","/v13/usage/corrections?","/v13/reservations?","/v13/reconciliations?"]
+  .some(prefix=>path.startsWith(prefix))){
+  requireShape(Array.isArray(payload)&&payload.length<=100&&payload.every((row:unknown)=>{
+   if(!isObject(row)||!boundedStr(row.id,80))return false;
+   if(path.startsWith("/v13/usage/events?"))
+    return boundedStr(row.sourceReportId,80)&&whole(row.units);
+   if(path.startsWith("/v13/usage/corrections?"))
+    return boundedStr(row.sourceUsageId,80)&&typeof row.unitDelta==="number"&&
+     Number.isSafeInteger(row.unitDelta)&&boundedStr(row.reason,256);
+   if(path.startsWith("/v13/reservations?"))
+    return boundedStr(row.state,60)&&whole(row.units);
+   return boundedStr(row.state,60)&&whole(row.localUnits);
+  }));
+ }
+}
 export class V13Client{
  private readonly request:typeof fetch;
  private readonly base:string;
@@ -128,6 +182,7 @@ export class V13Client{
   if(!Array.isArray(payload)&&"schemaVersion" in payload&&
     payload.schemaVersion!=="api-family-commercial-v13")
    throw new V13ClientError(response.status,"SCHEMA_VERSION_MISMATCH");
+  validateV13Read(path,payload);
   return payload as T;
   }finally{clearTimeout(timer);}
  }
