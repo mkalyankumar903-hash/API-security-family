@@ -1,0 +1,187 @@
+openapi: 3.1.0
+info:
+  title: LumicSec API Family — Isolated Worker Safety Diagnostics
+  version: 10.0.0-synthetic
+  description: >-
+    Read-only, synthetic-only, tenant-bound worker execution diagnostics.
+    Queue ownership never grants security execution authority. Real customer API testing is not authorized.
+servers:
+  - url: http://127.0.0.1:3001
+security:
+  - syntheticDevelopmentBearer: []
+paths:
+  /v10/workers/assessments/{id}/execution:
+    get:
+      operationId: getSyntheticWorkerExecutionSafety
+      summary: Read persisted tenant-bound worker attempt and queue diagnostics
+      description: >-
+        Returns database-derived metadata only, never full signed bearer permits,
+        HMAC secrets, customer credentials or cross-tenant worker state.
+        The endpoint never mutates private queue records or retries execution.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 25
+            default: 20
+      responses:
+        "200":
+          description: Persisted synthetic execution diagnostics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerExecutionDiagnostics"
+        "400":
+          description: Invalid assessment ID or history limit
+        "401":
+          description: No development authorization bearer
+        "403":
+          description: Denied development identity
+        "404":
+          description: Assessment absent or belongs to another tenant
+components:
+  securitySchemes:
+    syntheticDevelopmentBearer:
+      type: http
+      scheme: bearer
+      description: >-
+        Nonproduction test-only identity mapping; disabled for production.
+        Not a Host credential and not a security testing permit.
+  schemas:
+    WorkerExecutionDiagnostics:
+      type: object
+      required:
+        - schemaVersion
+        - syntheticOnly
+        - customerNetworkRequests
+        - realCustomerApiTestingAuthorized
+        - warning
+        - assessment
+        - execution
+        - queue
+        - attempts
+        - events
+        - quarantine
+      properties:
+        schemaVersion:
+          type: string
+          const: pt-worker-safety-v1
+        syntheticOnly:
+          type: boolean
+          const: true
+        customerNetworkRequests:
+          type: integer
+          const: 0
+        realCustomerApiTestingAuthorized:
+          type: boolean
+          const: false
+        warning:
+          type: string
+          const: WORKER RECOVERY DOES NOT GRANT NEW SECURITY AUTHORITY
+        assessment:
+          type: object
+          required: [id, status, engine_version, created_at]
+          properties:
+            id: {type: string, format: uuid}
+            status: {type: string, enum: [QUEUED, PROCESSING, COMPLETED, FAILED, CANCELLED]}
+            engine_version: {type: string}
+            error_code: {type: [string, "null"]}
+            created_at: {type: string, format: date-time}
+            completed_at: {type: [string, "null"], format: date-time}
+        execution:
+          type: object
+          required: [queueRecordId, currentAttemptId, lifecycle, deadline, authorization, checkpoints, receipts, terminalReason, provenance]
+          properties:
+            queueRecordId: {type: [string, "null"], format: uuid}
+            currentAttemptId: {type: [string, "null"], format: uuid}
+            lifecycle: {type: string, enum: [QUEUED, PROCESSING, COMPLETED, FAILED, CANCELLED]}
+            deadline: {type: [string, "null"], format: date-time}
+            terminalReason: {type: [string, "null"]}
+            provenance:
+              type: string
+              const: POSTGRESQL_PRIVATE_WORKER_AND_GOVERNED_LEDGER
+            authorization:
+              oneOf:
+                - type: "null"
+                - type: object
+                  properties:
+                    permitId: {type: string, format: uuid}
+                    permitExpiresAt: {type: string, format: date-time}
+                    status:
+                      type: string
+                      enum: [REVOKED, EMERGENCY_STOPPED, TARGET_NOT_ACTIVE, VALIDITY_REQUIRES_GOVERNOR_RECHECK]
+                    consumed: {type: integer, minimum: 0}
+                    reserved: {type: integer, minimum: 0}
+                    rateUsed: {type: integer, minimum: 0}
+            checkpoints:
+              type: array
+              maxItems: 6
+              items:
+                type: object
+                properties:
+                  stage_id: {type: string}
+                  status: {type: string}
+                  ordinal: {type: integer}
+                  reason: {type: [string, "null"]}
+            receipts:
+              type: array
+              maxItems: 3
+              items:
+                type: object
+                properties:
+                  state: {type: string, enum: [RESERVED, CONSUMED, UNCERTAIN]}
+                  total: {type: integer, minimum: 0}
+        queue:
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                queueState:
+                  type: string
+                  enum: [LEASED, RETRY_DELAYED, EXPIRED, QUEUED]
+                claimGeneration: {type: integer, minimum: 0}
+                lockedUntil: {type: [string, "null"], format: date-time}
+                lastHeartbeatAt: {type: [string, "null"], format: date-time}
+                nextEligibleAt: {type: [string, "null"], format: date-time}
+                retryCount: {type: integer, minimum: 0, maximum: 4}
+                lastErrorCode: {type: [string, "null"]}
+                queuedAt: {type: string, format: date-time}
+        attempts:
+          type: array
+          maxItems: 25
+          items:
+            type: object
+            properties:
+              id: {type: string, format: uuid}
+              claim_generation: {type: integer, minimum: 1}
+              state: {type: string, enum: [ACTIVE, COMPLETED, FAILED, LOST, CANCELLED]}
+              started_at: {type: string, format: date-time}
+              last_heartbeat_at: {type: string, format: date-time}
+              finished_at: {type: [string, "null"], format: date-time}
+              failure_code: {type: [string, "null"]}
+        events:
+          type: array
+          maxItems: 25
+          items:
+            type: object
+            properties:
+              kind: {type: string}
+              code: {type: string}
+              occurred_at: {type: string, format: date-time}
+        quarantine:
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                reason_code: {type: string}
+                attempts: {type: integer, minimum: 0}
+                quarantined_at: {type: string, format: date-time}

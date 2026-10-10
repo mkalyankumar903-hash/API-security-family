@@ -12,6 +12,21 @@ type Job={id:string;status:string;error_code:string|null;plan:{maxEvaluations:nu
 type Report={status:string;observations:{ruleId:string;remediation:string;fingerprint:string}[];
  coverage:{passed:number;observed:number;unknown:number};
  accounting:{planned:number;executed:number;uncertain:number;notRun:number};limitations:string[]};
+type Safety={schemaVersion:string;warning:string;
+ execution:{
+  queueRecordId:string|null;currentAttemptId:string|null;lifecycle:string;deadline:string|null;
+  terminalReason:string|null;provenance:string;
+  authorization:{permitId:string;permitExpiresAt:string;status:string;
+   consumed:number;reserved:number;rateUsed:number}|null;
+  checkpoints:{stage_id:string;status:string;ordinal:number;reason:string|null}[];
+  receipts:{state:string;total:number}[];
+ };
+ queue:{queueState:string;claimGeneration:number;retryCount:number;lockedUntil:string|null;
+ nextEligibleAt:string|null;lastErrorCode:string|null}|null;
+ attempts:{id:string;claim_generation:number;state:string;started_at:string;last_heartbeat_at:string;
+ finished_at:string|null;failure_code:string|null}[];
+ events:{kind:string;code:string;occurred_at:string}[];
+ quarantine:{reason_code:string;attempts:number}|null};
 type History={id:string;status:string;policy_id:string;fingerprint:string;created_at:string};
 async function api<T>(token:string,path:string,options?:RequestInit):Promise<T>{
  const r=await fetch(BASE+path,{...options,headers:{"authorization":"Bearer "+token,
@@ -30,6 +45,7 @@ export function PtOrchestrationConsole({token,targetId}:{token:string;targetId:s
  const [jobId,setJobId]=useState("");
  const [job,setJob]=useState<Job|null>(null);
  const [report,setReport]=useState<Report|null>(null);
+ const [safety,setSafety]=useState<Safety|null>(null);
  const [terminal,setTerminal]=useState<{code:string;accounting:Record<string,number>}|null>(null);
  const [findings,setFindings]=useState<{rule_id:string;status:string;fingerprint:string}[]>([]);
  const [coverage,setCoverage]=useState<{rule_id:string;status:string;code:string}[]>([]);
@@ -63,8 +79,11 @@ export function PtOrchestrationConsole({token,targetId}:{token:string;targetId:s
  },[token,scopeId,policyId,profile]);
  const refreshJob=useCallback(async()=>{
   if(!jobId)return;
-  const current=await api<Job>(token,"/v9/pt/orchestrations/"+jobId);
-  setJob(current);
+  const [current,diagnostics]=await Promise.all([
+   api<Job>(token,"/v9/pt/orchestrations/"+jobId),
+   api<Safety>(token,"/v10/workers/assessments/"+jobId+"/execution")
+  ]);
+  setJob(current);setSafety(diagnostics);
   if(current.status==="COMPLETED"){
    const [r,f,c]=await Promise.all([
     api<Report>(token,"/v9/pt/orchestrations/"+jobId+"/report"),
@@ -123,6 +142,9 @@ export function PtOrchestrationConsole({token,targetId}:{token:string;targetId:s
   <p><strong>ISOLATED SYNTHETIC AUTONOMOUS API PT</strong></p>
   <p><strong>NOT AUTHORIZED FOR LIVE CUSTOMER API TESTING</strong></p>
   <p><strong>REAL HOST AUTHORIZATION UNAVAILABLE</strong></p>
+  <p><strong>ISOLATED SYNTHETIC API SECURITY EXECUTION</strong></p>
+  <p><strong>REAL CUSTOMER API TESTING NOT AUTHORIZED</strong></p>
+  <p><strong>WORKER RECOVERY DOES NOT GRANT NEW SECURITY AUTHORITY</strong></p>
   <p>This version only evaluates isolated repository-owned fixtures. Authorization is issued separately by the trusted test authority.</p>
   {error&&<p role="alert" className="error">{error}</p>}
   <p role="status">Emergency stop: {stop?"ACTIVE — admission blocked":"Not active"}</p>
@@ -167,6 +189,29 @@ export function PtOrchestrationConsole({token,targetId}:{token:string;targetId:s
    <ol>{job.stages.map(s=><li key={s.stage_id}><strong>{s.stage_type}</strong> — {s.status} · budget {s.planned} {s.reason??""}</li>)}</ol>
    {["QUEUED","PROCESSING"].includes(job.status)&&<button disabled={busy} onClick={()=>void cancel()}>Cancel orchestration</button>}
   </article>}
+  {safety&&job&&<article aria-label="Worker execution safety diagnostics">
+   <h3>Worker safety, recovery and attempt history</h3>
+   <p role="status">Queue: {safety.queue?.queueState??"NO ACTIVE QUEUE RECORD"} · generation {safety.queue?.claimGeneration??"none"} · retries {safety.queue?.retryCount??0}</p>
+   {safety.queue?.lockedUntil&&<p>Current lease expires: {safety.queue.lockedUntil}</p>}
+   {safety.queue?.nextEligibleAt&&<p>Next eligible retry: {safety.queue.nextEligibleAt}</p>}
+   {safety.queue?.lastErrorCode&&<p>Last infrastructure failure: {safety.queue.lastErrorCode}</p>}
+   {safety.quarantine&&<p role="alert">Terminal quarantine: {safety.quarantine.reason_code} · attempts {safety.quarantine.attempts}. No automatic replay.</p>}
+   <h4>Governed execution and recovery</h4>
+   <p>Lifecycle: {safety.execution.lifecycle} · current attempt: {safety.execution.currentAttemptId??"none"}</p>
+   {safety.execution.deadline&&<p>Approved job deadline: {safety.execution.deadline}</p>}
+   {safety.execution.authorization&&<p>Permit status: {safety.execution.authorization.status} · permit expires: {safety.execution.authorization.permitExpiresAt} · consumed {safety.execution.authorization.consumed} · reserved {safety.execution.authorization.reserved} · rate used {safety.execution.authorization.rateUsed}</p>}
+   {safety.execution.receipts.length>0&&<p>Governed receipts: {safety.execution.receipts.map(r=>r.state+" "+r.total).join(" · ")}</p>}
+   {safety.execution.terminalReason&&<p role="alert">Terminal reason: {safety.execution.terminalReason}</p>}
+   <h4>Persisted worker attempts</h4>
+   {safety.attempts.length===0?<p>Not claimed by a worker yet.</p>:<ol>{safety.attempts.map(a=>
+    <li key={a.id}>Generation {a.claim_generation} · {a.state} · started {a.started_at}
+     {a.failure_code?" · "+a.failure_code:""}</li>)}</ol>}
+   <h4>Auditable execution events</h4>
+   {safety.events.length===0?<p>No worker events recorded.</p>:<ul>{safety.events.map((e,i)=>
+    <li key={e.occurred_at+"-"+i}>{e.kind} · {e.code}</li>)}</ul>}
+   <button className="secondary" disabled={busy} onClick={()=>void action(refreshJob)}>Refresh actual worker state</button>
+   <p>{safety.warning}</p>
+  </article>}
   {report&&<article>
    <h3>Immutable completed synthetic report</h3>
    <p>Coverage: {report.coverage.passed} PASS · {report.coverage.observed} OBSERVED · {report.coverage.unknown} UNKNOWN</p>
@@ -186,7 +231,7 @@ export function PtOrchestrationConsole({token,targetId}:{token:string;targetId:s
   <h3>Orchestration history and compatible comparison</h3>
   <button onClick={()=>void action(refreshCatalog)} disabled={busy}>Refresh history</button>
   <label>Historical run
-   <select value={jobId} onChange={e=>{setJobId(e.target.value);setJob(null);setReport(null);setTerminal(null);}}>
+   <select value={jobId} onChange={e=>{setJobId(e.target.value);setJob(null);setSafety(null);setReport(null);setTerminal(null);}}>
     <option value="">Choose saved run</option>{history.map(h=><option key={h.id} value={h.id}>{h.id.slice(0,8)} · {h.status} · {h.policy_id}</option>)}
    </select>
   </label>
