@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {randomUUID,randomBytes,createHmac} from "node:crypto";
-import {validateEvent,verifySyntheticEvent,verifyRotatedSyntheticEvent,verifySyntheticExternalSnapshot,unit,V13,hostNotConfigured} from "../packages/contracts/src/commercial-v13.js";
+import {validateEvent,verifySyntheticEvent,verifyRotatedSyntheticEvent,verifySyntheticExternalSnapshot,verifySyntheticCorrection,unit,V13,hostNotConfigured} from "../packages/contracts/src/commercial-v13.js";
 import {V13Client,V13ClientError} from "../packages/sdk/src/v13.js";
 const e=()=>({schemaVersion:V13,eventId:randomUUID(),tenantId:randomUUID(),
  issuer:"lumicsec-ci-synthetic-v13",audience:"api-family-v13-test",issuedAt:new Date().toISOString(),
@@ -91,4 +91,28 @@ test("Phase13 SDK binds browser-native fetch receiver instead of illegal class t
  } as typeof fetch;
  const sdk=new V13Client({baseUrl:"http://localhost:3001",accessToken:()=>"test-only",fetcher:nativeLike});
  assert.equal((await sdk.capabilities()).scanningAuthority,false);
+});
+
+test("Phase13 independently signed corrections reject wrong authority, overflows and tampering",()=>{
+ const previous=process.env.NODE_ENV,flag=process.env.SYNTHETIC_AUTH_ENABLED;
+ process.env.NODE_ENV="test";process.env.SYNTHETIC_AUTH_ENABLED="true";
+ const key=randomBytes(48),now=Date.now();
+ const base={schemaVersion:V13,correctionId:randomUUID(),tenantId:randomUUID(),
+  issuer:"lumicsec-ci-correction-v13",audience:"api-family-correction-v13-test",usageId:randomUUID(),
+  unitDelta:-1,reason:"MEASUREMENT_CORRECTION",issuedAt:new Date(now).toISOString(),
+  expiresAt:new Date(now+100000).toISOString()};
+ const sign=(v:unknown)=>{const raw=Buffer.from(JSON.stringify(v));return {raw,sig:createHmac("sha256",key).update(raw).digest("hex")};};
+ try{
+  const {raw,sig}=sign(base);
+  assert.equal(verifySyntheticCorrection(raw,sig,key).unitDelta,-1);
+  assert.throws(()=>verifySyntheticCorrection(raw,"0".repeat(64),key),/INVALID_CORRECTION_SIGNATURE/);
+  for(const bad of [{...base,unitDelta:-1.5},{...base,unitDelta:-1000001},
+   {...base,unitDelta:0},{...base,issuer:"host-production"},
+   {...base,critical:"invalid"}, {...base,tenantId:randomUUID(),audience:"wrong"}]){
+   const signed=sign(bad);assert.throws(()=>verifySyntheticCorrection(signed.raw,signed.sig,key));
+  }
+  process.env.NODE_ENV="production";
+  assert.throws(()=>verifySyntheticCorrection(raw,sig,key),/HOST_AUTHORITY_NOT_CONFIGURED/);
+ }finally{if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+ if(flag===undefined)delete process.env.SYNTHETIC_AUTH_ENABLED;else process.env.SYNTHETIC_AUTH_ENABLED=flag;}
 });

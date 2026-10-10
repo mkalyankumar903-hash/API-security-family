@@ -57,6 +57,7 @@ export class V13Client{
   return this.get<T[]>(path+"?limit="+limit+"&offset="+offset,signal);
  }
  usage(limit=25,offset=0,signal?:AbortSignal){return this.paginate<{id:string;units:number;sourceReportId:string}>("/v13/usage/events",limit,offset,signal);}
+ corrections(limit=25,offset=0,signal?:AbortSignal){return this.paginate<{id:string;sourceUsageId:string;unitDelta:number;reason:string}>("/v13/usage/corrections",limit,offset,signal);}
  reservations(limit=25,offset=0,signal?:AbortSignal){return this.paginate<{id:string;state:string;units:number}>("/v13/reservations",limit,offset,signal);}
  reconciliations(limit=25,offset=0,signal?:AbortSignal){return this.paginate<{id:string;state:string;localUnits:number}>("/v13/reconciliations",limit,offset,signal);}
 }

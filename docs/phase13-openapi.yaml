@@ -41,6 +41,14 @@ paths:
         - {$ref: '#/components/parameters/offset'}
       responses:
         '200': {description: Tenant-scoped immutable usage records}
+  /v13/usage/corrections:
+    get:
+      operationId: listSignedUsageCorrections
+      parameters:
+        - {$ref: '#/components/parameters/limit'}
+        - {$ref: '#/components/parameters/offset'}
+      responses:
+        '200': {description: Tenant-scoped immutable signed test-only correction records}
   /v13/reservations:
     get:
       operationId: listQuotaReservations

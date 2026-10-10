@@ -158,6 +158,39 @@ test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=
    assert.equal((await projection(A)).consumed,2);
    const late=await reconcilePending(A);
    assert.notEqual(late.id,firstPending.id,"Late-arriving usage must generate new immutable pending evidence");
+   const original=await withTenant(A,tx=>tx.query("SELECT id,units FROM public.api_v13_usage_ledger ORDER BY created_at DESC LIMIT 1"));
+   assert.equal(original.rowCount,1);
+   const usageId=original.rows[0].id as string,correctionKey=randomBytes(48);
+   const signCorrection=(delta:number,tenant=A,correctionId=randomUUID())=>{
+    const raw=Buffer.from(JSON.stringify({schemaVersion:V13,correctionId,tenantId:tenant,
+     issuer:"lumicsec-ci-correction-v13",audience:"api-family-correction-v13-test",
+     usageId,unitDelta:delta,reason:"MEASUREMENT_CORRECTION",
+     issuedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+120000).toISOString()}));
+    return {raw,signature:createHmac("sha256",correctionKey).update(raw).digest("hex")};
+   };
+   const correction=signCorrection(-1);
+   assert.equal((await ingestSyntheticUsageCorrection(correction.raw,correction.signature,correctionKey)).effectiveUnits,0);
+   assert.equal((await ingestSyntheticUsageCorrection(correction.raw,correction.signature,correctionKey)).replay,true);
+   assert.equal((await projection(A)).consumed,1,"Append-only correction must adjust local usage without deleting history");
+   assert.equal((await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_usage_ledger"))).rows[0].n,2);
+   assert.equal((await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_usage_corrections"))).rows[0].n,1);
+   assert.equal((await call("GET","/v13/usage/corrections",undefined,true)).body,"[]");
+   assert.equal((await call("GET","/v13/usage/corrections")).statusCode,200);
+   await assert.rejects(()=>ingestSyntheticUsageCorrection(correction.raw,"f".repeat(64),correctionKey),/INVALID_CORRECTION_SIGNATURE/);
+   const collision=signCorrection(1,A,JSON.parse(correction.raw.toString()).correctionId as string);
+   await assert.rejects(()=>ingestSyntheticUsageCorrection(collision.raw,collision.signature,correctionKey),/CORRECTION_ID_REUSE_CONFLICT/);
+   const crossCorrection=signCorrection(-1,B);
+   await assert.rejects(()=>ingestSyntheticUsageCorrection(crossCorrection.raw,crossCorrection.signature,correctionKey),/USAGE_SOURCE_NOT_FOUND/);
+   const overdrawn=signCorrection(-1);
+   await assert.rejects(()=>ingestSyntheticUsageCorrection(overdrawn.raw,overdrawn.signature,correctionKey),/INVALID_USAGE_CORRECTION/);
+   await assert.rejects(()=>withTenant(A,tx=>tx.query("DELETE FROM public.api_v13_usage_corrections")));
+   const pendingCorrection=await reconcilePending(A);
+   assert.notEqual(pendingCorrection.id,late.id,"Correction is distinct immutable pending reconciliation evidence");
+   const restore=signCorrection(1);
+   assert.equal((await ingestSyntheticUsageCorrection(restore.raw,restore.signature,correctionKey)).effectiveUnits,1);
+   assert.equal((await projection(A)).consumed,2);
+   const excessive=signCorrection(1);
+   await assert.rejects(()=>ingestSyntheticUsageCorrection(excessive.raw,excessive.signature,correctionKey),/INVALID_USAGE_CORRECTION/);
    assert.equal((await call("GET","/v13/decisions")).json().allowed,false);
   });
  }finally{await app.close();await closeDatabase();}
