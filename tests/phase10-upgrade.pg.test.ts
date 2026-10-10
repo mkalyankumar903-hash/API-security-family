@@ -44,9 +44,35 @@ test("Phase10 populated 013 -> 014: forward-only migration preserves historical 
   await db.query("INSERT INTO api_reports(id,tenant_id,assessment_id,projection) VALUES($1,$2,$3,$4::jsonb)",
    [report,t,done,JSON.stringify({schemaVersion:"legacy-offline-v1",syntheticOnly:true,immutable:true})]);
   await db.query("INSERT INTO api_queue.api_assessment_queue(assessment_id,tenant_id) VALUES($1,$2)",[pending,t]);
+
+  // Multiple populated historical engine/mode combinations at 013, before
+  // Phase10 metadata exists. Preserve each immutable report identity and
+  // engine discriminator; the upgrade must not interpret these as new work.
+  await db.query("INSERT INTO api_spec_inventories(specification_id,tenant_id,target_id,version_number,original_format,raw_fingerprint,normalized_fingerprint,normalization_version,snapshot,assessment_source,coverage,selected) VALUES($1,$2,$3,1,'OPENAPI_3_0',$4,$5,'phase02-v1','{}'::jsonb,'OpenAPI','SUPPORTED_PROFILE',true)",[spec,t,"a".repeat(64),"b".repeat(64)]);
+  await db.query("INSERT INTO api_rich_inventories(specification_id,tenant_id,target_id,raw_fingerprint,phase02_fingerprint,rich_fingerprint,snapshot) VALUES($1,$2,$3,$4,$5,$6,'{}'::jsonb)",[spec,t,"a".repeat(64),"b".repeat(64),"c".repeat(64)]);
+  for(const engine of ["legacy-v1","inventory-v1","auth-fixture-v1","inventory-v2",
+   "pt-fixture-v1","pt-detection-v1","pt-orchestrator-v1"]){
+   const id=randomUUID();
+   const ptEngine=engine.startsWith("pt-");
+   await db.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",[
+    id,t,target,spec,ptEngine?"FAILED":"COMPLETED",ptEngine?"SYNTHETIC_PT_FIXTURE":"SPEC_ONLY",
+    "historical-version-"+engine,engine]);
+   if(!ptEngine){
+    await db.query("INSERT INTO api_reports(id,tenant_id,assessment_id,projection) VALUES($1,$2,$3,$4::jsonb)",[
+     randomUUID(),t,id,JSON.stringify({schemaVersion:"historical-"+engine,
+      syntheticOnly:true,verifiedFixed:false,engineVersion:engine,customerNetworkRequests:0})]);
+   }
+  }
+  const preVersions=await db.query("SELECT engine_version,mode,status FROM api_assessments ORDER BY engine_version,id");
+  assert.ok(["legacy-v1","inventory-v1","auth-fixture-v1","inventory-v2",
+   "pt-fixture-v1","pt-detection-v1","pt-orchestrator-v1"].every(x=>
+   preVersions.rows.some(y=>y.engine_version===x)));
+
   const tables=[
    ["api_targets","id"],["api_specifications","id"],["api_assessments","id"],
-   ["api_evidence","id"],["api_reports","id"],["api_queue.api_assessment_queue","assessment_id"]
+   ["api_evidence","id"],["api_reports","id"],
+   ["api_spec_inventories","specification_id"],["api_rich_inventories","specification_id"],
+   ["api_queue.api_assessment_queue","assessment_id"]
   ] as const;
   const snapshots=new Map<string,{count:number;sha:string}>();
   for(const [table,key] of tables){
@@ -74,6 +100,10 @@ test("Phase10 populated 013 -> 014: forward-only migration preserves historical 
    }
   }
   assert.equal((await db.query("SELECT count(*)::int AS n FROM api_schema_migrations")).rows[0].n,14);
+  const postVersions=await db.query("SELECT engine_version,mode,status FROM api_assessments ORDER BY engine_version,id");
+  assert.deepEqual(postVersions.rows,preVersions.rows,"all supported historical engines and statuses survive 013->014");
+  assert.equal((await db.query("SELECT count(*)::int AS n FROM api_reports")).rows[0].n,5,
+   "historical SPEC_ONLY immutable reports are not dropped, replayed or fabricated");
   await assert.rejects(()=>db.query("UPDATE api_reports SET projection='{}'::jsonb WHERE id=$1",[report]),/IMMUTABLE/i);
   const queues=await db.query("SELECT has_table_privilege('api_family','api_queue.api_assessment_queue','SELECT') AS read");
   assert.equal(queues.rows[0].read,false);
