@@ -19,3 +19,9 @@ main.container code,main.container li{overflow-wrap:anywhere;word-break:break-al
 main.container .tag{white-space:normal}
 main.container input,main.container select,main.container textarea{min-width:0;max-width:100%}
 main.container .formgrid{grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))}
+
+.phase12-nav{display:flex;flex-wrap:wrap;gap:8px;padding:14px 0;margin:12px 0;border-bottom:1px solid #d8e3ee}
+.phase12-nav a{display:inline-block;padding:8px 11px;border:1px solid #a7bdd7;border-radius:8px;color:#163c79;text-decoration:none;font-weight:650;max-width:100%;overflow-wrap:anywhere}
+.phase12-nav a:hover,.phase12-nav a:focus-visible{background:#e9f1fb;text-decoration:underline}
+.phase12-nav a:focus-visible{outline:3px solid #2778cf;outline-offset:2px}
+@media(max-width:600px){.phase12-nav{gap:6px}.phase12-nav a{font-size:.85rem;padding:7px 8px}}

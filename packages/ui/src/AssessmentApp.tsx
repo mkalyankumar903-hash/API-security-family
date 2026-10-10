@@ -119,10 +119,19 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
   }
   return <main className="container">
     <header><div><small>LUMICSEC / API SECURITY FAMILY</small><h1>API Security Assessment</h1><p>Evidence-based OpenAPI analysis · SPEC_ONLY · No live network scanning</p></div><strong className="tag">Phase 05 · Unified offline and synthetic assessment · No Host authority</strong></header>
+    <nav className="phase12-nav" aria-label="Unified API security navigation">
+     <a href="#api-targets">Targets</a>
+     <a href="#phase12-workspace">Overview, Findings &amp; Reports</a>
+     <a href="#assessment-explorer">Assessments</a>
+     <a href="#vapt11-panel">Autonomous VAPT</a>
+     <a href="#specification-source">API Specifications</a>
+     <a href="#pt-governed">Governed PT</a>
+     <a href="#phase12-workspace">Coverage &amp; Remediation</a>
+    </nav>
     <section><label htmlFor="devtoken">Synthetic development token (never a production login)</label><input id="devtoken" value={token} onChange={e=>setToken(e.target.value)} type="password" autoComplete="off" placeholder="Local development token"/></section>
     {loading && <p role="status">Loading targets…</p>}
     {error && <p role="alert" className="error">{error === "PERMISSION_DENIED" || error === "UNAUTHORIZED" ? "Access denied: "+error : error}</p>}
-    <section><h2>1. API targets</h2>
+    <section id="api-targets"><h2>1. API targets</h2>
       {!loading && targets.length===0 && <p>No API targets registered yet.</p>}
       <div className="formgrid">
         <label>Search targets<input value={search} onChange={e=>{setSearch(e.target.value);setOffset(0);}} placeholder="Search by target or hostname"/></label>
@@ -135,8 +144,8 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
       <form onSubmit={e=>void createTarget(e)}><div className="formgrid"><label>Target name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)} placeholder="Payments API"/></label><label>HTTPS base URL<input required type="url" value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="https://api.example.invalid"/></label><label>Environment<select value={environment} onChange={e=>setEnvironment(e.target.value)}><option>SYNTHETIC</option><option>STAGING</option><option>PRODUCTION</option></select></label></div><button disabled={busy||!token} type="submit">Register target</button></form>
     </section>
     {targetId&&<Phase12Workspace key={"phase12-"+targetId+token} token={token} targetId={targetId}/>}
-    <UnifiedAssessment token={token} targetId={targetId}/>
-    {targetId&&<PtConsole key={"pt6-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"}/>}
+    <div id="assessment-explorer"><UnifiedAssessment token={token} targetId={targetId}/></div>
+    {targetId&&<div id="pt-governed"><PtConsole key={"pt6-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"}/></div>}
     {targetId&&<PtProductExplorer key={"pt8-"+targetId+token} token={token} targetId={targetId}/>}
     {targetId&&<PtOrchestrationConsole key={"pt9-"+targetId+token} token={token} targetId={targetId}/>}
     {targetId&&<div id="vapt11-panel"><AutonomousVaptWorkspace key={"vapt11-"+targetId+token} token={token} targetId={targetId}/></div>}
@@ -147,7 +156,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
     }}/>}
     {targetId&&<InventoryDetection key={"detect-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"}/>}
     {targetId&&<AuthFixtureAssessment key={"auth-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"} revision={targets.find(t=>t.id===targetId)?.revision??1}/>}
-    {targetId&&<section><h2>2. OpenAPI specification</h2><p>Upload OpenAPI 3.1 or Swagger 2.0 JSON/YAML, up to 1 MiB. No remote refs are fetched.</p>
+    {targetId&&<section id="specification-source"><h2>2. OpenAPI specification</h2><p>Upload OpenAPI 3.1 or Swagger 2.0 JSON/YAML, up to 1 MiB. No remote refs are fetched.</p>
       <label htmlFor="specfile">Specification file</label><input id="specfile" type="file" accept=".json,.yaml,.yml" disabled={busy||targets.find(t=>t.id===targetId)?.lifecycle!=="ACTIVE"} onChange={e=>void upload(e)}/>
       <label htmlFor="spec">Select specification</label><select id="spec" value={specId} onChange={e=>setSpecId(e.target.value)}><option value="">Choose uploaded specification</option>{specs.map(s=><option key={s.id} value={s.id}>{s.filename} ({s.fingerprint.slice(0,12)})</option>)}</select>
       <h3>Normalized operations</h3>{specId&&ops.length===0&&<p>No operations recorded.</p>}
