@@ -10,7 +10,7 @@ const record=(v:unknown):Record<string,unknown>=>v!==null&&typeof v==="object"&&
 const num=(v:unknown):number=>typeof v==="number"&&Number.isSafeInteger(v)&&v>=0?v:0;
 const text=(v:unknown,max=300):string=>{
  if(typeof v!=="string")return "";
- return v.slice(0,max).replace(/[\u0000-\u001f\u007f]/g," ")
+ return [...v.slice(0,max)].map(ch=>ch.charCodeAt(0)<32||ch.charCodeAt(0)===127?" ":ch).join("")
  .replace(/Bearer\s+[^\s,;]+/gi,"Bearer [REDACTED]")
  .replace(/(api[_ -]?key|password|secret|access[_ -]?token)\s*[:=]\s*[^\s,;]+/gi,"$1=[REDACTED]");
 };
