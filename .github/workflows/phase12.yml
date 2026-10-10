@@ -91,7 +91,7 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase12-upgrade.pg.test.ts
 
   browser-targeted:
-    if: ${{ contains(github.event.pull_request.title, '[phase12-e2e]') || contains(github.event.pull_request.title, '[phase12-full]') }}
+    if: ${{ contains(github.event.pull_request.title, '[phase12-e2e]') || contains(github.event.pull_request.title, '[phase12-full]') || contains(github.event.pull_request.title, '[phase12-p11]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     services:
@@ -162,7 +162,11 @@ jobs:
           sudo apt-get install -y poppler-utils
       - name: Real PDF structure, text, multipage, Unicode and security tests
         run: node --import tsx --test tests/phase12-pdf-render.test.ts
+      - name: Real Chromium Phase11 focused asynchronous admission/cancellation regression
+        if: ${{ contains(github.event.pull_request.title, '[phase12-p11]') }}
+        run: npx playwright test tests/browser/phase11.spec.ts
       - name: Real React Fastify PostgreSQL Chromium Phase12 customer journeys
+        if: ${{ !contains(github.event.pull_request.title, '[phase12-p11]') }}
         run: npx playwright test tests/browser/phase12.spec.ts
 
   historical:
