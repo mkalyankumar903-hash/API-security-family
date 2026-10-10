@@ -560,6 +560,9 @@ jobs:
         env:
           PGPASSWORD: local_admin_only
         run: bash scripts/phase14-disaster-recovery.sh api_family_phase13_pg_full
+      - name: Phase14 actual isolated PostgreSQL16 database-process stop restart and durable state
+        shell: bash
+        run: bash scripts/phase14-disposable-service-restart.sh
       - name: Create separately isolated Chromium PostgreSQL database
         shell: bash
         env:
