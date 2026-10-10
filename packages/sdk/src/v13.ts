@@ -5,6 +5,23 @@ export type CommercialSummary={
  entitlement:{id:string;revision:number;state:"ISSUED"|"REVOKED";expiresAt:string;syntheticOnly:true}|null;
  quota:number;consumed:number;reserved:number;remaining:number;decision:string;
 };
+/** Never reflect arbitrary upstream error values: an attacker could encode a secret as UPPER_CASE. */
+const PUBLIC_ERROR_CODES=new Set([
+ "UNAUTHORIZED","PERMISSION_DENIED","NOT_FOUND","OVERLOADED","QUOTA_EXCEEDED",
+ "QUEUE_TENANT_CAPACITY_EXCEEDED","HOST_AUTHORITY_NOT_CONFIGURED",
+ "INVALID_ID","INVALID_IDEMPOTENCY_KEY","INVALID_PAGINATION","INVALID_QUANTITY",
+ "INVALID_QUERY","INVALID_RESERVATION_TTL","INVALID_USAGE_CORRECTION",
+ "ENTITLEMENT_UNAVAILABLE","ENTITLEMENT_REVISION_CONFLICT","SOURCE_ALREADY_ACCOUNTED",
+ "SOURCE_FINGERPRINT_OR_ENTITLEMENT_REVISION_MISMATCH","SOURCE_NOT_SUCCESSFUL",
+ "USAGE_SOURCE_NOT_FOUND","EVENT_ID_REUSE_CONFLICT","CORRECTION_ID_REUSE_CONFLICT",
+ "RESERVATION_ALREADY_CLOSED","RESERVATION_EXPIRED","RESERVATION_NOT_FOUND",
+ "SNAPSHOT_REVISION_CONFLICT","SNAPSHOT_STALE_REVISION","SNAPSHOT_TENANT_MISMATCH",
+ "OFFLINE_TERMINAL_EVIDENCE_MISSING","IMMUTABLE_REPORT_NOT_FOUND",
+ "SIGNED_GOVERNED_PT_EVIDENCE_MISSING","SIGNED_PT_CONSUMED_SYNTHETIC_EVALUATION_NOT_FOUND",
+ "SIGNED_PT_SCOPE_OR_TENANT_PROVENANCE_MISMATCH","SIGNED_PT_STAGES_NOT_COMPLETED",
+ "UNSUPPORTED_FEATURE_OR_VERSION","ISOLATED_SYNTHETIC_ONLY",
+ "IDEMPOTENCY_CONFLICT","SYNTHETIC_PROJECTION_ONLY"
+]);
 export class V13ClientError extends Error{
  constructor(readonly status:number,readonly code:string){super(code);}
 }
@@ -104,7 +121,7 @@ export class V13Client{
   const payload=await this.readJson(response,combined,signal);
   if(!response.ok){
    const code=typeof payload==="object"&&payload!==null&&"error" in payload&&
-    typeof payload.error==="string"&&/^[A-Z0-9_]{1,80}$/.test(payload.error)?payload.error:"API_ERROR";
+    typeof payload.error==="string"&&PUBLIC_ERROR_CODES.has(payload.error)?payload.error:"API_ERROR";
    throw new V13ClientError(response.status,code);
   }
   if(payload===null||typeof payload!=="object")throw new V13ClientError(response.status,"INVALID_RESPONSE");
