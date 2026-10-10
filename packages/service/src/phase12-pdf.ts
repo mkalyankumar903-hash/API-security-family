@@ -107,7 +107,7 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
      margin:{top:"16mm",bottom:"21mm",left:"14mm",right:"14mm"},
      headerTemplate:"<span></span>",
      footerTemplate:'<div style="font-family:Arial;font-size:8px;width:100%;color:#444;text-align:right;padding-right:16mm">Page <span class="pageNumber"></span> / <span class="totalPages"></span></div>',
-     timeout:15000});
+    });
     if(bytes.length>4*1024*1024)throw new PtError(413,"PDF_OUTPUT_LIMIT");
     if(bytes.subarray(0,5).toString()!=="%PDF-")throw new PtError(500,"INVALID_PDF_BYTES");
     return bytes;
