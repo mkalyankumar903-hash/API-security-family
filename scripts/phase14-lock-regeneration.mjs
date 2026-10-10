@@ -16,8 +16,13 @@ function latest(name,major){
  if(!candidates.length)throw Error("NO_STABLE_COMPATIBLE_RELEASE_"+name);
  return candidates[candidates.length-1];
 }
-const versions={fastify:latest("fastify",5),yaml:latest("yaml",2),ajv:latest("ajv",8)};
-for(const [name,version] of Object.entries(versions))pkg.dependencies[name]=version;
+const versions={fastify:latest("fastify",5),yaml:latest("yaml",2),ajv:latest("ajv",8),
+ vite:latest("vite",7)};
+for(const [name,version] of Object.entries(versions)){
+ if(name in pkg.dependencies)pkg.dependencies[name]=version;
+ else if(name in pkg.devDependencies)pkg.devDependencies[name]=version;
+ else throw Error("EXPECTED_DEPENDENCY_MISSING_"+name);
+}
 writeFileSync("package.json",JSON.stringify(pkg,null,2)+String.fromCharCode(10));
 const install=spawnSync("npm",["install","--package-lock-only","--ignore-scripts","--no-audit","--no-fund"],{
  encoding:"utf8",timeout:120000,maxBuffer:8*1024*1024});
