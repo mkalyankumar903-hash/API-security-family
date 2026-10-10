@@ -166,6 +166,36 @@ test("Phase12 PostgreSQL 16 authorized report workflow and isolation",async t=>{
     assert.equal((await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM api_v12_annotations WHERE parent_assessment_id=$1",[rid]))).rows[0].n,0);
    });
   }
+  await t.test("real PostgreSQL server-side finding filters, redacted evidence and coverage remain tenant bound",async()=>{
+   const all=await call("GET","/v12/findings?targetId="+targetId+"&limit=50");ok(all,200);
+   const items=all.json().items as {stableKey:string;source:string;ruleId:string;
+    verifiedFixed:boolean;customerRuntimeVerified:boolean}[];
+   assert(items.every(x=>x.verifiedFixed===false&&x.customerRuntimeVerified===false));
+   const filtered=await call("GET","/v12/findings?targetId="+targetId+"&source=SPEC_ONLY&limit=50");ok(filtered,200);
+   const selected=filtered.json().items as {stableKey:string;source:string}[];
+   assert(selected.every(x=>x.source==="SPEC_ONLY"));
+   const limited=await call("GET","/v12/findings?targetId="+targetId+"&limit=1");ok(limited,200);
+   assert((limited.json().items as unknown[]).length<=1);
+   for(const bad of ["source=REAL_CUSTOMER_PT","limit=9999","offset=-1","annotationState=VERIFIED_FIXED",
+    "fromDate=2030-99-99","unknownFilter=hidden"]){
+    assert.equal((await call("GET","/v12/findings?targetId="+targetId+"&"+bad)).statusCode,400);
+   }
+   assert.equal((await call("GET","/v12/findings?targetId="+targetId,undefined,undefined,true)).statusCode,404);
+   const coverage=await call("GET","/v12/reports/"+rid+"/coverage");ok(coverage,200);
+   assert.equal(coverage.json().unknownIsSafe,false);assert.equal(coverage.json().verifiedFixed,false);
+   assert.equal((await call("GET","/v12/reports/"+rid+"/coverage",undefined,undefined,true)).statusCode,404);
+   if(items.length){
+    const key=items[0]!.stableKey;
+    const detail=await call("GET","/v12/reports/"+rid+"/findings/"+key);ok(detail,200);
+    assert.equal(detail.json().immutableEvidence,true);assert.equal(detail.json().verifiedFixed,false);
+    const evidence=await call("GET","/v12/reports/"+rid+"/evidence/"+key);ok(evidence,200);
+    assert.equal(evidence.json().syntheticOnly,true);
+    assert.equal(evidence.json().customerRuntimeVerified,false);
+    assert.equal((await call("GET","/v12/reports/"+rid+"/evidence/"+key,undefined,undefined,true)).statusCode,404);
+    assert.equal((await call("GET","/v12/reports/"+rid+"/findings/"+key,undefined,undefined,true)).statusCode,404);
+    assert.equal((await call("GET","/v12/reports/"+rid+"/evidence/"+"A".repeat(64))).statusCode,400);
+   }
+  });
   await t.test("report access audit is immutable and tenant isolated",async()=>{
    const events=await call("GET","/v12/reports/"+rid+"/audit");ok(events,200);
    const list=events.json() as unknown as {action:string}[];
