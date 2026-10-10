@@ -1,0 +1,352 @@
+openapi: 3.1.0
+info:
+  title: LumicSec API Family — Phase 12 Isolated Presentation API
+  version: 12.0.0-draft
+  description: >
+    Isolated synthetic-only presentation and workflow API. This is NOT the Main
+    Platform identity, authorization, real customer scanning or VERIFIED_FIXED authority.
+servers:
+  - url: /
+security:
+  - IsolatedSyntheticTenantBearer: []
+components:
+  securitySchemes:
+    IsolatedSyntheticTenantBearer:
+      type: http
+      scheme: bearer
+      description: Isolated test tenant identity only, not a production Host JWT.
+  schemas:
+    ImmutablePresentation:
+      type: object
+      required: [schemaVersion, reportId, assessmentId, sourceFingerprint, syntheticOnly, customerRuntimeVerified, verifiedFixed, disclaimer]
+      properties:
+        schemaVersion:
+          const: api-security-report-presentation-v1
+        reportId:
+          type: string
+          format: uuid
+        assessmentId:
+          type: string
+          format: uuid
+        sourceFingerprint:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        syntheticOnly:
+          const: true
+        customerRuntimeVerified:
+          const: false
+        verifiedFixed:
+          const: false
+        disclaimer:
+          type: string
+    ForbiddenSecurityClaims:
+      type: object
+      description: Client-supplied findings/severity/VERIFIED_FIXED/identity fields are never accepted.
+paths:
+  /v12/capabilities:
+    get:
+      summary: Isolated Phase12 capabilities
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+  /v12/overview:
+    get:
+      summary: Actual authorized PostgreSQL organization overview
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+  /v12/assessments:
+    get:
+      summary: Target-scoped assessment history with stable cursor offset
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+  /v12/reports/{id}/presentation:
+    get:
+      summary: Fingerprint-validated immutable synthetic report presentation
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImmutablePresentation'
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /v12/reports/{id}/export.json:
+    get:
+      summary: Bounded redacted JSON report artifact
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /v12/reports/{id}/export.pdf:
+    get:
+      summary: Server-rendered PDF report; no external fetch
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /v12/reports/{id}/annotations:
+    get:
+      summary: Versioned customer workflow annotations
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+    post:
+      summary: Append-only optimistic-concurrency finding annotation
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+  /v12/branding:
+    get:
+      summary: Current tenant report branding
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      summary: Optimistically versioned safe tenant-only branding
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+  /v12/reports/{id}/shares:
+    get:
+      summary: Tenant-only authenticated share references
+      description: >
+        A share ID never authorizes another tenant or anonymous recipient.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+    post:
+      summary: Create idempotent expiring authenticated tenant-only share
+      description: >
+        A share ID never authorizes another tenant or anonymous recipient.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+  /v12/shares/{id}:
+    get:
+      summary: Read unexpired and unrevoked share under current tenant bearer
+      description: >
+        A share ID never authorizes another tenant or anonymous recipient.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /v12/shares/{id}/revoke:
+    post:
+      summary: Revoke tenant-only share without altering evidence
+      description: >
+        A share ID never authorizes another tenant or anonymous recipient.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+  /v12/reports/{id}/audit:
+    get:
+      summary: Immutable tenant-bound report workflow audit
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /v12/ai/capabilities:
+    get:
+      summary: AI provider disabled by default and execution authority unavailable
+      description: >
+        Security scope and result authority remain bound to immutable Phase11 projections.
+      responses:
+        '200':
+          description: Authorized response
+          content:
+            application/json:
+              schema:
+                type: object
+  /v12/ai/explain:
+    post:
+      summary: Disabled read-only AI architecture fail-closed response
+      description: >
+        Always fails closed with HTTP 503 when no approved provider is configured.
+      responses:
+        '503':
+          description: Disabled capability
+          content:
+            application/json:
+              schema:
+                type: object
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
