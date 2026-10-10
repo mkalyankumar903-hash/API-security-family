@@ -44,7 +44,9 @@ export class V13Client{
   const length=response.headers.get("content-length");
   if(length!==null&&(!/^\d+$/.test(length)||Number(length)>1048576))throw new V13ClientError(response.status,"RESPONSE_SIZE_LIMIT");
   const type=response.headers.get("content-type")?.toLowerCase()??"";
-  if(type!==""&&!type.startsWith("application/json")&&!/^application\\/[a-z0-9.+-]+\\+json(?:;|$)/.test(type))
+  const mediaType=type.split(";")[0]?.trim()??"";
+  if(mediaType!==""&&mediaType!=="application/json"&&
+   !(mediaType.startsWith("application/")&&mediaType.endsWith("+json")))
    throw new V13ClientError(response.status,"INVALID_CONTENT_TYPE");
   const reader=response.body?.getReader();
   if(!reader)throw new V13ClientError(response.status,"INVALID_RESPONSE");
