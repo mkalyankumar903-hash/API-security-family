@@ -37,15 +37,15 @@ test("Phase14 SDK fails closed for malformed base, response types and schema mis
   headers:{"content-type":"text/html"}})) as typeof fetch);
  await assert.rejects(()=>badType.capabilities(),(e:unknown)=>e instanceof V13ClientError&&e.code==="INVALID_CONTENT_TYPE");
  const badSchema=client((async()=>new Response(JSON.stringify({schemaVersion:"host-production",scanningAuthority:true}),
-  {status:200})) as typeof fetch);
+  {status:200,headers:{"content-type":"application/json"}})) as typeof fetch);
  await assert.rejects(()=>badSchema.capabilities(),(e:unknown)=>e instanceof V13ClientError&&e.code==="SCHEMA_VERSION_MISMATCH");
  const hostileError=client((async()=>new Response(JSON.stringify({error:"Bearer superprivate\\r\\nSECRET"}),
-  {status:403})) as typeof fetch);
+  {status:403,headers:{"content-type":"application/json"}})) as typeof fetch);
  await assert.rejects(()=>hostileError.capabilities(),(e:unknown)=>e instanceof V13ClientError&&e.code==="API_ERROR"&&!e.message.includes("superprivate"));
 });
 
 test("Phase14 SDK bounds streams and never exposes raw network or credential provider errors",async()=>{
- const large=client((async()=>new Response("A".repeat(1048577),{status:200})) as typeof fetch);
+ const large=client((async()=>new Response("A".repeat(1048577),{status:200,headers:{"content-type":"application/json"}})) as typeof fetch);
  await assert.rejects(()=>large.capabilities(),(e:unknown)=>e instanceof V13ClientError&&e.code==="RESPONSE_SIZE_LIMIT");
  const keyError=new V13Client({baseUrl:origin,accessToken:()=>{throw Error("secret-password");}});
  await assert.rejects(()=>keyError.summary(),(e:unknown)=>e instanceof V13ClientError&&e.code==="AUTH_PROVIDER_FAILED"&&!e.message.includes("password"));
@@ -56,11 +56,11 @@ test("Phase14 SDK bounds streams and never exposes raw network or credential pro
 test("Phase14 SDK opt-in GET retry is bounded and abort short-circuits without repeating",async()=>{
  let attempts=0;
  const retried=client((async()=>{attempts++;return attempts===1?
-  new Response(JSON.stringify({error:"TEMPORARY"}),{status:503}):ok();}) as typeof fetch,1);
+  new Response(JSON.stringify({error:"TEMPORARY"}),{status:503,headers:{"content-type":"application/json"}}):ok();}) as typeof fetch,1);
  assert.equal((await retried.capabilities()).scanningAuthority,false);
  assert.equal(attempts,2);
  attempts=0;
- const rejected=client((async()=>{attempts++;return new Response(JSON.stringify({error:"OVERLOADED"}),{status:503});}) as typeof fetch,2);
+ const rejected=client((async()=>{attempts++;return new Response(JSON.stringify({error:"OVERLOADED"}),{status:503,headers:{"content-type":"application/json"}});}) as typeof fetch,2);
  await assert.rejects(()=>rejected.summary(),(e:unknown)=>e instanceof V13ClientError&&e.status===503&&e.code==="OVERLOADED");
  assert.equal(attempts,3);
  const aborted=new AbortController();aborted.abort();
