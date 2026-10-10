@@ -112,7 +112,14 @@ async function qualifiedSource(tx:PoolClient,reportId:string,feature:Feature){
   if(signed.permitId===undefined||signed.scopeId!==v.stored_permit_scope_id||
      signed.tenantId!==String((await tx.query("SELECT current_setting('api.tenant_id') AS id")).rows[0].id))
     fail("SIGNED_GOVERNED_PT_EVIDENCE_MISSING");
- }catch{fail("SIGNED_GOVERNED_PT_EVIDENCE_MISSING");}
+ }catch(error){
+  // Reveal only a bounded code to isolated CI, never raw signed bodies, keys or claims.
+  if(process.env.NODE_ENV==="test"&&process.env.SYNTHETIC_AUTH_ENABLED==="true"){
+   const reason=error instanceof Error?error.message:"UNKNOWN";
+   throw new Error("SIGNED_GOVERNED_PT_EVIDENCE_MISSING:"+reason.replace(/[^A-Z0-9_]/gi,"_").slice(0,64));
+  }
+  fail("SIGNED_GOVERNED_PT_EVIDENCE_MISSING");
+ }
  return {fingerprint:fingerprint(JSON.stringify({report:v.report_fingerprint,ptId:v.pt_assessment_id,
    ptFingerprint:v.pt_fingerprint,permitHash:v.permit_hash})),child:String(v.pt_assessment_id),
    type:"SIGNED_GOVERNED_SYNTHETIC_PT",permit:String(v.permit_hash)};
