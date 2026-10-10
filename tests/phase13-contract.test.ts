@@ -41,7 +41,7 @@ test("Phase13 SDK injects auth at request time, validates origin, never creates 
   fetcher:(async(input,init)=>{paths.push(String(input));auth.push(String(new Headers(init?.headers).get("authorization")));
    return new Response(JSON.stringify({schemaVersion:V13,hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",meterDefinitions:[],scanningAuthority:false}),{status:200,headers:{"content-type":"application/json"}});}) as typeof fetch});
  assert.equal((await sdk.capabilities()).scanningAuthority,false);
- assert(paths[0].endsWith("/v13/capabilities"));assert.equal(auth[0],"Bearer safe-test-bearer");
+ assert(paths[0]?.endsWith("/v13/capabilities"));assert.equal(auth[0],"Bearer safe-test-bearer");
  assert.throws(()=>new V13Client({baseUrl:"http://example.com",accessToken:()=>""}),/INVALID_API_ORIGIN/);
  await assert.rejects(()=>new V13Client({baseUrl:"http://localhost",accessToken:()=>"",
   fetcher:(async()=>new Response(JSON.stringify({error:"PERMISSION_DENIED"}),{status:403})) as typeof fetch}).summary(),

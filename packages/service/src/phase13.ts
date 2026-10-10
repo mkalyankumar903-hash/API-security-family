@@ -65,16 +65,18 @@ export async function reserveObservedReport(t:string,reportId:string,key:string)
  id(t);id(reportId);checkKey(key);
  return withTenant(t,async tx=>{
   await lock(tx,t,"IMMUTABLE_REPORT_OBSERVED");
+  await tx.query("UPDATE public.api_v13_reservations SET state='EXPIRED' WHERE state='RESERVED' AND expires_at<=clock_timestamp()");
   const old=await tx.query("SELECT * FROM public.api_v13_reservations WHERE idempotency_key=$1",[key]);
   if(old.rowCount){
    if(old.rows[0].source_report_id!==reportId)fail("IDEMPOTENCY_CONFLICT");
    return {id:old.rows[0].id,state:old.rows[0].state,replay:true};
   }
   const e=await latest(tx);
-  if(!e||e.state!=="ISSUED"||Date.parse(String(e.expires_at))<=Date.now())fail("ENTITLEMENT_UNAVAILABLE",403);
+  if(!e)return fail("ENTITLEMENT_UNAVAILABLE",403);
+  if(e.state!=="ISSUED"||Date.parse(String(e.expires_at))<=Date.now())return fail("ENTITLEMENT_UNAVAILABLE",403);
   const report=await tx.query("SELECT fingerprint FROM public.api_vapt11_reports WHERE parent_assessment_id=$1",[reportId]);
   if(!report.rowCount)fail("IMMUTABLE_REPORT_NOT_FOUND",404);
-  const exists=await tx.query("SELECT id FROM public.api_v13_reservations WHERE source_report_id=$1",[reportId]);
+  const exists=await tx.query("SELECT id FROM public.api_v13_reservations WHERE source_report_id=$1 AND state IN ('RESERVED','SETTLED')",[reportId]);
   if(exists.rowCount)fail("SOURCE_ALREADY_ACCOUNTED");
   const m=await month(tx),usage=await totals(tx,m);
   if(usage.consumed+usage.reserved+1>e.limit_units)fail("QUOTA_EXCEEDED",429);
@@ -156,7 +158,7 @@ export function registerPhase13Routes(app:FastifyInstance,identity:(req:FastifyR
  app.get("/v13/decisions",async req=>{
   const q=(req.query??{}) as Record<string,unknown>;
   if(Object.keys(q).some(k=>!["quantity"].includes(k)))fail("INVALID_QUERY",400);
-  let n:number;
+  let n=1;
   try{n=unit(q.quantity===undefined?1:Number(q.quantity));}catch{fail("INVALID_QUANTITY",400);}
   const summary=await projection(identity(req));
   return {allowed:false,code:"HOST_AUTHORITY_NOT_CONFIGURED",syntheticProjectionWouldAllow:

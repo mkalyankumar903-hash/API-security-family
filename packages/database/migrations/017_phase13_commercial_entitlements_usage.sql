@@ -21,9 +21,10 @@ CREATE TABLE public.api_v13_reservations(
  state text NOT NULL DEFAULT 'RESERVED' CHECK(state IN ('RESERVED','SETTLED','RELEASED','EXPIRED')),
  expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  settled_at timestamptz, UNIQUE(tenant_id,idempotency_key),
- UNIQUE(tenant_id,source_report_id,feature), UNIQUE(tenant_id,id),
+ UNIQUE(tenant_id,id),
  FOREIGN KEY(tenant_id,source_report_id) REFERENCES public.api_vapt11_reports(tenant_id,parent_assessment_id));
 CREATE INDEX api_v13_reservations_account ON public.api_v13_reservations(tenant_id,feature,month_start,state,expires_at);
+CREATE UNIQUE INDEX api_v13_reservation_current_source ON public.api_v13_reservations(tenant_id,source_report_id,feature) WHERE state IN ('RESERVED','SETTLED');
 
 CREATE TABLE public.api_v13_usage_ledger(
  id uuid PRIMARY KEY, tenant_id uuid NOT NULL, reservation_id uuid NOT NULL,
