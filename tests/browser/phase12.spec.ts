@@ -210,3 +210,31 @@ test("Phase12 real Chromium: explicit pseudo-RTL QA, accessible labels, UTC date
  const width=await page.evaluate(()=>document.documentElement.scrollWidth);
  expect(width).toBeLessThanOrEqual(800);
 });
+
+test("Phase12 real Chromium: server-filtered finding explorer and redacted provenance never claim runtime verified",async({page,request})=>{
+ test.setTimeout(180000);
+ const {targetId}=await seed(request);
+ const source=await request.get(API+"/v12/findings?targetId="+targetId+"&source=SPEC_ONLY",{headers:alpha});
+ expect(source.status(),await source.text()).toBe(200);
+ const expected=await source.json() as {items:{stableKey:string;assessmentId:string;ruleId:string}[]};
+ await page.goto("/");
+ await page.getByLabel("Select target").selectOption(targetId);
+ const explorer=page.locator("#phase12-finding-explorer");
+ await expect(explorer.getByRole("heading",{name:"Cross-assessment findings explorer"})).toBeVisible();
+ await explorer.getByLabel("Evidence source filter").selectOption("SPEC_ONLY");
+ await expect(explorer.getByText("Loading tenant-authorized findings…")).toHaveCount(0);
+ if(expected.items.length>0){
+  await expect(explorer.getByRole("table",{name:"Evidence-backed filtered findings"})).toBeVisible();
+  await explorer.getByRole("button",{name:"Inspect redacted evidence"}).first().click();
+  await expect(explorer.getByRole("article",{name:"Redacted evidence provenance"})).toBeVisible();
+  await expect(explorer.getByText("Customer runtime verified: NO. Canonical verified fixed: NO.")).toBeVisible();
+  const first=expected.items[0]!;
+  const evidence=await request.get(API+"/v12/reports/"+first.assessmentId+"/evidence/"+first.stableKey,{headers:alpha});
+  expect(evidence.status(),await evidence.text()).toBe(200);
+  const v=await evidence.json() as {sourceFingerprint:string};
+  await expect(explorer.getByText(v.sourceFingerprint)).toBeVisible();
+ }
+ await explorer.getByLabel("Finding triage filter").selectOption("FIX_CLAIMED");
+ await expect(explorer.getByText("No findings observed in the current filters.",{exact:false})).toBeVisible();
+ expect((await request.get(API+"/v12/findings?targetId="+targetId,{headers:beta})).status()).toBe(404);
+});
