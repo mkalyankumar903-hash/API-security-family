@@ -44,7 +44,7 @@ test("Phase13 SDK injects auth at request time, validates origin, never creates 
  assert(paths[0]?.endsWith("/v13/capabilities"));assert.equal(auth[0],"Bearer safe-test-bearer");
  assert.throws(()=>new V13Client({baseUrl:"http://example.com",accessToken:()=>""}),/INVALID_API_ORIGIN/);
  await assert.rejects(()=>new V13Client({baseUrl:"http://localhost",accessToken:()=>"",
-  fetcher:(async()=>new Response(JSON.stringify({error:"PERMISSION_DENIED"}),{status:403})) as typeof fetch}).summary(),
+  fetcher:(async()=>new Response(JSON.stringify({error:"PERMISSION_DENIED"}),{status:403,headers:{"content-type":"application/json"}})) as typeof fetch}).summary(),
   (error:unknown)=>error instanceof V13ClientError&&error.code==="MISSING_AUTHENTICATION");
  assert.throws(()=>sdk.decision(-1),/INVALID_QUANTITY/);
 });
@@ -87,7 +87,7 @@ test("Phase13 SDK binds browser-native fetch receiver instead of illegal class t
  const nativeLike=function(this:unknown,input:RequestInfo|URL){
   assert.equal(this,globalThis,"browser fetch must execute with global receiver");
   assert.match(String(input),/\/v13\/capabilities$/);
-  return Promise.resolve(new Response(JSON.stringify({schemaVersion:V13,hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",meterDefinitions:[],scanningAuthority:false}),{status:200}));
+  return Promise.resolve(new Response(JSON.stringify({schemaVersion:V13,hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",meterDefinitions:[],scanningAuthority:false}),{status:200,headers:{"content-type":"application/json"}}));
  } as typeof fetch;
  const sdk=new V13Client({baseUrl:"http://localhost:3001",accessToken:()=>"test-only",fetcher:nativeLike});
  assert.equal((await sdk.capabilities()).scanningAuthority,false);
@@ -136,10 +136,10 @@ test("Phase13 versioned feature definitions deny unsupported meters and never im
 test("Phase13 SDK errors, bounded pagination and API compatibility fail closed",async()=>{
  const origin="http://127.0.0.1:3001";
  const errorClient=new V13Client({baseUrl:origin,accessToken:()=>"test-only",
-  fetcher:(async()=>new Response(JSON.stringify({error:"QUOTA_EXCEEDED"}),{status:429})) as typeof fetch});
+  fetcher:(async()=>new Response(JSON.stringify({error:"QUOTA_EXCEEDED"}),{status:429,headers:{"content-type":"application/json"}})) as typeof fetch});
  await assert.rejects(()=>errorClient.summary(),(e:unknown)=>e instanceof V13ClientError&&e.status===429&&e.code==="QUOTA_EXCEEDED");
  const invalidClient=new V13Client({baseUrl:origin,accessToken:()=>"test-only",
-  fetcher:(async()=>new Response("not-json",{status:200})) as typeof fetch});
+  fetcher:(async()=>new Response("not-json",{status:200,headers:{"content-type":"application/json"}})) as typeof fetch});
  await assert.rejects(()=>invalidClient.summary(),(e:unknown)=>e instanceof V13ClientError&&e.code==="INVALID_RESPONSE");
  const networkClient=new V13Client({baseUrl:origin,accessToken:()=>"test-only",
   fetcher:(async()=>{throw new Error("never expose sensitive internal network URL");}) as typeof fetch});
@@ -149,7 +149,7 @@ test("Phase13 SDK errors, bounded pagination and API compatibility fail closed",
  assert.throws(()=>errorClient.decision(1000001),/INVALID_QUANTITY/);
  const visited:string[]=[];
  const happy=new V13Client({baseUrl:origin,accessToken:()=>"test-only",
-  fetcher:(async url=>{visited.push(String(url));return new Response("[]",{status:200});}) as typeof fetch});
+  fetcher:(async url=>{visited.push(String(url));return new Response("[]",{status:200,headers:{"content-type":"application/json"}});}) as typeof fetch});
  assert.deepEqual(await happy.corrections(5,10),[]);
  assert.equal(visited[0],origin+"/v13/usage/corrections?limit=5&offset=10");
 });
