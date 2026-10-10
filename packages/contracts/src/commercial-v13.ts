@@ -37,7 +37,7 @@ export function validateEvent(value:unknown,now=Date.now()):CommercialEvent{
   throw new CommercialContractError("INVALID_ENTITLEMENT_EVENT");
  unit(e.limit);
  if(e.status==="ISSUED"&&e.limit===0)throw new CommercialContractError("INVALID_QUANTITY");
- return e as CommercialEvent;
+ return e as unknown as CommercialEvent;
 }
 /** Exact raw UTF-8 bytes, hex HMAC-SHA256, constant-time comparison; never reserialize before verification. */
 export function verifySyntheticEvent(raw:Uint8Array,signature:string,key:Uint8Array,now=Date.now()):CommercialEvent{

@@ -8,6 +8,7 @@ import {PtProductExplorer} from "./PtProductExplorer.js";
 import {PtOrchestrationConsole} from "./PtOrchestrationConsole.js";
 import {AutonomousVaptWorkspace} from "./AutonomousVaptWorkspace.js";
 import {Phase12Workspace} from "./Phase12Workspace.js";
+import {Phase13Workspace} from "./Phase13Workspace.js";
 import React, { useEffect, useState } from "react";
 const API_BASE = (typeof import.meta.env === "object" && import.meta.env.VITE_API_BASE) || "http://127.0.0.1:3001";
 type Target = {id:string;name:string;base_url:string;environment:string;lifecycle:string;revision:number;ownership_status:string};
@@ -144,6 +145,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
     <nav className="phase12-nav" aria-label="Unified API security navigation">
      <a href="#api-targets">Targets</a>
      <a href="#phase12-workspace">Overview, Findings &amp; Reports</a>
+     <a href="#phase13-commercial">Usage &amp; Entitlements</a>
      <a href="#assessment-explorer">Assessments</a>
      <a href="#vapt11-panel">Autonomous VAPT</a>
      <a href="#specification-source">API Specifications</a>
@@ -166,6 +168,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
       <form onSubmit={e=>void createTarget(e)}><div className="formgrid"><label>Target name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)} placeholder="Payments API"/></label><label>HTTPS base URL<input required type="url" value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="https://api.example.invalid"/></label><label>Environment<select value={environment} onChange={e=>setEnvironment(e.target.value)}><option>SYNTHETIC</option><option>STAGING</option><option>PRODUCTION</option></select></label></div><button disabled={busy||!token} type="submit">Register target</button></form>
     </section>
     {targetId&&<Phase12Workspace key={"phase12-"+targetId+token} token={token} targetId={targetId}/>}
+    {targetId&&<Phase13Workspace key={"phase13-"+targetId+token} token={token} targetId={targetId}/>}
     <div id="assessment-explorer"><UnifiedAssessment token={token} targetId={targetId}/></div>
     {targetId&&<div id="pt-governed"><PtConsole key={"pt6-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"}/></div>}
     {targetId&&<PtProductExplorer key={"pt8-"+targetId+token} token={token} targetId={targetId}/>}

@@ -1,10 +1,10 @@
 /** Phase13 commercial test-projection, no payments, permits, network scans or Host authority issuance. */
 import type {FastifyInstance,FastifyRequest} from "fastify";
-import {randomUUID,createHash,createHmac,timingSafeEqual} from "node:crypto";
+import {randomUUID} from "node:crypto";
 import {withTenant} from "../../database/src/index.js";
 import type {PoolClient} from "pg";
 import {PtError} from "./pt.js";
-import {verifySyntheticEvent,fingerprint,unit,features,type CommercialEvent} from "../../contracts/src/commercial-v13.js";
+import {verifySyntheticEvent,fingerprint,unit,features} from "../../contracts/src/commercial-v13.js";
 const fail=(code:string,status=409):never=>{throw new PtError(status,code);};
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const id=(v:unknown)=>typeof v==="string"&&UUID.test(v)?v:fail("INVALID_ID",400);
@@ -160,7 +160,7 @@ export function registerPhase13Routes(app:FastifyInstance,identity:(req:FastifyR
   try{n=unit(q.quantity===undefined?1:Number(q.quantity));}catch{fail("INVALID_QUANTITY",400);}
   const summary=await projection(identity(req));
   return {allowed:false,code:"HOST_AUTHORITY_NOT_CONFIGURED",syntheticProjectionWouldAllow:
-   summary.entitlement?.state==="ISSUED"&&n!>0&&summary.remaining>=n,quantity:n,
+   summary.entitlement?.state==="ISSUED"&&n>0&&summary.remaining>=n,quantity:n,
    warning:"Commercial projection cannot grant production operation or PT authority"};
  });
 }
