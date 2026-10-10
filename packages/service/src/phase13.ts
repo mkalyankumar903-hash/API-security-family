@@ -17,7 +17,7 @@ const page=(r:FastifyRequest)=>{
  return {n,o};
 };
 const checkKey=(v:string)=>/^[a-zA-Z0-9:_-]{8,128}$/.test(v)?v:fail("INVALID_IDEMPOTENCY_KEY",400);
-const month=async(tx:PoolClient)=>(await tx.query("SELECT date_trunc('month',clock_timestamp())::date AS month")).rows[0].month as string;
+const month=async(tx:PoolClient)=>(await tx.query("SELECT date_trunc('month',clock_timestamp() AT TIME ZONE 'UTC')::date AS month")).rows[0].month as string;
 const lock=async(tx:PoolClient,tenant:string,feature:string)=>{await tx.query("SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))",[tenant,feature]);};
 async function latest(tx:PoolClient,feature:Feature=features[0]){
  const q=await tx.query("SELECT entitlement_id,revision,state,limit_units,expires_at,feature FROM public.api_v13_entitlement_events WHERE feature=$1 ORDER BY revision DESC,created_at DESC,id DESC LIMIT 1",[feature]);
