@@ -1,5 +1,6 @@
 import { processOneJob } from "./index.js";
 import { closeDatabase } from "../../database/src/index.js";
+import {emitDiagnostic} from "../../contracts/src/operational-diagnostics-v14.js";
 if (process.env.NODE_ENV === "production") throw new Error("HOST_AUTHORITY_NOT_CONFIGURED_PRODUCTION_FAIL_CLOSED");
 if(!process.env.WORKER_DATABASE_URL||!process.env.DATABASE_URL)
  throw new Error("ISOLATED_WORKER_DATABASE_CONFIGURATION_REQUIRED");
@@ -12,6 +13,7 @@ for(const signal of ["SIGTERM","SIGINT"] as const){
  process.on(signal,()=>{
   if(stopping.signal.aborted)return;
   stopping.abort();
+  emitDiagnostic({kind:"WORKER_SHUTDOWN",classification:"RETRY",statusCode:202,state:"PENDING"});
   // Process death closes sockets, leaves committed evidence untouched, and
   // preserves generation-fenced DB leases for a later authorized worker.
   deadline=setTimeout(()=>{
