@@ -1,0 +1,113 @@
+import {test,expect,type APIRequestContext} from "@playwright/test";
+import {readFileSync} from "node:fs";
+import {randomUUID} from "node:crypto";
+import {processOneJob} from "../../packages/worker/src/index.js";
+import {closeDatabase} from "../../packages/database/src/index.js";
+const API="http://127.0.0.1:3001";
+const auth={"authorization":"Bearer local-test-token-alpha"};
+const other={"authorization":"Bearer local-test-token-beta"};
+const issuer={...auth,"x-pt-authority-key":process.env.PT_TEST_AUTHORITY_KEY??""};
+const source=readFileSync(new URL("../../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
+test.afterAll(async()=>{await closeDatabase();});
+async function seed(request:APIRequestContext,issuePermit=true){
+ const suffix=randomUUID().slice(0,8);
+ const r=await request.post(API+"/v1/targets",{headers:auth,data:{
+  name:"Phase11 Chromium "+suffix,environment:"SYNTHETIC",
+  baseUrl:"https://pt11-"+suffix+".fixture.invalid"}});
+ expect(r.status(),await r.text()).toBe(201);
+ const tid=(await r.json() as {id:string}).id;
+ const imported=await request.post(API+"/v2/targets/"+tid+"/specifications/imports",{
+  headers:{...auth,"idempotency-key":"pt11-import-"+randomUUID()},
+  data:{filename:"phase07-security.openapi.json",content:source}});
+ expect(imported.status(),await imported.text()).toBe(201);
+ const sid=(await imported.json() as {specificationId:string}).specificationId;
+ const response=await request.get(API+"/v2/specifications/"+sid+"/operations?limit=100",{headers:auth});
+ expect(response.status()).toBe(200);
+ const operations=await response.json() as {key:string;path:string;method:string}[];
+ const operationKeys=["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"].map(path=>
+  operations.find(x=>x.path===path&&x.method==="GET")?.key);
+ expect(operationKeys.every(Boolean)).toBeTruthy();
+ const scoped=await request.post(API+"/v6/pt/targets/"+tid+"/scopes",{
+  headers:{...auth,"idempotency-key":"pt11-scope-"+randomUUID()},
+  data:{specificationId:sid,operationKeys,fixtureId:"pt-security-v1",exclusions:[],
+   maxEvaluations:14,ratePerMinute:14,maxConcurrency:1,deadlineMs:30000,validityMinutes:15}});
+ expect(scoped.status(),await scoped.text()).toBe(201);
+ const scopeId=(await scoped.json() as {id:string}).id;
+ if(issuePermit){
+  expect((await request.post(API+"/v6/pt/scopes/"+scopeId+"/request-authorization",{
+   headers:auth,data:{}})).status()).toBe(201);
+  const p=await request.post(API+"/v6/pt/test-authority/scopes/"+scopeId+"/issue",{
+   headers:issuer,data:{}});
+  expect(p.status(),await p.text()).toBe(201);
+ }
+ return {tid,sid,scopeId};
+}
+async function open(page:import("@playwright/test").Page,tid:string){
+ await page.goto("/");
+ await page.getByLabel("Select target").selectOption(tid);
+ const panel=page.getByRole("region",{name:"Autonomous API VAPT workspace"});
+ await expect(panel).toBeVisible();
+ await expect(panel.getByText("ISOLATED SYNTHETIC AUTONOMOUS API VAPT")).toBeVisible();
+ await expect(panel.getByText("NO CUSTOMER VULNERABILITY IS CONFIRMED BY SYNTHETIC FIXTURES")).toBeVisible();
+ return panel;
+}
+test("Phase11 Chromium: one-click real offline→governed PT→unified findings/report/JSON, no customer network",async({page,request})=>{
+ test.setTimeout(150000);
+ const outside:string[]=[];page.on("request",r=>{if(r.url().includes(".fixture.invalid"))outside.push(r.url());});
+ const {tid,scopeId}=await seed(request);
+ const panel=await open(page,tid);
+ await panel.getByLabel("Authorized synthetic scope").selectOption(scopeId);
+ await expect(panel.getByText("Planned evaluations: 14",{exact:false})).toBeVisible({timeout:20000});
+ await expect(panel.getByText("Permit readiness: VALID",{exact:false})).toBeVisible();
+ await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ await expect(panel.getByText("Persisted execution progress")).toBeVisible();
+ const h=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
+ expect(h.status()).toBe(200);
+ const id=(await h.json() as {id:string}[])[0]!.id;
+ expect(await processOneJob()).toBe(true);
+ await expect(panel.getByText("inventory-v2: COMPLETED",{exact:false})).toBeVisible({timeout:20000});
+ expect(await processOneJob()).toBe(true);
+ expect(await processOneJob()).toBe(true);
+ await expect(panel.getByText("Immutable composite security report")).toBeVisible({timeout:20000});
+ await expect(panel.getByText("PT rules 8/8",{exact:false})).toBeVisible();
+ await expect(panel.getByText("evaluations 14/14",{exact:false})).toBeVisible();
+ const report=await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth});
+ expect(report.status(),await report.text()).toBe(200);
+ const value=await report.json() as {fullAuthorizedVaptCompleted:boolean;verifiedFixed:boolean;customerRuntimeVerified:boolean;components:{status:string}[]};
+ expect(value.fullAuthorizedVaptCompleted).toBe(true);expect(value.verifiedFixed).toBe(false);
+ expect(value.customerRuntimeVerified).toBe(false);
+ expect(value.components.every(c=>c.status==="COMPLETED")).toBe(true);
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+id+"/export",{headers:auth})).status()).toBe(200);
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:other})).status()).toBe(409);
+ expect(outside).toEqual([]);
+});
+test("Phase11 Chromium: offline-only genuinely executes without permit, no authorized PT success",async({page,request})=>{
+ test.setTimeout(150000);
+ const {tid,sid}=await seed(request,false);
+ const panel=await open(page,tid);
+ await panel.getByLabel("Assessment mode").selectOption("OFFLINE_ONLY");
+ await panel.getByLabel("Immutable specification").selectOption(sid);
+ await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ expect(await processOneJob()).toBe(true);expect(await processOneJob()).toBe(true);
+ await expect(panel.getByText("Immutable composite security report")).toBeVisible({timeout:20000});
+ await expect(panel.getByText("OFFLINE_ONLY — runtime testing NOT performed")).toBeVisible();
+ const h=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
+ const id=(await h.json() as {id:string}[])[0]!.id;
+ const report=await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth});
+ expect(report.status()).toBe(200);
+ expect((await report.json() as {coverage:{ptEvaluationsExecuted:number}}).coverage.ptEvaluationsExecuted).toBe(0);
+});
+test("Phase11 Chromium: missing synthetic permit prevents admission before runtime",async({page,request})=>{
+ test.setTimeout(150000);
+ const {tid,scopeId}=await seed(request,false);
+ const panel=await open(page,tid);
+ await panel.getByLabel("Authorized synthetic scope").selectOption(scopeId);
+ await expect(panel.getByText("AUTHORIZATION_MISSING",{exact:false})).toBeVisible();
+ await expect(panel.getByRole("button",{name:"Start one autonomous assessment"})).toBeDisabled();
+ const denied=await request.post(API+"/v11/api-vapt/assessments",{
+  headers:{...auth,"idempotency-key":"pt11-unsigned-"+randomUUID()},
+  data:{mode:"GOVERNED_SYNTHETIC",scopeId,policyId:"SYNTHETIC_PT_COMPLETE_SUPPORTED",profile:"SECURE_BASELINE"}});
+ expect(denied.status()).toBe(409);
+ const history=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
+ expect(await history.json()).toEqual([]);
+});
