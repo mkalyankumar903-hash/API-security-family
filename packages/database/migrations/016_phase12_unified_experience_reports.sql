@@ -41,7 +41,7 @@ CREATE TABLE public.api_v12_report_audit (
  tenant_id uuid NOT NULL,
  parent_assessment_id uuid NOT NULL,
  action text NOT NULL CHECK(action IN (
-  'PRESENTATION_VIEWED','JSON_EXPORTED','BRANDING_UPDATED',
+  'PRESENTATION_VIEWED','JSON_EXPORTED','PDF_EXPORTED','BRANDING_UPDATED',
   'SHARE_CREATED','SHARE_VIEWED','SHARE_REVOKED','ANNOTATION_ADDED')),
  subject_id uuid,
  metadata jsonb NOT NULL DEFAULT '{}'::jsonb CHECK(jsonb_typeof(metadata)='object' AND pg_column_size(metadata)<=1024),

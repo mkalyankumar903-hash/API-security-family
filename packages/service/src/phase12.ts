@@ -3,6 +3,7 @@ import type {FastifyInstance,FastifyRequest} from "fastify";
 import {withTenant,uuid} from "../../database/src/index.js";
 import {planFingerprint} from "../../pt/src/detection.js";
 import {PtError} from "./pt.js";
+import {renderPhase12Pdf,type ReportBrand} from "./phase12-pdf.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const id=(v:unknown):string=>{if(typeof v!=="string"||!UUID.test(v))throw new PtError(400,"INVALID_ID");return v;};
@@ -67,7 +68,7 @@ const page=(q:Record<string,unknown>)=>{
   throw new PtError(400,"INVALID_FILTER");
  return {limit,offset,status};
 };
-async function stored(tenant:string,reportId:string,action:"PRESENTATION_VIEWED"|"JSON_EXPORTED"){
+async function stored(tenant:string,reportId:string,action:"PRESENTATION_VIEWED"|"JSON_EXPORTED"|"PDF_EXPORTED"){
  return withTenant(tenant,async tx=>{
   const r=await tx.query(
    "SELECT r.id,r.parent_assessment_id,r.fingerprint,r.created_at,r.projection "+
@@ -84,7 +85,7 @@ async function stored(tenant:string,reportId:string,action:"PRESENTATION_VIEWED"
 export function registerPhase12Routes(app:FastifyInstance,identity:(req:FastifyRequest)=>string){
  app.get("/v12/capabilities",async()=>({schemaVersion:"phase12-capabilities-v1",
   ai:{mode:"DISABLED",configured:false,executionTools:0,externalModelInvoked:false},
-  reports:{presentation:true,json:true,pdf:false,externalPublicSharing:false},
+  reports:{presentation:true,json:true,pdf:true,externalPublicSharing:false},
   context:"ISOLATED_SYNTHETIC_ONLY"}));
  app.get("/v12/overview",async req=>{
   const q=(req.query??{}) as Record<string,unknown>;
@@ -126,6 +127,16 @@ export function registerPhase12Routes(app:FastifyInstance,identity:(req:FastifyR
   reply.header("Cache-Control","no-store").header("X-Content-Type-Options","nosniff")
     .header("Content-Disposition",'attachment; filename="lumicsec-api-presentation-'+reportId+'.json"')
     .type("application/json; charset=utf-8").send(json);
+ });
+ app.get("/v12/reports/:id/export.pdf",async(req,reply)=>{
+  const reportId=id((req.params as Record<string,unknown>).id),tenant=identity(req);
+  const report=await stored(tenant,reportId,"PDF_EXPORTED");
+  const b=await withTenant(tenant,async tx=>(await tx.query(
+   'SELECT display_name AS "displayName",report_title AS "reportTitle",accent_hex AS "accentHex",version FROM api_v12_branding WHERE tenant_id=$1',[tenant])).rows[0] as ReportBrand|undefined);
+  const pdf=await renderPhase12Pdf(report,b);
+  reply.header("Cache-Control","no-store").header("X-Content-Type-Options","nosniff")
+   .header("Content-Disposition",'attachment; filename="lumicsec-api-presentation-'+reportId+'.pdf"')
+   .type("application/pdf").send(pdf);
  });
  app.get("/v12/ai/capabilities",async()=>({mode:"DISABLED",providerConfigured:false,externalModelInvoked:false,
   executionAuthority:false,explanationsAvailable:false,reason:"NO_APPROVED_AI_PROVIDER"}));
