@@ -83,3 +83,53 @@ test("Phase14 Chromium server 429, 503 and recovery never show stale commercial 
   await expect(panel.getByRole("alert")).toHaveCount(0);
  }
 });
+
+test("Phase14 real React SDK Fastify PostgreSQL readback handles empty lists and failing dependent request",async({page,request})=>{
+ const auth={authorization:"Bearer local-test-token-beta"};
+ const target=await request.post("http://127.0.0.1:3001/v1/targets",{
+  headers:auth,data:{name:"Phase14 commercial readback "+randomUUID().slice(0,8),
+   environment:"SYNTHETIC",baseUrl:"https://phase14-commercial-"+randomUUID().slice(0,8)+".fixture.invalid"}});
+ expect(target.status(),await target.text()).toBe(201);
+ const id=(await target.json() as {id:string}).id;
+ const statuses=new Map<string,number>();
+ page.on("response",response=>{
+  const path=new URL(response.url()).pathname;
+  if(["/v13/usage/summary","/v13/usage/events","/v13/reconciliations"].includes(path))
+   statuses.set(path,response.status());
+ });
+ await page.goto("/");
+ await page.getByLabel("Synthetic development token (never a production login)").fill("local-test-token-beta");
+ await page.getByLabel("Select target").selectOption(id);
+ const section=page.locator("#phase13-commercial");
+ await expect(section.getByText("HOST_AUTHORITY_NOT_CONFIGURED")).toBeVisible();
+ await expect(section.getByRole("table",{name:"Observed report capacity — not a bill or subscription"})).toBeVisible();
+ await expect(section.getByRole("alert")).toHaveCount(0);
+ await expect(section.getByText("No observed commercial usage recorded.")).toBeVisible();
+ await expect(section.getByText("PENDING_EXTERNAL_AUTHORITY",{exact:false})).toBeVisible();
+ for(const path of ["/v13/usage/summary","/v13/usage/events","/v13/reconciliations"])
+  expect(statuses.get(path),"real browser network readback "+path).toBe(200);
+ const direct=await request.get("http://127.0.0.1:3001/v13/usage/summary",{headers:auth});
+ expect(direct.status()).toBe(200);
+ const summary=await direct.json() as {monthStart:string;quota:number;remaining:number;hostAuthority:string};
+ expect(summary.hostAuthority).toBe("HOST_AUTHORITY_NOT_CONFIGURED");
+ const cells=section.locator("table").first().locator("tbody td");
+ await expect(cells).toHaveCount(4);
+ await expect(cells.nth(0)).toHaveText(String(summary.quota));
+ await expect(cells.nth(3)).toHaveText(String(summary.remaining));
+ const decisions=await request.get("http://127.0.0.1:3001/v13/decisions",{headers:auth});
+ expect(decisions.status()).toBe(200);
+ expect((await decisions.json() as {allowed:boolean}).allowed).toBe(false);
+ await page.route("**/v13/reconciliations?*",route=>route.fulfill({
+  status:503,contentType:"application/json",body:JSON.stringify({error:"HOST_UNAVAILABLE"})}));
+ await page.reload();
+ await page.getByLabel("Select target").selectOption(id);
+ await expect(section.getByRole("alert")).toContainText("HOST_UNAVAILABLE");
+ await expect(section.getByRole("table")).toHaveCount(0);
+ await expect(section.getByText("HOST_AUTHORITY_NOT_CONFIGURED")).toHaveCount(0);
+ await page.unroute("**/v13/reconciliations?*");
+ await page.reload();
+ await page.getByLabel("Select target").selectOption(id);
+ await expect(section.getByText("HOST_AUTHORITY_NOT_CONFIGURED")).toBeVisible();
+ await expect(section.getByRole("table",{name:"Observed report capacity — not a bill or subscription"})).toBeVisible();
+ await expect(section.getByRole("alert")).toHaveCount(0);
+});
