@@ -140,6 +140,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase14-shutdown.pg.test.ts
       - name: Phase14 sustained noisy neighbor real PostgreSQL queue fairness and RLS
         run: node --import tsx --test --test-concurrency=1 tests/phase14-noisy-neighbor.pg.test.ts
+      - name: Phase14 real TCP abort and wrong-tenant HTTP-to-PostgreSQL isolation
+        run: node --import tsx --test --test-concurrency=1 tests/phase14-tcp-abort.pg.test.ts
       - name: Populated Phase12 016-to-017-to-018-to-019 immutable preservation
         run: node --import tsx --test --test-concurrency=1 tests/phase13-upgrade.pg.test.ts
       - name: Separate PostgreSQL16 database for actual child-process SIGKILL recovery
@@ -543,6 +545,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase14-shutdown.pg.test.ts
       - name: Phase14 sustained noisy neighbor real PostgreSQL queue fairness and RLS
         run: node --import tsx --test --test-concurrency=1 tests/phase14-noisy-neighbor.pg.test.ts
+      - name: Phase14 real TCP abort and wrong-tenant HTTP-to-PostgreSQL isolation
+        run: node --import tsx --test --test-concurrency=1 tests/phase14-tcp-abort.pg.test.ts
       - name: Populated Phase12 016-to-017-to-018-to-019 immutable preservation
         run: node --import tsx --test --test-concurrency=1 tests/phase13-upgrade.pg.test.ts
       - name: Separate PostgreSQL16 database for actual child-process SIGKILL recovery
