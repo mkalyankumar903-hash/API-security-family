@@ -1,0 +1,230 @@
+name: Phase 11 Autonomous API VAPT Qualification
+on:
+  pull_request:
+    branches: ["work/phase10-advanced-workers-execution-safety"]
+    types: [opened, synchronize, edited, reopened]
+env:
+  PT_TEST_AUTHORITY_ENABLED: "true"
+permissions:
+  contents: read
+concurrency:
+  group: phase11-qualification-${{ github.ref }}-${{ contains(github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message, '[phase11-full]') && 'full' || 'fast' }}
+  cancel-in-progress: false
+jobs:
+  fast:
+    if: ${{ !contains(github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message, '[phase11-full]') && !contains(github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message, '[phase11-e2e]') && !contains(github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message, '[phase11-pg]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Generate isolated per-job test-only permit authority
+        shell: bash
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify immutable checkout
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Frozen install
+        run: npm ci --no-audit --no-fund
+      - name: Real ESLint
+        run: npm run lint
+      - name: Strict TypeScript
+        run: npm run typecheck
+      - name: All unit, contract and security regressions
+        run: npm test
+  full:
+    if: ${{ contains(github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message, '[phase11-full]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      SYNTHETIC_VERIFICATION_ENABLED: "true"
+      PHASE1_SYNTHETIC_SIGNING_KEY: "LUMICSEC_TEST_ONLY_NEVER_PRODUCTION_phase01_test_fixture_key_2026"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+      WORKER_DATABASE_URL: postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family
+      MIGRATION_DATABASE_URL: postgres://postgres:local_admin_only@127.0.0.1:55432/api_family
+      VITE_API_BASE: http://127.0.0.1:3001
+      VITE_DEV_TOKEN: local-test-token-alpha
+    steps:
+      - name: Generate isolated per-job test-only permit authority
+        shell: bash
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Exact final HEAD
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Isolated PostgreSQL application and private worker principals
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Frozen dependencies
+        run: npm ci --no-audit --no-fund
+      - name: ESLint
+        run: npm run lint
+      - name: Strict TypeScript
+        run: npm run typecheck
+      - name: Full unit, contract and security negative suite
+        run: npm test
+      - name: Real PostgreSQL 001-015, upgrade, worker, detection isolation
+        run: npm run test:pg
+      - name: React production build
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Real Chromium React Fastify PostgreSQL worker and Phase09, Phase10 and Phase11 journeys
+        run: npm run test:browser
+
+
+  browser-targeted:
+    if: ${{ contains(github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message, '[phase11-e2e]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      SYNTHETIC_VERIFICATION_ENABLED: "true"
+      PHASE1_SYNTHETIC_SIGNING_KEY: "LUMICSEC_TEST_ONLY_NEVER_PRODUCTION_phase01_test_fixture_key_2026"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+      WORKER_DATABASE_URL: postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family
+      MIGRATION_DATABASE_URL: postgres://postgres:local_admin_only@127.0.0.1:55432/api_family
+      VITE_API_BASE: http://127.0.0.1:3001
+      VITE_DEV_TOKEN: local-test-token-alpha
+    steps:
+      - name: Generate isolated per-job test-only permit authority
+        shell: bash
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Exact final HEAD
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Isolated PostgreSQL application and private worker principals
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Frozen dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Initialize fresh isolated database 001-015
+        run: npm run migrate
+      - name: React production build
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Phase 11 targeted browser journeys
+        run: npx playwright test tests/browser/phase6.spec.ts && npx playwright test tests/browser/phase7.spec.ts && npx playwright test tests/browser/phase8.spec.ts && npx playwright test tests/browser/phase9.spec.ts && npx playwright test tests/browser/phase11.spec.ts && npx playwright test tests/browser/phase11-recovery.spec.ts
+
+  postgres-targeted:
+    if: ${{ contains(github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message, '[phase11-pg]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      SYNTHETIC_VERIFICATION_ENABLED: "true"
+      PHASE1_SYNTHETIC_SIGNING_KEY: "LUMICSEC_TEST_ONLY_NEVER_PRODUCTION_phase01_test_fixture_key_2026"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+      WORKER_DATABASE_URL: postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family
+      MIGRATION_DATABASE_URL: postgres://postgres:local_admin_only@127.0.0.1:55432/api_family
+      VITE_API_BASE: http://127.0.0.1:3001
+      VITE_DEV_TOKEN: local-test-token-alpha
+    steps:
+      - name: Generate isolated per-job test-only permit authority
+        shell: bash
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Exact final HEAD
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Isolated PostgreSQL application and private worker principals
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Frozen dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Initialize fresh isolated database 001-015
+        run: npm run migrate
+      - name: Real PostgreSQL Phase09, Phase10 and Phase11 real PostgreSQL safety regressions
+        run: node --import tsx --test --test-concurrency=1 tests/ui.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09-upgrade.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09-races.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase11.pg.test.ts tests/phase11-retry.pg.test.ts tests/phase11-capacity.pg.test.ts tests/phase11-fault.pg.test.ts tests/phase11-lifecycle.pg.test.ts tests/phase11-authority.pg.test.ts tests/phase11-interleavings.pg.test.ts tests/phase11-acceptance-races.pg.test.ts tests/phase11-upgrade.pg.test.ts
