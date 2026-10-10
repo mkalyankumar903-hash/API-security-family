@@ -136,6 +136,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase14.pg.test.ts
       - name: Phase14 real poisoned worker and PostgreSQL diagnostic redaction
         run: node --import tsx --test --test-concurrency=1 tests/phase14-observability.pg.test.ts
+      - name: Phase14 real worker SIGTERM forced deadline and fenced restart PostgreSQL
+        run: node --import tsx --test --test-concurrency=1 tests/phase14-shutdown.pg.test.ts
       - name: Populated Phase12 016-to-017-to-018-to-019 immutable preservation
         run: node --import tsx --test --test-concurrency=1 tests/phase13-upgrade.pg.test.ts
       - name: Separate PostgreSQL16 database for actual child-process SIGKILL recovery
@@ -535,6 +537,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase14.pg.test.ts
       - name: Phase14 real poisoned worker and PostgreSQL diagnostic redaction
         run: node --import tsx --test --test-concurrency=1 tests/phase14-observability.pg.test.ts
+      - name: Phase14 real worker SIGTERM forced deadline and fenced restart PostgreSQL
+        run: node --import tsx --test --test-concurrency=1 tests/phase14-shutdown.pg.test.ts
       - name: Populated Phase12 016-to-017-to-018-to-019 immutable preservation
         run: node --import tsx --test --test-concurrency=1 tests/phase13-upgrade.pg.test.ts
       - name: Separate PostgreSQL16 database for actual child-process SIGKILL recovery
