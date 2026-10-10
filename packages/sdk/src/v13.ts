@@ -31,7 +31,7 @@ export class V13Client{
  /** Bound every response body before parsing: a hostile adapter cannot force unbounded JSON buffering. */
  private async readJson(response:Response):Promise<unknown>{
   const length=response.headers.get("content-length");
-  if(length!==null&&(!/^\\d+$/.test(length)||Number(length)>1048576))throw new V13ClientError(response.status,"RESPONSE_SIZE_LIMIT");
+  if(length!==null&&(!/^\d+$/.test(length)||Number(length)>1048576))throw new V13ClientError(response.status,"RESPONSE_SIZE_LIMIT");
   const type=response.headers.get("content-type")?.toLowerCase()??"";
   if(type.startsWith("text/html")||type.includes("application/octet-stream"))throw new V13ClientError(response.status,"INVALID_CONTENT_TYPE");
   const reader=response.body?.getReader();
@@ -59,7 +59,7 @@ export class V13Client{
   if(signal?.aborted)throw new V13ClientError(0,"ABORTED");
   let token:string;
   try{token=await this.config.accessToken();}catch{throw new V13ClientError(401,"AUTH_PROVIDER_FAILED");}
-  if(typeof token!=="string"||token.length===0||token.length>4096||/[^\\x21-\\x7e]/.test(token))
+  if(typeof token!=="string"||token.length===0||token.length>4096||/[^\x21-\x7e]/.test(token))
    throw new V13ClientError(401,"MISSING_AUTHENTICATION");
   const combined=AbortSignal.any([AbortSignal.timeout(this.timeoutMs),...(signal?[signal]:[])]);
   let response:Response|undefined;
