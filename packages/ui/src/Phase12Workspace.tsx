@@ -1,5 +1,6 @@
 import React,{useEffect,useState} from "react";
 import {Phase12ReportControls} from "./Phase12ReportControls.js";
+import {Phase12FindingExplorer} from "./Phase12FindingExplorer.js";
 import {msg,recognizedLocale,localeDirection,utcDateTime,count,type Phase12Locale} from "./phase12-locale.js";
 const BASE=(typeof import.meta.env==="object"&&import.meta.env.VITE_API_BASE)||"http://127.0.0.1:3001";
 const UUID_V12=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -115,6 +116,7 @@ export function Phase12Workspace({token,targetId}:{token:string;targetId:string}
    <table><caption>{msg("assessments",locale)}</caption><thead><tr><th scope="col">Status</th><th scope="col">Mode</th><th scope="col">Engine</th><th scope="col">Count</th></tr></thead>
     <tbody>{overview.assessments.map((a,i)=><tr key={i}><th scope="row">{a.status}</th><td>{a.mode}</td><td>{a.engine_version}</td><td>{a.count}</td></tr>)}</tbody></table>
   </div>}
+  <Phase12FindingExplorer key={"explorer-"+token+targetId} token={token} targetId={targetId}/>
   <h3>{msg("history",locale)}</h3>
   <p>{msg("historyHelp",locale)}</p>
   {runs.length===0?<p>No assessments for the selected target.</p>:
