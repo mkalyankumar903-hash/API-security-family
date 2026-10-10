@@ -23,7 +23,8 @@ test("Phase14 real Fastify rejects unsafe URL, content-types, invalid pagination
   }
   const xml=await app.inject({method:"POST",url:"/v1/targets",headers:{
    ...auth,"content-type":"application/xml"},payload:"<target/>"});
-  assert.equal(xml.statusCode,500===xml.statusCode?500:415);
+  assert.equal(xml.statusCode,415,xml.body);
+  assert.equal(xml.json().error,"UNSUPPORTED_CONTENT_TYPE");
   assert.equal(xml.headers["cache-control"],"no-store");
   const invalidJson=await app.inject({method:"POST",url:"/v1/targets",headers:{
    ...auth,"content-type":"application/json"},payload:"{\"not-json\":"});
