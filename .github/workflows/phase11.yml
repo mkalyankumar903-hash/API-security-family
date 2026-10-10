@@ -103,6 +103,35 @@ jobs:
         run: npm test
       - name: Real PostgreSQL 001-015, upgrade, worker, detection isolation
         run: npm run test:pg
+      # The preceding exhaustive PostgreSQL race/recovery suite deliberately
+      # preserves pending jobs, consumed permits and tenant stop state.
+      # Browser tests must NEVER inherit those security-negative fixtures.
+      # Keep both suites independently authoritative in the same Full CI job.
+      - name: Create separately isolated Chromium PostgreSQL database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_browser;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
+      - name: Migrate and assert clean Chromium tenant and private worker state
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          npm run migrate
+          versions="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM public.api_schema_migrations')"
+          assessments="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM public.api_assessments')"
+          queued="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')"
+          test "$versions" = "15"
+          test "$assessments" = "0"
+          test "$queued" = "0"
+          echo "Chromium isolated PG16: 15 migrations; zero assessments; zero private queue records."
       - name: React production build
         run: npm run build
       - name: Install Chromium

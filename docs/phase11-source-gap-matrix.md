@@ -1,50 +1,41 @@
-# LumicSec API Family — Phase 11 implementation/evidence matrix
+# Phase 11 — Requirement and Security Qualification Evidence Matrix
 
-## Isolation and baseline
+**Repository:** `mkalyankumar903-hash/API-security-family`  
+**Only branch:** `work/phase11-complete-autonomous-api-vapt`  
+**Existing Draft PR:** [#12](https://github.com/mkalyankumar903-hash/API-security-family/pull/12) (OPEN, DRAFT, unmerged)  
+**Accepted Phase 10 base:** `0808346ce2c7b053b1301657c370bc651bf2e35b`
 
-Repository: `mkalyankumar903-hash/API-security-family`. Current Phase 11 branch: `work/phase11-complete-autonomous-api-vapt`. Existing OPEN/DRAFT/unmerged PR #12 stacked on preserved accepted Phase 10 HEAD `0808346ce2c7b053b1301657c370bc651bf2e35b`. No Main Platform integration, production deployment, real-target network scanning, external permit authority, or VERIFIED_FIXED authority.
+This matrix follows the existing Phase 11 contractual scope and source/test inventory. The authoritative **latest HEAD, comprehensive CI result, actual test totals and final acceptance decision** are recorded in the existing PR #12 description and final evidence comment after CI completes. A source-file edit itself changes HEAD: therefore no older successful CI SHA may be treated as final-head qualification. No real Host consent, JWT, vault or network authority is granted.
 
-**Classification meanings:** IMPLEMENTED = source present but not necessarily qualified; TARGETED_PASS = direct GitHub Actions result at its recorded commit; FINAL_PENDING = no comprehensive successful final HEAD gate; HOST_BLOCKED = external Host contract unavailable.
+## Phase 11 independently executable requirement matrix
 
-| Requirement | Source / implementation | Qualified status |
+| Acceptance requirement | Primary implementation / executable evidence | Status before successful final-HEAD Full CI |
 | --- | --- | --- |
-| Target / specification / versioned normalized inventory | `packages/discovery/src/index.ts`, migrations 001–004 | REUSED, accepted predecessor |
-| Offline deterministic detection + remediation | `packages/assessment-engine/src/inventory.ts`, `packages/assessment-engine/src/rich.ts` | REUSED / Phase 11 PG integration TARGETED_PASS |
-| Independent explicit signed synthetic permit, governor, stop, scope controls | `packages/service/src/pt.ts`, `packages/worker/src/pt.ts`, migrations 009–010 | REUSED / full Phase 11 PG integration TARGETED_PASS |
-| Eight evidence-based PT fixture detection rules | `packages/pt/src/detection.ts`; migration 011 | REUSED / full Phase 11 PG integration TARGETED_PASS |
-| Terminal rule coverage, no false success | `packages/pt/src/terminal-coverage.ts`; migration 012 | REUSED / Phase 11 PG TARGETED_PASS |
-| Deterministic PT stages, budget and checkpoint recovery | `packages/pt/src/orchestrator.ts`, `packages/worker/src/pt-orchestrator.ts`; migration 013 | REUSED / Phase 11 PG TARGETED_PASS |
-| Queue fencing, conservative retries, attempt diagnostics | `packages/worker/src/index.ts`, `packages/worker/src/safety-retry.ts`; migration 014 | REUSED / Phase 11 regression TARGETED_PASS |
-| Composite versioned immutable plan | `packages/pt/src/autonomous-vapt.ts`, `tests/phase11-contract.test.ts` | IMPLEMENTED / Fast CI #38018824760 PASS at earlier HEAD |
-| One-submit parent, offline and PT child linkage | `packages/service/src/autonomous-vapt.ts`; migration 015 | IMPLEMENTED / real PG #38018511586 PASS at earlier HEAD |
-| Dependency-gated child progression, no premature PT | `api_vapt11_dependency_wakeup` trigger; `tests/phase11.pg.test.ts` | IMPLEMENTED / real PG integration TARGETED_PASS |
-| Immutable PostgreSQL final-success authorization | `api_vapt11_success_guard`; `tests/phase11.pg.test.ts` | IMPLEMENTED / real PG integration TARGETED_PASS |
-| Worker fenced parent report and conservative failure handling | `packages/worker/src/autonomous-vapt.ts`, `packages/database/src/index.ts` | IMPLEMENTED / real PG integration TARGETED_PASS |
-| Cross-engine evidence provenance and correlated-but-not-equivalent distinctions | `packages/pt/src/autonomous-vapt.ts`, parent worker correlation/projection | IMPLEMENTED / unit + real PG TARGETED_PASS |
-| Findings triage / remediation / coverage / exclusions / no Host confirmation | `packages/pt/src/autonomous-vapt.ts`, `packages/worker/src/autonomous-vapt.ts` | IMPLEMENTED / unit + real PG TARGETED_PASS |
-| Parent/child API, preview, status, cancellation, history, export, comparison/reassess | `packages/service/src/autonomous-vapt.ts` | IMPLEMENTED / targeted PG+Chromium PASS at earlier HEAD |
-| Full React customer journey with real backend | `packages/ui/src/AutonomousVaptWorkspace.tsx`; `packages/ui/src/AssessmentApp.tsx` | IMPLEMENTED / Chromium #38018216676 PASS at earlier HEAD |
-| Populated forward-only 014→015, including prior queue/worker/immutable history | `tests/phase11-upgrade.pg.test.ts` | IMPLEMENTED / PostgreSQL #38018511586 PASS |
-| Concurrent/idempotency, isolation, immutable history, cancel/reassessment, private queue safety | `tests/phase11-security-races.pg.test.ts` | 25 real PostgreSQL adversarial subtests committed; targeted CI pending |
-| Real Chromium positive synthetic observation, offline-only, authorized full flow, denial, cancellation, reassessment | `tests/browser/phase11.spec.ts` | Earlier targeted Chromium PASS for 3 scenarios; newer scenarios FINAL_PENDING |
-| Current exact-final-HEAD full gate: lint, TypeScript, all unit, PostgreSQL 001–015, build, Chromium | `.github/workflows/phase11.yml` | FINAL_PENDING |
-| Real Host JWT, vault, customer consent, true network egress permissions | Requires unavailable frozen Host interface | HOST_BLOCKED; no simulated customer authority |
+| Fully deterministic offline specification analysis, normalized versioned immutable inventory | `packages/discovery/src`, `packages/assessment-engine/src`, `tests/phase11.pg.test.ts`; migration 015 reuses 001–008 | IMPLEMENTED, targeted PostgreSQL PASS |
+| Governed synthetic PT uses Phase 06 signed permit, frozen scope, governor, budget/deadline, stop/revocation | `packages/service/src/pt.ts`, `packages/worker/src/pt.ts`, `tests/phase11.pg.test.ts` | IMPLEMENTED, targeted PostgreSQL PASS; **synthetic only** |
+| 8 deterministic evidence-based PT rules and terminal coverage; orchestration stages with conservative retry | `packages/pt/src`, `packages/worker/src/pt-orchestrator.ts`; migrations 011–014 | IMPLEMENTED, historical PG/security regression PASS |
+| Single-parent admission with transactionally linked offline/PT child, identity/idempotency, RLS and FK constraints | `packages/service/src/autonomous-vapt.ts`, `packages/database/migrations/015_phase11_complete_autonomous_api_vapt.sql` | IMPLEMENTED, targeted real PG PASS |
+| Strict offline child → permitted synthetic PT child → fenced parent aggregation and DB success guard | `api_vapt11_dependency_wakeup`, `api_vapt11_success_guard`, `packages/worker/src/autonomous-vapt.ts` | IMPLEMENTED, targeted real PG PASS |
+| No duplicate success under racing claims; old generation fenced; failure/stop/cancellation preserve immutable evidence | `tests/phase11.pg.test.ts`, `tests/phase11-security-races.pg.test.ts`, `packages/worker/src/autonomous-vapt.ts` | 25/25 Phase 11 security/concurrency subtests PASS in previous exact-HEAD PostgreSQL #38020743521 |
+| Immutable report, triage/remediation, offline+PT evidence correlation, provenance and truthful exclusions | `packages/pt/src/autonomous-vapt.ts`, `packages/worker/src/autonomous-vapt.ts`, `tests/phase11-contract.test.ts` | IMPLEMENTED, unit & real PG PASS |
+| Fastify preview/admission/progress/status/children/terminal/report/findings/JSON export/history/comparison | `packages/service/src/autonomous-vapt.ts`, `tests/phase11.pg.test.ts`, `tests/browser/phase11.spec.ts` | IMPLEMENTED, targeted PG/Chromium PASS |
+| Explicit new signed same-target scope for reassessment after consumed permit, immutable historical lineage | `packages/service/src/autonomous-vapt.ts`, `packages/ui/src/AutonomousVaptWorkspace.tsx`, Phase 11 PG & Chromium tests | IMPLEMENTED, prior Full CI #38020675277 Chromium 7/7 PASS |
+| React customer journeys (governed, offline-only, unauthorized, cancellation, evidence, report, reassessment) | `packages/ui/src/AutonomousVaptWorkspace.tsx`, `tests/browser/phase11.spec.ts` | prior Full CI #38020675277 Chromium 7/7 PASS at earlier HEAD; latest full pending requalification |
+| Forward-only populated migration 014→015 retains reports, evidence, queue and worker attempts | `tests/phase11-upgrade.pg.test.ts` | real PG PASS; migrations unchanged |
+| Complete historical unit/contract, all real PostgreSQL security tests, real Chromium, lint/typecheck/build and cleanup, **at one final SHA** | `.github/workflows/phase11.yml` | FINAL-HEAD FULL CI PENDING after isolation repair |
 
-## Verified GitHub Actions evidence (SHA-specific)
+## Exhaustive-suite isolation repair and objective evidence
 
-- Phase 10 accepted Full CI #38014953128 on `0808346ce2c7b053b1301657c370bc651bf2e35b`: baseline only; never count as Phase 11 qualification.
-- Phase 11 Fast CI #38018824760 on `39ba74081b36d56ac1e33020b3389d62b1c78746`: SUCCESS (lint/typecheck/unit).
-- Phase 11 targeted PostgreSQL #38018511586 on `a5d0c6fe6599d95cff2b03888a190b5cb0ee3311`: SUCCESS, including real full parent offline→PT→report and 014→015 populated upgrade.
-- Phase 11 targeted Chromium #38018216676 on `1ccca21ede16c664dfca39dea29a62e8864b943b`: SUCCESS, including three initial Phase 11 Chromium journeys and historical regressions.
-- The newer 25-case adversarial suite and Chromium observation expansion are NOT final-head qualified merely because prior gates succeeded.
+- Full CI **#38020984250** at `7f810162c645aa5798b66c2251335410a5c19f14` returned **FAILURE**, not a Phase 11 acceptance. Executed: ESLint PASS, strict TypeScript PASS, **117/117** unit/security PASS, **136/136** real PostgreSQL PASS, React production build PASS, cleanup PASS. Chromium predecessor paths executed, but Phase 11 browser journeys **1/7 PASS, 6/7 FAIL**.
+- Exact root-cause boundary: expanding the Full job to `npm run test:pg` made security-negative PostgreSQL suites and Chromium share the **same mutable test database**. Their retained queues/tenant authority state conflict with deterministic browser fixtures. The independent earlier Full CI **#38020675277** had 7/7 Phase 11 Chromium PASS before the expanded historical PG suite workflow change. No security rule or assertion is relaxed.
+- Full workflow now creates a **second ephemeral PostgreSQL 16 test database only for Chromium**, with the same isolated application/worker role restrictions and independently applied 001–015 migrations. Gate explicitly asserts exactly 15 migrations, zero assessments and zero private queue records before the real Chromium tests. The exhaustive prior PostgreSQL database/evidence is preserved, not wiped. Test suites still execute in the **same GitHub-hosted comprehensive Full CI**.
+- Existing exact-head targeted PostgreSQL #38020743521: **SUCCESS, 136/136**. Earlier comprehensive Full #38020675277: **SUCCESS at earlier SHA only**.
+- Never mark the current candidate accepted unless the latest Full CI actually finishes SUCCESS and `branch HEAD = PR HEAD = Full CI head_sha`, with the actual `full` job executing all prescribed gates.
 
-## Security assertions
+## Security boundaries and Host blockers
 
-1. `OFFLINE_ONLY` performs no governed PT interactions; it is not full authorized VAPT completion.
-2. A plan preview never issues/renews a permit. `GOVERNED_SYNTHETIC` requires a separately signed/valid synthetic scope and permit from accepted Phase 06 authority.
-3. Only an active worker claim may publish; cancellation, stop, changing target authority, failed child, uncertain receipt and tampered report must fail closed.
-4. Tenant RLS/FORCE RLS applies to five Phase 11 tables. Private worker claim token and queue remain unavailable to application principal.
-5. Correlation expresses **related evidence, not equivalent runtime proof**. `NO EVIDENCE != SAFE`, `UNKNOWN != SAFE`, `NO LONGER OBSERVED != VERIFIED_FIXED`, and `CI PASS != VERIFIED_FIXED`.
-6. Independent API Family never claims real customer vulnerability confirmation or `VERIFIED_FIXED`. Host-only authority remains unavailable.
+**Verified by applicable source and test gates:** tenant FORCE RLS on five Phase 11 tables; private worker queue privilege denial; signed synthetic authorization; per-target/spec/tenant isolation; immutable report and evidence authority; fail-closed cancellation, revocation, expiry, uncertainty and stale-worker claims; no synthetic evidence promoted to a customer security verdict. `PLAN != PERMIT`, `NO EVIDENCE != SAFE`, `UNKNOWN != SAFE`, `NO LONGER OBSERVED != VERIFIED_FIXED`, `CI PASS != VERIFIED_FIXED`.
 
-**Current decision: PHASE 11 ENGINEERING ACCEPTANCE PENDING — do not merge, deploy or start Phase 12.** Update this matrix only after exact-final-HEAD comprehensive evidence.
+**HOST_BLOCKED — not manufactured:** actual Host JWT/tenant identity, customer consent, secret vault integration, live customer egress permission, live target runtime validation, independent canonical RetestVerificationAuthority. **0 real customer requests; 0 confirmed customer vulnerabilities; 0 VERIFIED_FIXED.** Real customer production readiness is NOT established. No merge, production deployment, Main Platform/Web Family change, or Phase 12.
+
+**Acceptance decision until final exact-HEAD evidence comment: PENDING INDEPENDENT REVIEW; NOT PRODUCTION-READY.**
