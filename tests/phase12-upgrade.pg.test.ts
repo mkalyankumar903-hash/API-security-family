@@ -67,7 +67,7 @@ test("Phase12 populated 015→016 preserves original immutable reports, VAPT lin
   async function snapshot(){
    const states:Record<string,unknown>={};
    for(const table of tables){
-    const data=await database.query("SELECT * FROM public."+table+" ORDER BY id");
+    const data=await database.query("SELECT * FROM public."+table+" ORDER BY 1");
     states[table]={count:data.rowCount,digest:digest(data.rows)};
    }
    const privateQueue=await database.query("SELECT assessment_id,tenant_id FROM api_queue.api_assessment_queue ORDER BY assessment_id");
