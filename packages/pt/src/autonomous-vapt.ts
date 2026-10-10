@@ -148,7 +148,7 @@ export function correlateAutonomousVaptEvidence(context:{
   const operationKey=ptRuleOperations[f.ruleId];
   if(!fixtureId||fixtureVersion===null||!profile||!rule||
    rule.revision!==f.revision||!HEX.test(f.fingerprint)||!operationKey)
-   deny("INVALID_SYNTHETIC_PROVENANCE");
+   throw new AutonomousVaptError("INVALID_SYNTHETIC_PROVENANCE");
   const key=planFingerprint({tenantId,targetId,specFingerprint,fixtureId,fixtureVersion,
    profile,engine:"pt-detection-v1",rule:f.ruleId,revision:f.revision,operationKey});
   observations.push({key,source:"SYNTHETIC_PT",ruleId:f.ruleId,revision:f.revision,
