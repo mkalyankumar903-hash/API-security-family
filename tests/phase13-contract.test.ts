@@ -129,8 +129,8 @@ test("Phase13 versioned feature definitions deny unsupported meters and never im
  }
  assert.throws(()=>classifyCatalogFeature("GOVERNED_API_PT_COMPLETED",2),/UNSUPPORTED_FEATURE_OR_VERSION/);
  assert.throws(()=>classifyCatalogFeature("CANCELLED_ASSESSMENT",1),/UNSUPPORTED_FEATURE_OR_VERSION/);
- assert.equal(classifyCatalogFeature("GOVERNED_API_PT_COMPLETED",1).state,"DISABLED_HOST_AUTHORITY");
- assert.equal(classifyCatalogFeature("OFFLINE_API_ASSESSMENT_COMPLETED",1).state,"DISABLED_NO_METER");
+ assert.equal(classifyCatalogFeature("GOVERNED_API_PT_COMPLETED",1).state,"NON_BILLABLE_OBSERVATION");
+ assert.equal(classifyCatalogFeature("OFFLINE_API_ASSESSMENT_COMPLETED",1).state,"NON_BILLABLE_OBSERVATION");
 });
 
 test("Phase13 SDK errors, bounded pagination and API compatibility fail closed",async()=>{
