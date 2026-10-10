@@ -79,8 +79,8 @@ test("Phase14 genuine idle SIGTERM gracefully drains and closes PostgreSQL conne
 test("Phase14 genuine active claim cooperative SIGTERM releases unstarted lease and forbids success",async()=>{
  const id=await newJob(),child=spawnWorker("cooperative");
  try{
-  const ready=stage(child,"READY");await ready;
-  const claimed=await stage(child,"PHASE14_CLAIM_HELD");
+  const ready=stage(child,"READY"),claiming=stage(child,"PHASE14_CLAIM_HELD");
+  await ready;const claimed=await claiming;
   assert.equal(claimed.assessmentId,id);
   const ended=exitChild(child);child.kill("SIGTERM");
   const exit=await ended;assert.deepEqual([exit.code,exit.signal],[0,null]);assert(exit.elapsedMs<3000);
@@ -93,8 +93,8 @@ test("Phase14 genuine active claim cooperative SIGTERM releases unstarted lease 
 test("Phase14 real blocked worker exceeds bounded deadline then fresh worker recovers fenced PostgreSQL claim",async()=>{
  const id=await newJob(),original=spawnWorker("stalled");
  try{
-  await stage(original,"READY");
-  const held=await stage(original,"PHASE14_CLAIM_HELD");assert.equal(held.assessmentId,id);
+  const initialReady=stage(original,"READY"),initialClaim=stage(original,"PHASE14_CLAIM_HELD");
+  await initialReady;const held=await initialClaim;assert.equal(held.assessmentId,id);
   const lease=await withWorkerTenant(TENANT,async tx=>{
    const row=await tx.query("SELECT claim_token,claim_generation FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[id]);
    const attempt=await tx.query("SELECT id FROM api_worker_attempts WHERE assessment_id=$1 AND state='ACTIVE'",[id]);
