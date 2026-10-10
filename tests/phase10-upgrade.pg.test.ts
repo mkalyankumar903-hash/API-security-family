@@ -55,9 +55,56 @@ test("Phase10 populated 013 -> 014: forward-only migration preserves historical 
    const id=randomUUID();
    const ptEngine=engine.startsWith("pt-");
    await db.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version,inventory_version,inventory_raw_fingerprint,inventory_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",[
-    id,t,target,spec,ptEngine?"FAILED":"COMPLETED",ptEngine?"SYNTHETIC_PT_FIXTURE":"SPEC_ONLY",
+    id,t,target,spec,engine==="pt-orchestrator-v1"?"COMPLETED":ptEngine?"FAILED":"COMPLETED",
+    ptEngine?"SYNTHETIC_PT_FIXTURE":"SPEC_ONLY",
     "historical-version-"+engine,engine,engine==="legacy-v1"?null:1,
     engine==="legacy-v1"?null:"a".repeat(64),engine==="legacy-v1"?null:"b".repeat(64)]);
+   // Archived, synthetic-only permit/report graph at schema 013. These are
+   // explicit migration fixtures, not proof of any live Host authorization.
+   if(ptEngine){
+    const scope=randomUUID(),permit=randomUUID();
+    const fixture=engine==="pt-fixture-v1"?"billing-safe-v1":"pt-security-v1";
+    const revision=(await db.query("SELECT verification_version,scope_revision FROM api_targets WHERE id=$1",[target])).rows[0];
+    await db.query(`INSERT INTO api_pt_scopes(id,tenant_id,target_id,specification_id,specification_version,spec_fingerprint,target_verification_version,target_scope_revision,
+     environment,fixture_id,profile,operation_keys,exclusions,max_evaluations,max_concurrency,rate_per_minute,deadline_ms,validity_minutes,idempotency_key)
+     VALUES($1,$2,$3,$4,1,$5,$6,$7,'SYNTHETIC',$8,'SYNTHETIC_PT_READ_ONLY','["GET /status"]'::jsonb,'[]'::jsonb,1,1,1,10000,5,$9)`,
+     [scope,t,target,spec,"a".repeat(64),revision.verification_version,revision.scope_revision,fixture,
+      "archive-"+engine+"-"+randomUUID()]);
+    await db.query(`INSERT INTO api_pt_permits(id,tenant_id,scope_id,token_hash,claims,signed_body,issued_at,expires_at)
+      VALUES($1,$2,$3,$4,$5::jsonb,$6,clock_timestamp()-interval '1 hour',clock_timestamp()+interval '1 hour')`,
+     [permit,t,scope,randomUUID().replaceAll("-","").repeat(2),
+      JSON.stringify({maxEvaluations:1,fixtureId:fixture,syntheticOnly:true,migrationFixture:true}),
+      "pre-phase10-archive-no-bearer"]);
+    await db.query(`INSERT INTO api_pt_jobs(assessment_id,tenant_id,target_id,scope_id,permit_id,operation_keys,job_deadline)
+      VALUES($1,$2,$3,$4,$5,'["GET /status"]'::jsonb,clock_timestamp()+interval '30 minutes')`,
+     [id,t,target,scope,permit]);
+    if(engine==="pt-fixture-v1"){
+     await db.query("INSERT INTO api_pt_reports(id,tenant_id,assessment_id,projection) VALUES($1,$2,$3,$4::jsonb)",
+      [randomUUID(),t,id,JSON.stringify({schemaVersion:"pt-fixture-report-v1",status:"FAILED",
+       syntheticOnly:true,verifiedFixed:false,customerNetworkRequests:0,migrationFixture:true})]);
+    }else{
+     await db.query(`INSERT INTO api_pt_detection_plans(assessment_id,tenant_id,fixture_version,fixture_profile,engine_version,rules,evaluations,plan_fingerprint)
+      VALUES($1,$2,1,'SECURE_BASELINE','pt-detection-v1',$3::jsonb,$4::jsonb,$5)`,
+      [id,t,JSON.stringify([{id:"PT-HISTORICAL",revision:"1.0.0"}]),
+       JSON.stringify([{evaluationKey:"PT-HISTORICAL:valid",method:"GET",path:"/status"}]),"b".repeat(64)]);
+     if(engine==="pt-detection-v1"){
+      await db.query("INSERT INTO api_pt_detection_reports(id,tenant_id,assessment_id,projection) VALUES($1,$2,$3,$4::jsonb)",
+       [randomUUID(),t,id,JSON.stringify({schemaVersion:"pt-detection-report-v1",status:"FAILED",
+        syntheticOnly:true,verifiedFixed:false,customerNetworkRequests:0,migrationFixture:true})]);
+      await db.query("INSERT INTO api_pt8_terminal_coverage(id,tenant_id,assessment_id,final_status,fingerprint,projection) VALUES($1,$2,$3,'FAILED',$4,$5::jsonb)",
+       [randomUUID(),t,id,"c".repeat(64),JSON.stringify({schemaVersion:"pt-terminal-coverage-v1",
+        assessmentComplete:false,verifiedFixed:false,customerRuntimeVerified:false,migrationFixture:true})]);
+     }else{
+      await db.query(`INSERT INTO api_pt9_plans(assessment_id,tenant_id,policy_id,policy_version,plan,fingerprint)
+       VALUES($1,$2,'SYNTHETIC_PT_AUTHORIZATION_FOCUSED','1.0.0',$3::jsonb,$4)`,
+       [id,t,JSON.stringify({schemaVersion:"pt-orchestrator-plan-v1",syntheticOnly:true,migrationFixture:true}),"d".repeat(64)]);
+      await db.query("INSERT INTO api_pt9_reports(id,tenant_id,assessment_id,projection,fingerprint) VALUES($1,$2,$3,$4::jsonb,$5)",
+       [randomUUID(),t,id,JSON.stringify({schemaVersion:"pt-orchestration-report-v1",status:"COMPLETED",
+        syntheticOnly:true,verifiedFixed:false,customerRuntimeVerified:false,customerNetworkRequests:0,
+        migrationFixture:true}),"e".repeat(64)]);
+     }
+    }
+   }
    if(!ptEngine){
     await db.query("INSERT INTO api_reports(id,tenant_id,assessment_id,projection) VALUES($1,$2,$3,$4::jsonb)",[
      randomUUID(),t,id,JSON.stringify({schemaVersion:"historical-"+engine,
@@ -73,6 +120,10 @@ test("Phase10 populated 013 -> 014: forward-only migration preserves historical 
    ["api_targets","id"],["api_specifications","id"],["api_assessments","id"],
    ["api_evidence","id"],["api_reports","id"],
    ["api_spec_inventories","specification_id"],["api_rich_inventories","specification_id"],
+   ["api_pt_scopes","id"],["api_pt_permits","id"],["api_pt_jobs","assessment_id"],
+   ["api_pt_reports","id"],["api_pt_detection_plans","assessment_id"],
+   ["api_pt_detection_reports","id"],["api_pt8_terminal_coverage","id"],
+   ["api_pt9_plans","assessment_id"],["api_pt9_reports","id"],
    ["api_queue.api_assessment_queue","assessment_id"]
   ] as const;
   const snapshots=new Map<string,{count:number;sha:string}>();
@@ -105,6 +156,15 @@ test("Phase10 populated 013 -> 014: forward-only migration preserves historical 
   assert.deepEqual(postVersions.rows,preVersions.rows,"all supported historical engines and statuses survive 013->014");
   assert.equal((await db.query("SELECT count(*)::int AS n FROM api_reports")).rows[0].n,5,
    "historical SPEC_ONLY immutable reports are not dropped, replayed or fabricated");
+  for(const [table,expected] of [["api_pt_reports",1],["api_pt_detection_reports",1],
+   ["api_pt8_terminal_coverage",1],["api_pt9_reports",1],["api_pt9_plans",1]] as const){
+   const count=await db.query("SELECT count(*)::int AS n FROM "+table);
+   assert.equal(count.rows[0].n,expected,"populated "+table+" survives without re-evaluation");
+  }
+  const historicalProjections=await db.query(`SELECT projection FROM api_pt9_reports
+   WHERE projection->>'migrationFixture'='true'`);
+  assert.equal(historicalProjections.rows[0]?.projection?.verifiedFixed,false);
+  assert.equal(historicalProjections.rows[0]?.projection?.customerRuntimeVerified,false);
   await assert.rejects(()=>db.query("UPDATE api_reports SET projection='{}'::jsonb WHERE id=$1",[report]),/IMMUTABLE/i);
   const queues=await db.query("SELECT has_table_privilege('api_family','api_queue.api_assessment_queue','SELECT') AS read");
   assert.equal(queues.rows[0].read,false);
