@@ -58,11 +58,14 @@ test("Phase14 PostgreSQL sustained 68:10 imbalanced tenant admission, fairness a
   assert.equal(capacityDenied,4);
 
   const done=new Set<string>(),maxActive={A:0,B:0};
+  const workerOperationMs:number[]=[];
   const startedAt=performance.now();
   await Promise.all(Array.from({length:3},async()=>{
    while(done.size<aIds.length+bIds.length&&performance.now()-startedAt<60000){
+    const started=performance.now();
     const work=await processOneJob();
-    if(!work)await new Promise(resolve=>setTimeout(resolve,30));
+    if(work)workerOperationMs.push(performance.now()-started);
+    else await new Promise(resolve=>setTimeout(resolve,30));
     const rows=await withTenant(A,tx=>tx.query(
       "SELECT id,status FROM api_assessments WHERE id=ANY($1::uuid[]) AND status IN ('COMPLETED','FAILED','CANCELLED')",[aIds]));
     const rowB=await withTenant(B,tx=>tx.query(
@@ -117,6 +120,22 @@ test("Phase14 PostgreSQL sustained 68:10 imbalanced tenant admission, fairness a
   assert.equal(cross.rows[0].n,0,"no cross-tenant report readback");
   const counts=await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_reports WHERE assessment_id=ANY($1::uuid[])",[aIds]));
   assert.equal(counts.rows[0].n,64);
+  const findingsSamples:number[]=[];
+  // True PostgreSQL tenant-filtered findings reads over the just-committed jobs.
+  for(let i=0;i<5;i++)await withTenant(A,tx=>tx.query(
+   "SELECT id FROM api_findings WHERE assessment_id=ANY($1::uuid[]) ORDER BY id LIMIT 25 OFFSET 0",[aIds]));
+  const findingsMemory=process.memoryUsage().heapUsed;
+  for(let i=0;i<30;i++){
+   const start=performance.now();
+   const q=await withTenant(A,tx=>tx.query(
+    "SELECT id FROM api_findings WHERE assessment_id=ANY($1::uuid[]) ORDER BY id LIMIT 25 OFFSET 0",[aIds]));
+   assert(q.rowCount!==null&&q.rowCount<=25);
+   findingsSamples.push(performance.now()-start);
+  }
+  console.log("PHASE14_FINDINGS_PAGINATION_BENCHMARK "+JSON.stringify({
+   fixture:"64 actual completed synthetic assessments",warmup:5,concurrency:1,
+   ...quantiles(findingsSamples),errors:0,heapDeltaBytes:process.memoryUsage().heapUsed-findingsMemory,
+   policy:"tenant-RLS plus bounded PostgreSQL LIMIT/OFFSET"}));
   const ledger=await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_v13_usage_ledger WHERE source_report_id=ANY($1::uuid[])",[aIds]));
   assert.equal(ledger.rows[0].n,0,"no synthetic offline job causes commercial settlement");
   const grants=await pool.query("SELECT has_table_privilege('api_family_queue','public.api_v13_usage_ledger','SELECT') AS usage_read");
@@ -135,7 +154,8 @@ test("Phase14 PostgreSQL sustained 68:10 imbalanced tenant admission, fairness a
   console.log("PHASE14_NOISY_NEIGHBOR_PASS "+JSON.stringify({
    submitted:78,admitted:74,rejected:4,completed:74,failed:0,
    completionElapsedMs:Number((performance.now()-startedAt).toFixed(2)),
-   admissions:quantiles(submitTimes),workerConcurrency:3,firstLightClaimRank:firstLight+1,
+   admissions:quantiles(submitTimes),workerEndToEnd:quantiles(workerOperationMs),
+   workerConcurrency:3,firstLightClaimRank:firstLight+1,
    lastLightClaimRank:lastLight+1,tailRecovery:true,heapDeltaBytes:process.memoryUsage().heapUsed-baselineHeap,
    customerNetworkRequests:0,environment:"GitHub hosted PostgreSQL16 loopback only",
    timingBudget:"no production SLO"}));
