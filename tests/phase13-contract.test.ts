@@ -60,7 +60,7 @@ test("Phase13 key rotation rejects wrong key id or expired trust window",()=>{
   assert.throws(()=>verifyRotatedSyntheticEvent(raw,sig,"wrong",keys,now),/UNTRUSTED_SIGNING_KEY/);
   assert.throws(()=>verifyRotatedSyntheticEvent(raw,sig,"2026-key",keys,now+120000),/UNTRUSTED_SIGNING_KEY/);
   assert.throws(()=>verifyRotatedSyntheticEvent(raw,sig,"2026-key",
-   [{...keys[0],key:randomBytes(48)}],now),/INVALID_EVENT_SIGNATURE/);
+   [{...keys[0]!,key:randomBytes(48)}],now),/INVALID_EVENT_SIGNATURE/);
  }finally{if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
  if(flag===undefined)delete process.env.SYNTHETIC_AUTH_ENABLED;else process.env.SYNTHETIC_AUTH_ENABLED=flag;}
 });

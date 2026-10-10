@@ -60,7 +60,7 @@ export function verifyRotatedSyntheticEvent(raw:Uint8Array,signature:string,keyI
  if(!/^[a-z0-9_-]{1,32}$/.test(keyId)||keys.length<1||keys.length>5)throw new CommercialContractError("UNTRUSTED_SIGNING_KEY");
  const matching=keys.filter(k=>k.keyId===keyId&&k.validFrom<=now&&k.validUntil>now);
  if(matching.length!==1)throw new CommercialContractError("UNTRUSTED_SIGNING_KEY");
- return verifySyntheticEvent(raw,signature,matching[0].key,now);
+ return verifySyntheticEvent(raw,signature,matching[0]!.key,now);
 }
 export type SyntheticExternalSnapshot={schemaVersion:typeof V13;snapshotId:string;
  tenantId:string;issuer:"lumicsec-ci-external-accounting-v13";
