@@ -338,7 +338,7 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
     if(i<3){
      assert.equal(result.state,"RETRY");
      await assert.rejects(()=>claimQaDelivery(A,second.id),/QA_BACKOFF_ACTIVE/);
-     await withTenant(A,tx=>tx.query("UPDATE public.api_v13_qa_delivery SET next_attempt_at=clock_timestamp()-interval '1 second' WHERE id=$1",[second.id]));
+     await new Promise(resolve=>setTimeout(resolve,(result.backoffSeconds*1000)+120));
     }else assert.equal(result.state,"DEAD_LETTER");
    }
    assert.deepEqual(backoffs,[1,2,4,0]);
