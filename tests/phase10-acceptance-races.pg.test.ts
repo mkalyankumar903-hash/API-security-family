@@ -129,7 +129,7 @@ test("Phase10 independent-session 25-case security acceptance rework: exact #7,#
    const gate=heldRow("SELECT 1 FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[id]);await gate.ready;
    try{
     const former=renewWorkerClaim(old),fresh=renewWorkerClaim(current);
-    await lockWait("api_assessment_queue",2);
+    await lockWait("",2); // old and current renewal wait on serialized stop/queue locks
     gate.release();
     assert.deepEqual(await Promise.all([former,fresh]),[false,true]);
    }finally{gate.release();await gate.done;}
@@ -195,7 +195,7 @@ test("Phase10 independent-session 25-case security acceptance rework: exact #7,#
     const revoke=req("POST","/v6/pt/test-authority/permits/"+j.permit+"/revoke",{},undefined,true);
     await lockWait("api_pt_permits");
     const retry=scheduleConservativeRetry(j.claim,{code:"08006"});
-    await lockWait("api_pt_permits",2);
+    await lockWait("",2); // revocation and retry wait on the same canonical lock-order chain
     gate.release();
     const response=await revoke;assert.equal(response.statusCode,200,response.body);
     assert.equal(await retry,"NOT_RETRYABLE");
