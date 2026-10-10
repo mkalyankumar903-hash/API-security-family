@@ -63,7 +63,7 @@ export async function ingestSyntheticEntitlement(raw:Uint8Array,signature:string
    [randomUUID(),e.tenantId,e.entitlementId,e.eventId,e.revision,e.feature,e.limit,e.status,e.issuer,e.audience,e.expiresAt,digest]);
   return {eventId:e.eventId,replay:false};
  });
- emitDiagnostic({kind:"METER_ENTITLEMENT",classification:result.replay?"STALE":"OK",statusCode:200,state:e.state});
+ emitDiagnostic({kind:"METER_ENTITLEMENT",classification:result.replay?"STALE":"OK",statusCode:200,state:e.status});
  return result;
 }
 /** Resolve only authoritative terminal sources. Existing immutable parent report is a minimum
