@@ -92,6 +92,17 @@ test("Phase13 populated 016→018 preserves original immutable reports, VAPT lin
    await database.query("COMMIT");
   }catch(e){await database.query("ROLLBACK");throw e;}
   assert.equal((await database.query("SELECT count(*)::int AS n FROM public.api_v12_report_audit")).rows[0].n,phase12ReportCount);
+  // Preserve actual populated 017 report-only entitlement, reservation, ledger and
+  // permanently disabled outbox rows across the new feature-check changes in 018.
+  const oldEnt=randomUUID(),oldReservation=randomUUID(),oldUsage=randomUUID(),oldEvent=randomUUID();
+  await database.query("INSERT INTO public.api_v13_entitlement_events(id,tenant_id,entitlement_id,event_id,revision,feature,limit_units,state,issuer,audience,expires_at,payload_fingerprint) VALUES($1,$2,$3,$4,1,'IMMUTABLE_REPORT_OBSERVED',2,'ISSUED','lumicsec-ci-synthetic-v13','api-family-v13-test',clock_timestamp()+interval '1 hour',$5)",[randomUUID(),tenant,oldEnt,oldEvent,"d".repeat(64)]);
+  await database.query("INSERT INTO public.api_v13_reservations(id,tenant_id,entitlement_id,feature,source_report_id,month_start,idempotency_key,units,expires_at,state,settled_at) VALUES($1,$2,$3,'IMMUTABLE_REPORT_OBSERVED',$4,date_trunc('month',clock_timestamp())::date,$5,1,clock_timestamp()+interval '1 hour','SETTLED',clock_timestamp())",
+   [oldReservation,tenant,oldEnt,parent,"phase13-upgrade-preserved-"+randomUUID()]);
+  await database.query("INSERT INTO public.api_v13_usage_ledger(id,tenant_id,reservation_id,feature,source_report_id,month_start,units,source_fingerprint) VALUES($1,$2,$3,'IMMUTABLE_REPORT_OBSERVED',$4,date_trunc('month',clock_timestamp())::date,1,$5)",
+   [oldUsage,tenant,oldReservation,parent,digest(parentProjection)]);
+  await database.query("INSERT INTO public.api_v13_outbox(id,tenant_id,source_usage_id,payload) VALUES($1,$2,$3,$4::jsonb)",[randomUUID(),tenant,oldUsage,JSON.stringify({event:"USAGE_OBSERVED",syntheticOnly:true})]);
+  const originalCommercial=await database.query("SELECT (SELECT count(*) FROM public.api_v13_entitlement_events)::int AS entitlement,(SELECT count(*) FROM public.api_v13_reservations)::int AS reservations,(SELECT count(*) FROM public.api_v13_usage_ledger)::int AS usage,(SELECT count(*) FROM public.api_v13_outbox)::int AS outbox");
+  assert.deepEqual(originalCommercial.rows[0],{entitlement:1,reservations:1,usage:1,outbox:1});
   // Upgrade a populated 017 database by additive 018 without rewriting historical rows.
   await database.query("BEGIN");
   try{
@@ -99,6 +110,9 @@ test("Phase13 populated 016→018 preserves original immutable reports, VAPT lin
    await database.query("INSERT INTO public.api_schema_migrations(version) VALUES('018')");
    await database.query("COMMIT");
   }catch(e){await database.query("ROLLBACK");throw e;}
+  const retained=await database.query("SELECT (SELECT count(*) FROM public.api_v13_entitlement_events)::int AS entitlement,(SELECT count(*) FROM public.api_v13_reservations)::int AS reservations,(SELECT count(*) FROM public.api_v13_usage_ledger)::int AS usage,(SELECT count(*) FROM public.api_v13_outbox)::int AS outbox");
+  assert.deepEqual(retained.rows,originalCommercial.rows,"017 historical commercial accounting mutated during 018");
+  assert.equal((await database.query("SELECT delivery_state FROM public.api_v13_outbox WHERE source_usage_id=$1",[oldUsage])).rows[0].delivery_state,"DISABLED");
   const after=await snapshot();
   assert.deepEqual(after,before,"Migration 016 altered original historical reports or queue");
   const versions=await database.query("SELECT version FROM public.api_schema_migrations ORDER BY version");
