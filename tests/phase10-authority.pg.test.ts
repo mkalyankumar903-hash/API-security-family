@@ -86,7 +86,8 @@ test("Phase10 authority: renewal versus revocation, cancellation, emergency stop
   const stop=await api("POST","/v6/pt/test-authority/stop",{},undefined,true);
   assert.equal(stop.statusCode,200,stop.body);
   assert.equal(await renewWorkerClaim(stopped.claim),false);
-  assert.equal(await scheduleConservativeRetry(stopped.claim,{code:"08006"}),"STALE");
+  assert.equal(await scheduleConservativeRetry(stopped.claim,{code:"08006"}),"NOT_RETRYABLE",
+   "trusted stop is checked before accepting a private retry lease");
   await processPtOrchestrationJob(A,stopped.jobId,stopped.claim.claim_token);
   assert.equal((await api("GET","/v9/pt/orchestrations/"+stopped.jobId)).json().status,"CANCELLED");
   assert.equal((await api("GET","/v9/pt/orchestrations/"+stopped.jobId+"/report")).statusCode,409);
