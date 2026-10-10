@@ -73,8 +73,7 @@ test("Phase10 independent-session 25-case security acceptance rework: exact #7,#
   const cancel=async(id:string)=>req("POST","/v1/assessments/"+id+"/cancel",{});
   const ptSpec=await call("POST","/v2/targets/"+tid+"/specifications/imports",
    {filename:"phase07-security.openapi.json",content:PT_SPEC},"acceptance-import-"+randomUUID());
-  const op=(await call("GET","/v2/specifications/"+ptSpec.specificationId+"/operations?limit=100",undefined,undefined,false,200))
-   as unknown as {method:string;path:string;key:string}[];
+  const op=(await call("GET","/v2/specifications/"+ptSpec.specificationId+"/operations?limit=100",undefined,undefined,false,200)) as unknown as {method:string;path:string;key:string}[];
   const keys=["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"].map(path=>{
    const key=op.find(x=>x.method==="GET"&&x.path===path)?.key;assert.ok(key);return key;
   });
