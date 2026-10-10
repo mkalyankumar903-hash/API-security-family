@@ -1,0 +1,16 @@
+{
+  "name": "@lumicsec/api-family-v13-sdk",
+  "version": "0.0.0-phase13.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated typed read-only SDK; no production Host authority, not published.",
+  "engines": {"node": ">=22"},
+  "files": ["dist/", "README.md"],
+  "types": "./dist/v13.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/v13.d.ts",
+      "import": "./dist/v13.js"
+    }
+  }
+}

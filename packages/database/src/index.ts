@@ -8,21 +8,43 @@ export const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 
 // SELECT/UPDATE/DELETE/CLAIM queue records; never share these connection strings.
 export const workerPool = new Pool({ connectionString: process.env.WORKER_DATABASE_URL, max: 5, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 });
 export type Client = PoolClient;
-export function withTenant<T>(tenantId: string, fn: (tx: PoolClient) => Promise<T>): Promise<T> {
-  return tenantTransaction(pool,tenantId,fn);
+// Separate, ephemeral CI-only role; NO app/worker/privileged fallback.
+let qaPool: Pool|undefined;
+export function withQaTenant<T>(tenantId:string,fn:(tx:PoolClient)=>Promise<T>):Promise<T>{
+ if(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true"||
+  !process.env.PHASE13_QA_DB_PASSWORD||!process.env.DATABASE_URL)
+  throw new Error("PHASE13_CI_QA_DB_AUTHORITY_REQUIRED");
+ if(!qaPool){
+  const url=new URL(process.env.DATABASE_URL);
+  url.username="api_family_qa_ci";url.password=process.env.PHASE13_QA_DB_PASSWORD;
+  qaPool=new Pool({connectionString:url.toString(),max:4,connectionTimeoutMillis:5000,idleTimeoutMillis:30000});
+ }
+ return tenantTransaction(qaPool,tenantId,fn);
+}
+export function withTenant<T>(tenantId: string, fn: (tx: PoolClient) => Promise<T>, faultTag?: string): Promise<T> {
+  return tenantTransaction(pool,tenantId,fn,faultTag);
+}
+/** GitHub-hosted deterministic child-only kill barrier; it never runs for a production request. */
+export async function phase13TestFaultBarrier(stage:string):Promise<void>{
+ if(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true"||
+  process.env.PHASE13_TEST_FAULT_STAGE!==stage||!process.send)return;
+ await new Promise<void>((resolve,reject)=>process.send?.({phase13Barrier:stage},(error:Error|null)=>error?reject(error):resolve()));
+ await new Promise<void>(()=>{/* The parent terminates only this isolated child. */});
 }
 export function withWorkerTenant<T>(tenantId: string,fn:(tx:PoolClient)=>Promise<T>):Promise<T> {
   if (!process.env.WORKER_DATABASE_URL) throw new Error("WORKER_DATABASE_URL_REQUIRED");
   return tenantTransaction(workerPool,tenantId,fn);
 }
-async function tenantTransaction<T>(connection:Pool,tenantId:string,fn:(tx:PoolClient)=>Promise<T>):Promise<T> {
+async function tenantTransaction<T>(connection:Pool,tenantId:string,fn:(tx:PoolClient)=>Promise<T>,faultTag?:string):Promise<T> {
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(tenantId)) throw new Error("INVALID_TENANT_AUTHORITY");
   const tx = await connection.connect();
   try {
     await tx.query("BEGIN");
     await tx.query("SELECT set_config('api.tenant_id', $1, true)", [tenantId]);
     const result = await fn(tx);
+    if(faultTag)await phase13TestFaultBarrier(faultTag+":before-commit");
     await tx.query("COMMIT");
+    if(faultTag)await phase13TestFaultBarrier(faultTag+":after-commit");
     return result;
   } catch (error) {
     await tx.query("ROLLBACK");
@@ -48,9 +70,14 @@ export async function migrate(): Promise<void> {
   const pt10 = resolve(fileURLToPath(new URL("../migrations/014_phase10_worker_execution_safety.sql", import.meta.url)));
   const pt11 = resolve(fileURLToPath(new URL("../migrations/015_phase11_complete_autonomous_api_vapt.sql", import.meta.url)));
   const phase12 = resolve(fileURLToPath(new URL("../migrations/016_phase12_unified_experience_reports.sql", import.meta.url)));
+  const phase13 = resolve(fileURLToPath(new URL("../migrations/017_phase13_commercial_entitlements_usage.sql", import.meta.url)));
+  const phase13Recovery = resolve(fileURLToPath(new URL("../migrations/018_phase13_multi_meter_recovery.sql", import.meta.url)));
+  const qaIsolation19 = resolve(fileURLToPath(new URL("../migrations/019_phase13_qa_privilege_isolation.sql", import.meta.url)));
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // Serializes all concurrent migrators before first schema creation.
+    await client.query("SELECT pg_advisory_xact_lock(3113,18)");
     await client.query("CREATE TABLE IF NOT EXISTS api_schema_migrations(version text PRIMARY KEY)");
     const already = await client.query("SELECT version FROM api_schema_migrations WHERE version='001'");
     if (!already.rowCount) {
@@ -64,6 +91,9 @@ export async function migrate(): Promise<void> {
   const owner=await privileged.connect();
   try {
     await owner.query("BEGIN");
+    // Migration 018 uses the existing privileged transaction; never mutate
+    // historical files or allow a second migrator to race the same catalog DDL.
+    await owner.query("SELECT pg_advisory_xact_lock(3113,18)");
     const already=await owner.query("SELECT version FROM api_schema_migrations WHERE version='002'");
     if (!already.rowCount) {
       await owner.query(readFileSync(isolation,"utf8"));
@@ -138,6 +168,21 @@ export async function migrate(): Promise<void> {
     if(!p12.rowCount){
       await owner.query(readFileSync(phase12,"utf8"));
       await owner.query("INSERT INTO api_schema_migrations(version) VALUES('016')");
+    }
+    const p13=await owner.query("SELECT version FROM api_schema_migrations WHERE version='017'");
+    if(!p13.rowCount){
+      await owner.query(readFileSync(phase13,"utf8"));
+      await owner.query("INSERT INTO api_schema_migrations(version) VALUES('017')");
+    }
+    const recovery18=await owner.query("SELECT version FROM api_schema_migrations WHERE version='018'");
+    if(!recovery18.rowCount){
+      await owner.query(readFileSync(phase13Recovery,"utf8"));
+      await owner.query("INSERT INTO api_schema_migrations(version) VALUES('018')");
+    }
+    const qa19=await owner.query("SELECT version FROM api_schema_migrations WHERE version='019'");
+    if(!qa19.rowCount){
+      await owner.query(readFileSync(qaIsolation19,"utf8"));
+      await owner.query("INSERT INTO api_schema_migrations(version) VALUES('019')");
     }
     await owner.query("COMMIT");
   } catch(error) {await owner.query("ROLLBACK"); throw error;}
@@ -311,4 +356,4 @@ export async function finishWorkerAttempt(claim:WorkerClaim):Promise<void>{
   }
  });
 }
-export async function closeDatabase(): Promise<void> { await pool.end(); await workerPool.end(); }
+export async function closeDatabase(): Promise<void> { await pool.end(); await workerPool.end(); if(qaPool)await qaPool.end(); }
