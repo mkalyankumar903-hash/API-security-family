@@ -98,7 +98,7 @@ const page=(q:Record<string,unknown>)=>{
   throw new PtError(400,"INVALID_FILTER");
  return {limit,offset,status};
 };
-async function stored(tenant:string,reportId:string,action:"PRESENTATION_VIEWED"|"JSON_EXPORTED"|"PDF_EXPORTED"){
+async function stored(tenant:string,reportId:string,action:"PRESENTATION_VIEWED"|"JSON_EXPORTED"|"PDF_REQUESTED"){
  return withTenant(tenant,async tx=>{
   const r=await tx.query(
    "SELECT r.id,r.parent_assessment_id,r.fingerprint,r.created_at,r.projection "+
@@ -152,7 +152,7 @@ export function registerPhase12Routes(app:FastifyInstance,identity:(req:FastifyR
  app.get("/v12/reports/:id/export.json",async(req,reply)=>{
   const reportId=id((req.params as Record<string,unknown>).id);
   const report=await stored(identity(req),reportId,"JSON_EXPORTED");
-  const json=JSON.stringify({...report,export:{schemaVersion:"phase12-json-export-v1",sourceFingerprint:report.sourceFingerprint}});
+  const json=JSON.stringify({...report,export:{schemaVersion:"phase12-json-export-v1",templateVersion:"phase12-advanced-v1",generatedAt:new Date().toISOString(),sourceFingerprint:report.sourceFingerprint}});
   if(Buffer.byteLength(json,"utf8")>1024*1024)throw new PtError(413,"REPORT_EXPORT_LIMIT");
   reply.header("Cache-Control","no-store").header("X-Content-Type-Options","nosniff")
     .header("Content-Disposition",'attachment; filename="lumicsec-api-presentation-'+reportId+'.json"')
@@ -160,10 +160,11 @@ export function registerPhase12Routes(app:FastifyInstance,identity:(req:FastifyR
  });
  app.get("/v12/reports/:id/export.pdf",async(req,reply)=>{
   const reportId=id((req.params as Record<string,unknown>).id),tenant=identity(req);
-  const report=await stored(tenant,reportId,"PDF_EXPORTED");
+  const report=await stored(tenant,reportId,"PDF_REQUESTED");
   const b=await withTenant(tenant,async tx=>(await tx.query(
    'SELECT display_name AS "displayName",report_title AS "reportTitle",accent_hex AS "accentHex",version FROM api_v12_branding WHERE tenant_id=$1',[tenant])).rows[0] as ReportBrand|undefined);
   const pdf=await renderPhase12Pdf(report,b);
+  await withTenant(tenant,tx=>tx.query("INSERT INTO api_v12_report_audit(id,tenant_id,parent_assessment_id,action,metadata) VALUES($1,$2,$3,\'PDF_GENERATED\',$4::jsonb)",[uuid(),tenant,reportId,JSON.stringify({bytes:pdf.length,templateVersion:"phase12-advanced-v1",brandingVersion:b?.version??0})]));
   reply.header("Cache-Control","no-store").header("X-Content-Type-Options","nosniff")
    .header("Content-Disposition",'attachment; filename="lumicsec-api-presentation-'+reportId+'.pdf"')
    .type("application/pdf").send(pdf);
