@@ -170,7 +170,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Phase 11 targeted browser journeys
-        run: npx playwright test tests/browser/phase6.spec.ts && npx playwright test tests/browser/phase7.spec.ts && npx playwright test tests/browser/phase8.spec.ts && npx playwright test tests/browser/phase9.spec.ts && npx playwright test tests/browser/phase11.spec.ts && npx playwright test tests/browser/phase11-recovery.spec.ts
+        run: npx playwright test tests/browser/phase6.spec.ts && npx playwright test tests/browser/phase7.spec.ts && npx playwright test tests/browser/phase8.spec.ts && npx playwright test tests/browser/phase9.spec.ts && npx playwright test tests/browser/phase11.spec.ts && npx playwright test tests/browser/phase10-recovery.spec.ts
 
   postgres-targeted:
     if: ${{ contains(github.event_name == 'pull_request' && github.event.pull_request.title || github.event.head_commit.message, '[phase11-pg]') }}
@@ -227,4 +227,4 @@ jobs:
       - name: Initialize fresh isolated database 001-015
         run: npm run migrate
       - name: Real PostgreSQL Phase09, Phase10 and Phase11 real PostgreSQL safety regressions
-        run: node --import tsx --test --test-concurrency=1 tests/ui.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09-upgrade.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09-races.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase11.pg.test.ts tests/phase11-retry.pg.test.ts tests/phase11-capacity.pg.test.ts tests/phase11-fault.pg.test.ts tests/phase11-lifecycle.pg.test.ts tests/phase11-authority.pg.test.ts tests/phase11-interleavings.pg.test.ts tests/phase11-acceptance-races.pg.test.ts tests/phase11-upgrade.pg.test.ts
+        run: node --import tsx --test --test-concurrency=1 tests/ui.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09-upgrade.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase09-races.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase10.pg.test.ts tests/phase10-retry.pg.test.ts tests/phase10-capacity.pg.test.ts tests/phase10-fault.pg.test.ts tests/phase10-lifecycle.pg.test.ts tests/phase10-authority.pg.test.ts tests/phase10-interleavings.pg.test.ts tests/phase10-acceptance-races.pg.test.ts tests/phase10-upgrade.pg.test.ts && node --import tsx --test --test-concurrency=1 tests/phase11.pg.test.ts
