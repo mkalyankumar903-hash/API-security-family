@@ -54,33 +54,35 @@ test("Phase14 deterministic HTTP saturation rejects request 129 and recovers all
  process.env.NODE_ENV="test";process.env.SYNTHETIC_AUTH_ENABLED="true";
  process.env.DEV_TOKENS_JSON=JSON.stringify({"this-is-a-valid-local-synthetic-token":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"});
  let app:Awaited<ReturnType<typeof makeApp>>|undefined;
- const enteredGate=Promise.withResolvers<void>();
- const releaseGate=Promise.withResolvers<void>();
+ let markEntered:()=>void=()=>{};
+ let releaseWaiting:()=>void=()=>{};
+ const enteredGate=new Promise<void>(resolve=>{markEntered=resolve;});
+ const releaseGate=new Promise<void>(resolve=>{releaseWaiting=resolve;});
  let entered=0;
  try{
   app=await makeApp();
   app.get("/phase14-ci-admission-gate",async()=>{
    entered++;
-   if(entered===128)enteredGate.resolve();
-   await releaseGate.promise;
+   if(entered===128)markEntered();
+   await releaseGate;
    return {ok:true};
   });
   await app.ready();
   const headers={authorization:"Bearer this-is-a-valid-local-synthetic-token"};
   const requests=Array.from({length:129},()=>app!.inject({
    method:"GET",url:"/phase14-ci-admission-gate",headers}));
-  await Promise.race([enteredGate.promise,new Promise<never>((_,reject)=>
+  await Promise.race([enteredGate,new Promise<never>((_,reject)=>
    setTimeout(()=>reject(new Error("PHASE14_ADMISSION_BARRIER_TIMEOUT")),5000))]);
   const rejected=await requests[128]!;
   assert.equal(rejected.statusCode,429,rejected.body);
   assert.equal(rejected.json().error,"HTTP_INFLIGHT_CAPACITY_EXCEEDED");
-  releaseGate.resolve();
+  releaseWaiting();
   const completed=await Promise.all(requests.slice(0,128));
   assert.equal(completed.filter(x=>x.statusCode===200).length,128);
   const after=await app.inject({method:"GET",url:"/health/live"});
   assert.equal(after.statusCode,200,"admission slots must be fully released");
  }finally{
-  releaseGate.resolve();
+  releaseWaiting();
   await app?.close();
   for(const [key,value] of [["NODE_ENV",previous.node],["SYNTHETIC_AUTH_ENABLED",previous.flag],
    ["DEV_TOKENS_JSON",previous.tokens]] as const){
