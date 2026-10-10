@@ -48,8 +48,8 @@ test("Phase10 populated 013 -> 014: forward-only migration preserves historical 
   // Multiple populated historical engine/mode combinations at 013, before
   // Phase10 metadata exists. Preserve each immutable report identity and
   // engine discriminator; the upgrade must not interpret these as new work.
-  await db.query("INSERT INTO api_spec_inventories(specification_id,tenant_id,target_id,version_number,original_format,raw_fingerprint,normalized_fingerprint,normalization_version,snapshot,assessment_source,coverage,selected) VALUES($1,$2,$3,1,'OPENAPI_3_0',$4,$5,'phase02-v1','{}'::jsonb,'OpenAPI','SUPPORTED_PROFILE',true)",[spec,t,"a".repeat(64),"b".repeat(64)]);
-  await db.query("INSERT INTO api_rich_inventories(specification_id,tenant_id,target_id,raw_fingerprint,phase02_fingerprint,rich_fingerprint,snapshot) VALUES($1,$2,$3,$4,$5,$6,'{}'::jsonb)",[spec,t,"a".repeat(64),"b".repeat(64),"c".repeat(64)]);
+  await db.query("INSERT INTO api_spec_inventories(specification_id,tenant_id,target_id,version_number,original_format,raw_fingerprint,normalized_fingerprint,normalization_version,snapshot,assessment_source,coverage,selected) VALUES($1,$2,$3,1,'OPENAPI_3_0',$4,$5,'phase02-v1','{}'::jsonb,'OpenAPI','SUPPORTED_PROFILE',true)",[spec,t,target,"a".repeat(64),"b".repeat(64)]);
+  await db.query("INSERT INTO api_rich_inventories(specification_id,tenant_id,target_id,raw_fingerprint,phase02_fingerprint,rich_fingerprint,snapshot) VALUES($1,$2,$3,$4,$5,$6,'{}'::jsonb)",[spec,t,target,"a".repeat(64),"b".repeat(64),"c".repeat(64)]);
   for(const engine of ["legacy-v1","inventory-v1","auth-fixture-v1","inventory-v2",
    "pt-fixture-v1","pt-detection-v1","pt-orchestrator-v1"]){
    const id=randomUUID();
