@@ -77,3 +77,25 @@ test("Phase14 PostgreSQL creates a real deadlock, fails exactly one transaction 
  const recovered=await withTenant(A,tx=>tx.query("SELECT 1 AS ok"));
  assert.equal(recovered.rows[0].ok,1);
 });
+
+test("Phase14 PostgreSQL16 tenant-filtered read and transaction engineering benchmark",async()=>{
+ const {performance}=await import("node:perf_hooks");
+ const samples:number[]=[];
+ for(let i=0;i<5;i++)await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_targets"));
+ const baseline=process.memoryUsage().heapUsed;
+ for(let i=0;i<30;i++){
+  const start=performance.now();
+  const r=await withTenant(i%2?A:B,tx=>tx.query(
+   "SELECT count(*)::int AS n FROM api_targets WHERE tenant_id=current_setting('api.tenant_id',true)::uuid"));
+  assert(Number.isInteger(r.rows[0].n));
+  samples.push(performance.now()-start);
+ }
+ samples.sort((a,b)=>a-b);
+ const report={workload:"tenant-scoped-transaction-and-index-filtered-read",
+  iterations:samples.length,warmup:5,concurrency:1,tenantCount:2,
+  medianMs:Number(samples[14]!.toFixed(3)),
+  p95Ms:Number(samples[28]!.toFixed(3)),errors:0,
+  heapDeltaBytes:process.memoryUsage().heapUsed-baseline,
+  environment:"GitHub-hosted PostgreSQL16; engineering-only"};
+ console.log("PHASE14_POSTGRES_ENGINEERING_BENCHMARK "+JSON.stringify(report));
+});
