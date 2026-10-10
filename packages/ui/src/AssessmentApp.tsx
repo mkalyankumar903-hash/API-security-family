@@ -22,6 +22,14 @@ async function call<T>(token:string, path:string, options?: RequestInit):Promise
   if (!result.ok) throw new Error((data as {error?:string}).error || "REQUEST_FAILED");
   return data as T;
 }
+const UUID_V12=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+function selectedUrl(name:"apiTarget"|"apiReport",value:string){
+ if(typeof window==="undefined")return;
+ const u=new URL(window.location.href);
+ if(value&&UUID_V12.test(value))u.searchParams.set(name,value);
+ else u.searchParams.delete(name);
+ window.history.replaceState(null,"",u.pathname+u.search+u.hash);
+}
 export function AssessmentApp({initialToken}:{initialToken?:string}) {
   const [token,setToken]=useState(initialToken ?? ((typeof import.meta.env === "object" && import.meta.env.VITE_DEV_TOKEN) || ""));
   const [targets,setTargets]=useState<Target[]>([]);
@@ -42,6 +50,20 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
   const [loading,setLoading]=useState(true);
+  // Explicit URL selection is only a hint; server tenant authentication remains authoritative.
+  useEffect(()=>{
+   if(!token||typeof window==="undefined")return;
+   const candidate=new URLSearchParams(window.location.search).get("apiTarget");
+   if(!candidate||!UUID_V12.test(candidate))return;
+   let active=true;
+   void call<Target>(token,"/v1/targets/"+candidate).then(t=>{
+    if(active){setTargetId(t.id);setTargets(current=>current.some(x=>x.id===t.id)?current:[t,...current]);}
+   }).catch(()=>{
+    if(active){setTargetId("");selectedUrl("apiTarget","");selectedUrl("apiReport","");}
+   });
+   return()=>{active=false;};
+  },[]);
+
   function attempt<T>(fn:()=>Promise<T>) { setBusy(true);setError("");return fn().catch(e=>{setError(e instanceof Error?e.message:"UNKNOWN_ERROR");return null;}).finally(()=>setBusy(false)); }
   async function reloadTargets(){
     const query=new URLSearchParams({limit:"20",offset:String(offset)});
@@ -92,7 +114,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
     await attempt(async()=>{
       const r=await call<Target>(token,"/v1/targets",{method:"POST",body:JSON.stringify({name,baseUrl,environment})});
       setSearch("");setLifecycleFilter("");setEnvironmentFilter("");setOffset(0);
-      setTargets(s=>[r,...s]);setTargetId(r.id);setName("");setBaseUrl("");
+      setTargets(s=>[r,...s]);setTargetId(r.id);selectedUrl("apiTarget",r.id);selectedUrl("apiReport","");setName("");setBaseUrl("");
     });
   }
   async function upload(event:React.ChangeEvent<HTMLInputElement>){
@@ -128,7 +150,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
      <a href="#pt-governed">Governed PT</a>
      <a href="#phase12-workspace">Coverage &amp; Remediation</a>
     </nav>
-    <section><label htmlFor="devtoken">Synthetic development token (never a production login)</label><input id="devtoken" value={token} onChange={e=>setToken(e.target.value)} type="password" autoComplete="off" placeholder="Local development token"/></section>
+    <section><label htmlFor="devtoken">Synthetic development token (never a production login)</label><input id="devtoken" value={token} onChange={e=>{setToken(e.target.value);setTargetId("");setSpecs([]);setJob(null);setReport(null);setFindings([]);selectedUrl("apiTarget","");selectedUrl("apiReport","");}} type="password" autoComplete="off" placeholder="Local development token"/></section>
     {loading && <p role="status">Loading targets…</p>}
     {error && <p role="alert" className="error">{error === "PERMISSION_DENIED" || error === "UNAUTHORIZED" ? "Access denied: "+error : error}</p>}
     <section id="api-targets"><h2>1. API targets</h2>
@@ -140,7 +162,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
       </div>
       <button className="secondary" disabled={offset===0} onClick={()=>setOffset(Math.max(0,offset-20))}>Previous targets page</button>
       <button className="secondary" disabled={targets.length<20} onClick={()=>setOffset(offset+20)}>Next targets page</button>
-      <label htmlFor="target">Select target</label><select id="target" value={targetId} onChange={e=>setTargetId(e.target.value)}><option value="">Select an authorized API target</option>{targets.map(t=><option key={t.id} value={t.id}>{t.name} · {t.environment}</option>)}</select>
+      <label htmlFor="target">Select target</label><select id="target" value={targetId} onChange={e=>{setTargetId(e.target.value);selectedUrl("apiTarget",e.target.value);selectedUrl("apiReport","");}}><option value="">Select an authorized API target</option>{targets.map(t=><option key={t.id} value={t.id}>{t.name} · {t.environment}</option>)}</select>
       <form onSubmit={e=>void createTarget(e)}><div className="formgrid"><label>Target name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)} placeholder="Payments API"/></label><label>HTTPS base URL<input required type="url" value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="https://api.example.invalid"/></label><label>Environment<select value={environment} onChange={e=>setEnvironment(e.target.value)}><option>SYNTHETIC</option><option>STAGING</option><option>PRODUCTION</option></select></label></div><button disabled={busy||!token} type="submit">Register target</button></form>
     </section>
     {targetId&&<Phase12Workspace key={"phase12-"+targetId+token} token={token} targetId={targetId}/>}

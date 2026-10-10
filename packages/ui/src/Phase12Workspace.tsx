@@ -1,6 +1,14 @@
 import React,{useEffect,useState} from "react";
 import {Phase12ReportControls} from "./Phase12ReportControls.js";
 const BASE=(typeof import.meta.env==="object"&&import.meta.env.VITE_API_BASE)||"http://127.0.0.1:3001";
+const UUID_V12=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+function persistReport(id:string){
+ if(typeof window==="undefined")return;
+ const u=new URL(window.location.href);
+ if(UUID_V12.test(id))u.searchParams.set("apiReport",id);
+ else u.searchParams.delete("apiReport");
+ window.history.replaceState(null,"",u.pathname+u.search+u.hash);
+}
 type Overview={targets:{lifecycle:string;count:number}[];specificationCount:number;
  assessments:{status:string;mode:string;engine_version:string;count:number}[];
  immutableCompositeReports:number;notice:string};
@@ -8,7 +16,7 @@ type Run={id:string;status:string;mode:string;engineVersion:string;createdAt:str
  reportId:string|null;isAutonomousVapt:boolean};
 type Finding={key:string;ruleId:string;source:string;impact:string;operationKey:string;
  explanation:string;remediation:string;evidenceFingerprint:string};
-type Report={assessmentId:string;sourceFingerprint:string;mode:string;
+type Report={assessmentId:string;sourceFingerprint:string;mode:string;scope:{targetId:string};
  summary:{findingCount:number;offlineOnly:boolean};findings:Finding[];
  coverage:{importedOperations:number;offlineOperations:number;ptRulesExecuted:number;
  ptRulesSelected:number;ptEvaluationsExecuted:number;ptEvaluationsPlanned:number};
@@ -29,7 +37,12 @@ export function Phase12Workspace({token,targetId}:{token:string;targetId:string}
   Promise.all([read<Overview>(token,"/v12/overview?targetId="+encodeURIComponent(targetId)),
    read<Run[]>(token,"/v12/assessments?targetId="+encodeURIComponent(targetId)+"&limit=50"),
    read<{mode:string}>(token,"/v12/ai/capabilities")]).then(([o,r,a])=>{
-    if(active){setOverview(o);setRuns(r);setAiMode(a.mode);}
+    if(active){setOverview(o);setRuns(r);setAiMode(a.mode);
+     const previous=typeof window==="undefined"?null:new URLSearchParams(window.location.search).get("apiReport");
+     if(previous&&UUID_V12.test(previous)&&r.some(item=>item.id===previous&&item.reportId)){
+      setReportId(previous);
+     }else if(previous){persistReport("");}
+    }
    }).catch(e=>{if(active)setError(e instanceof Error?e.message:"REQUEST_FAILED");})
    .finally(()=>{if(active)setBusy(false);});
   return()=>{active=false;};
@@ -37,7 +50,11 @@ export function Phase12Workspace({token,targetId}:{token:string;targetId:string}
  useEffect(()=>{let active=true;setReport(null);if(!reportId)return()=>{active=false;};
   setBusy(true);
   read<Report>(token,"/v12/reports/"+encodeURIComponent(reportId)+"/presentation")
-   .then(r=>{if(active)setReport(r);})
+   .then(r=>{if(active){
+    if(r.scope.targetId!==targetId){
+      setReport(null);setReportId("");persistReport("");setError("SELECTED_REPORT_TARGET_MISMATCH");
+    }else setReport(r);
+   }})
    .catch(e=>{if(active)setError(e instanceof Error?e.message:"REPORT_NOT_AVAILABLE");})
    .finally(()=>{if(active)setBusy(false);});
   return()=>{active=false;};
@@ -88,7 +105,7 @@ export function Phase12Workspace({token,targetId}:{token:string;targetId:string}
    {runs.map(r=><tr key={r.id}><th scope="row"><code>{r.id.slice(0,12)}</code></th><td>{r.status}</td><td>{r.mode}</td><td>{date(r.createdAt)}</td></tr>)}
   </tbody></table>}
   <label htmlFor="v12-report">Select a completed immutable composite report</label>
-  <select id="v12-report" value={reportId} onChange={e=>{setError("");setReportId(e.target.value);}}>
+  <select id="v12-report" value={reportId} onChange={e=>{setError("");setReportId(e.target.value);persistReport(e.target.value);}}>
    <option value="">Choose authorized report</option>
    {finished.map(r=><option key={r.id} value={r.id}>{r.id.slice(0,12)} · {r.mode}</option>)}
   </select>
