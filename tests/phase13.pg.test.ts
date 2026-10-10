@@ -225,9 +225,10 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
     return tx.query("SELECT date_trunc('month', $1::timestamptz AT TIME ZONE 'UTC')::date AS october, date_trunc('month',$2::timestamptz AT TIME ZONE 'UTC')::date AS november, date_trunc('month',clock_timestamp() AT TIME ZONE 'UTC')::date AS current_month",
      ["2026-10-31T23:59:59Z","2026-11-01T00:00:01Z"]);
    });
-   assert.equal(String(dates.rows[0].october).slice(0,10),"2026-10-01");
-   assert.equal(String(dates.rows[0].november).slice(0,10),"2026-11-01");
-   assert.equal(String((await projection(A)).monthStart).slice(0,10),String(dates.rows[0].current_month).slice(0,10));
+   const iso=(v:unknown)=>v instanceof Date?v.toISOString().slice(0,10):String(v).slice(0,10);
+   assert.equal(iso(dates.rows[0].october),"2026-10-01");
+   assert.equal(iso(dates.rows[0].november),"2026-11-01");
+   assert.equal(iso((await projection(A)).monthStart),iso(dates.rows[0].current_month));
   });
   await t.test("018 genuine independent offline child observation, signed per-feature quota and replay-safe ledger",async()=>{
    const feature="OFFLINE_API_ASSESSMENT_COMPLETED",eid=randomUUID();
