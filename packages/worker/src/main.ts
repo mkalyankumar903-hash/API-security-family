@@ -18,6 +18,7 @@ for(const signal of ["SIGTERM","SIGINT"] as const){
   // preserves generation-fenced DB leases for a later authorized worker.
   deadline=setTimeout(()=>{
    process.stderr.write("PHASE14_WORKER_DRAIN_DEADLINE_EXPIRED\n");
+   emitDiagnostic({kind:"WORKER_SHUTDOWN",classification:"EXHAUSTED",statusCode:503,state:"FAILED"});
    process.exit(75);
   },drainMs);
  });
