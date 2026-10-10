@@ -15,7 +15,7 @@ export function withTenant<T>(tenantId: string, fn: (tx: PoolClient) => Promise<
 export async function phase13TestFaultBarrier(stage:string):Promise<void>{
  if(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true"||
   process.env.PHASE13_TEST_FAULT_STAGE!==stage||!process.send)return;
- await new Promise<void>((resolve,reject)=>process.send?.({phase13Barrier:stage},error=>error?reject(error):resolve()));
+ await new Promise<void>((resolve,reject)=>process.send?.({phase13Barrier:stage},(error:Error|null)=>error?reject(error):resolve()));
  await new Promise<void>(()=>{/* The parent terminates only this isolated child. */});
 }
 export function withWorkerTenant<T>(tenantId: string,fn:(tx:PoolClient)=>Promise<T>):Promise<T> {
