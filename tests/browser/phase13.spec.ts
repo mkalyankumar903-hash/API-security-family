@@ -20,6 +20,13 @@ test("Phase13 Chromium commercial workspace remains host-blocked, scoped and acc
  await expect(section.getByRole("table",{name:"Observed report capacity — not a bill or subscription"})).toBeVisible();
  const resp=await request.get("http://127.0.0.1:3001/v13/decisions",{headers:{authorization:"Bearer local-test-token-alpha"}});
  expect(resp.status()).toBe(200);expect((await resp.json() as {allowed:boolean}).allowed).toBe(false);
+ await page.getByLabel("Commercial QA locale").selectOption("en-XB");
+ await expect(section).toHaveAttribute("dir","rtl");
+ await expect(section.getByRole("heading",{name:"⟦Commercial usage & entitlements — Phase 13⟧"})).toBeVisible();
+ await expect(section.getByText("HOST_AUTHORITY_NOT_CONFIGURED")).toBeVisible();
+ await page.getByLabel("Commercial QA locale").selectOption("en-XA");
+ await expect(section).toHaveAttribute("dir","ltr");
+ await expect(section.getByRole("heading",{level:2})).toContainText("⟦");
  await page.getByLabel("Synthetic development token (never a production login)").fill("local-test-token-beta");
  await expect(section).toHaveCount(0);
 });

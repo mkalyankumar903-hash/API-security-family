@@ -107,8 +107,10 @@ test("Phase13 populated 016→017 preserves original immutable reports, VAPT lin
   assert.equal(empty.rows[0].n,0);
  }finally{
   await database.end();
-  if(created){await admin.query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1",[name]);
-   await admin.query("DROP DATABASE "+name);}
+  // Pool.end() drains the fixture's own connections; no administrator backend-kill.
+  // A leaked fixture connection should fail DROP and reveal itself instead of generating
+  // a late unhandled socket error after a nominally successful preservation assertion.
+  if(created)await admin.query("DROP DATABASE "+name);
   await admin.end();
  }
 });

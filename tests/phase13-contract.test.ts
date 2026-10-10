@@ -132,3 +132,24 @@ test("Phase13 versioned feature definitions deny unsupported meters and never im
  assert.equal(classifyCatalogFeature("GOVERNED_API_PT_COMPLETED",1).state,"DISABLED_HOST_AUTHORITY");
  assert.equal(classifyCatalogFeature("OFFLINE_API_ASSESSMENT_COMPLETED",1).state,"DISABLED_NO_METER");
 });
+
+test("Phase13 SDK errors, bounded pagination and API compatibility fail closed",async()=>{
+ const origin="http://127.0.0.1:3001";
+ const errorClient=new V13Client({baseUrl:origin,accessToken:()=>"test-only",
+  fetcher:(async()=>new Response(JSON.stringify({error:"QUOTA_EXCEEDED"}),{status:429})) as typeof fetch});
+ await assert.rejects(()=>errorClient.summary(),(e:unknown)=>e instanceof V13ClientError&&e.status===429&&e.code==="QUOTA_EXCEEDED");
+ const invalidClient=new V13Client({baseUrl:origin,accessToken:()=>"test-only",
+  fetcher:(async()=>new Response("not-json",{status:200})) as typeof fetch});
+ await assert.rejects(()=>invalidClient.summary(),(e:unknown)=>e instanceof V13ClientError&&e.code==="INVALID_RESPONSE");
+ const networkClient=new V13Client({baseUrl:origin,accessToken:()=>"test-only",
+  fetcher:(async()=>{throw new Error("never expose sensitive internal network URL");}) as typeof fetch});
+ await assert.rejects(()=>networkClient.summary(),(e:unknown)=>e instanceof V13ClientError&&e.code==="TRANSPORT_OR_TIMEOUT"&&!e.message.includes("sensitive"));
+ assert.throws(()=>errorClient.usage(101),/INVALID_PAGINATION/);
+ assert.throws(()=>errorClient.usage(25,-1),/INVALID_PAGINATION/);
+ assert.throws(()=>errorClient.decision(1000001),/INVALID_QUANTITY/);
+ const visited:string[]=[];
+ const happy=new V13Client({baseUrl:origin,accessToken:()=>"test-only",
+  fetcher:(async url=>{visited.push(String(url));return new Response("[]",{status:200});}) as typeof fetch});
+ assert.deepEqual(await happy.corrections(5,10),[]);
+ assert.equal(visited[0],origin+"/v13/usage/corrections?limit=5&offset=10");
+});
