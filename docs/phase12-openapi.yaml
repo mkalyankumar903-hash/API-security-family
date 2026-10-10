@@ -350,3 +350,79 @@ paths:
             schema:
               type: object
               additionalProperties: false
+  /v12/findings:
+    get:
+      summary: Tenant and target scoped immutable finding explorer with bounded server filtering
+      description: Customer observations remain synthetic or specification-only, never verified runtime vulnerabilities.
+      parameters:
+        - name: targetId
+          in: query
+          required: true
+          schema: {type: string, format: uuid}
+        - name: source
+          in: query
+          required: false
+          schema: {type: string, enum: [SPEC_ONLY, SYNTHETIC_PT, RELATED_EVIDENCE]}
+        - name: annotationState
+          in: query
+          required: false
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 50}
+      responses:
+        '200':
+          description: Only committed correlations from authorized immutable reports
+          content:
+            application/json:
+              schema: {type: object}
+  /v12/reports/{id}/findings/{key}:
+    get:
+      summary: Tenant scoped immutable finding detail and latest non-authoritative customer note
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - name: key
+          in: path
+          required: true
+          schema: {type: string, pattern: '^[a-f0-9]{64}$'}
+      responses:
+        '200':
+          description: Redacted synthetic-only finding detail
+          content:
+            application/json:
+              schema: {type: object}
+  /v12/reports/{id}/evidence/{key}:
+    get:
+      summary: Redacted evidence provenance without secrets or external network access
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - name: key
+          in: path
+          required: true
+          schema: {type: string, pattern: '^[a-f0-9]{64}$'}
+      responses:
+        '200':
+          description: Evidence references remain synthetic-only and unverified
+          content:
+            application/json:
+              schema: {type: object}
+  /v12/reports/{id}/coverage:
+    get:
+      summary: Source-integrity validated coverage and truthful unknown status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Numerators and denominators from immutable Phase11 report
+          content:
+            application/json:
+              schema: {type: object}
