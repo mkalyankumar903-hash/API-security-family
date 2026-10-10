@@ -1,0 +1,540 @@
+name: Phase 13 Commercial Integration Isolated Engineering Qualification
+on:
+  pull_request:
+    branches: ["work/phase12-unified-ux-reports-readonly-ai"]
+    types: [opened, synchronize, edited, reopened]
+permissions:
+  contents: read
+concurrency:
+  group: phase12-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify checked-out PR HEAD
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Frozen dependency installation
+        run: npm ci --no-audit --no-fund
+      - name: ESLint all source and tests
+        run: npm run lint
+      - name: TypeScript strict
+        run: npm run typecheck
+      - name: Unit contract and security regressions
+        run: npm test
+      - name: React production build
+        run: npm run build
+
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 26
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      SYNTHETIC_VERIFICATION_ENABLED: "true"
+      PT_TEST_AUTHORITY_ENABLED: "true"
+      PHASE1_SYNTHETIC_SIGNING_KEY: "LUMICSEC_TEST_ONLY_NEVER_PRODUCTION_phase01_test_fixture_key_2026"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+      WORKER_DATABASE_URL: postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family
+      MIGRATION_DATABASE_URL: postgres://postgres:local_admin_only@127.0.0.1:55432/api_family
+    steps:
+      - name: Ephemeral signing material
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify exact PR checkout
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Initialize least-privilege PostgreSQL principals
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Frozen dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Migrate fresh PostgreSQL schema through 017
+        run: npm run migrate
+      - name: Real tenant authorization, sharing, mutation and concurrency tests
+        run: node --import tsx --test --test-concurrency=1 tests/phase12.pg.test.ts
+      - name: Populated historical Phase11 to Phase12 real PostgreSQL upgrade
+        run: node --import tsx --test --test-concurrency=1 tests/phase12-upgrade.pg.test.ts
+      - name: Create independent api_family_phase13_pg_targeted PostgreSQL16 database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase13_pg_targeted;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_pg_targeted -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_pg_targeted TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase13_pg_targeted" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase13_pg_targeted" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase13_pg_targeted" >> "$GITHUB_ENV"
+      - name: Fresh migration 017 and strict tenant/worker grants
+        run: npm run migrate
+      - name: Phase13 real PostgreSQL signed events, concurrent quota contention, usage and RLS
+        run: node --import tsx --test --test-concurrency=1 tests/phase13.pg.test.ts
+      - name: Populated Phase12 016-to-017 historical preservation
+        run: node --import tsx --test --test-concurrency=1 tests/phase13-upgrade.pg.test.ts
+
+
+  browser-targeted:
+    if: ${{ contains(github.event.pull_request.title, '[phase13-e2e]') || contains(github.event.pull_request.title, '[phase13-full]') || contains(github.event.pull_request.title, '[phase13-p11]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      SYNTHETIC_VERIFICATION_ENABLED: "true"
+      PT_TEST_AUTHORITY_ENABLED: "true"
+      PHASE1_SYNTHETIC_SIGNING_KEY: "LUMICSEC_TEST_ONLY_NEVER_PRODUCTION_phase01_test_fixture_key_2026"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+      WORKER_DATABASE_URL: postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family
+      MIGRATION_DATABASE_URL: postgres://postgres:local_admin_only@127.0.0.1:55432/api_family
+      VITE_API_BASE: http://127.0.0.1:3001
+      VITE_DEV_TOKEN: local-test-token-alpha
+    steps:
+      - name: Ephemeral test-only permit signing authority
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Exact SHA must match PR head
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Initialize isolated database roles
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Install frozen dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Fresh migration 001-016
+        run: npm run migrate
+      - name: Assert no inherited test queue, permits or assessments
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM public.api_schema_migrations')" = "17"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM public.api_assessments')" = "0"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')" = "0"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -Atc 'SELECT count(*) FROM public.api_pt_permits')" = "0"
+      - name: Build React customer application
+        run: npm run build
+      - name: Install maintained Chromium PDF and browser renderer
+        run: npx playwright install --with-deps chromium
+      - name: Independent Poppler PDF parse tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y poppler-utils
+      - name: Real PDF structure, text, multipage, Unicode and security tests
+        run: node --import tsx --test tests/phase12-pdf-render.test.ts
+      - name: Real Chromium Phase11 focused asynchronous admission/cancellation regression
+        if: ${{ contains(github.event.pull_request.title, '[phase13-p11]') }}
+        run: npx playwright test tests/browser/phase11.spec.ts
+      - name: Real React Fastify PostgreSQL Chromium Phase12 customer journeys
+        if: ${{ !contains(github.event.pull_request.title, '[phase13-p11]') }}
+        run: npx playwright test tests/browser/phase12.spec.ts
+      - name: Real Chromium Phase13 tenant-scoped commercial workspace
+        if: ${{ !contains(github.event.pull_request.title, '[phase13-p11]') }}
+        run: npx playwright test tests/browser/phase13.spec.ts
+
+  historical:
+    if: ${{ contains(github.event.pull_request.title, '[phase13-history]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      PT_TEST_AUTHORITY_ENABLED: "true"
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      SYNTHETIC_VERIFICATION_ENABLED: "true"
+      PHASE1_SYNTHETIC_SIGNING_KEY: "LUMICSEC_TEST_ONLY_NEVER_PRODUCTION_phase01_test_fixture_key_2026"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+      WORKER_DATABASE_URL: postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family
+      MIGRATION_DATABASE_URL: postgres://postgres:local_admin_only@127.0.0.1:55432/api_family
+      VITE_API_BASE: http://127.0.0.1:3001
+      VITE_DEV_TOKEN: local-test-token-alpha
+    steps:
+      - name: Generate isolated per-job test-only permit authority
+        shell: bash
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Exact final HEAD
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Isolated PostgreSQL application and private worker principals
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Frozen dependencies
+        run: npm ci --no-audit --no-fund
+      - name: ESLint
+        run: npm run lint
+      - name: Strict TypeScript
+        run: npm run typecheck
+      - name: Full unit, contract and security negative suite
+        run: npm test
+      - name: Real PostgreSQL 001-017 plus historical upgrade, worker and isolation
+        run: npm run test:pg
+      # The preceding exhaustive PostgreSQL race/recovery suite deliberately
+      # preserves pending jobs, consumed permits and tenant stop state.
+      # Browser tests must NEVER inherit those security-negative fixtures.
+      # Keep both suites independently authoritative in the same Full CI job.
+      - name: Create separately isolated Chromium PostgreSQL database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_browser;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
+      - name: Migrate and assert clean Chromium tenant and private worker state
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          npm run migrate
+          versions="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM public.api_schema_migrations')"
+          assessments="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM public.api_assessments')"
+          queued="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')"
+          test "$versions" = "17"
+          test "$assessments" = "0"
+          test "$queued" = "0"
+          echo "Chromium isolated PG16: 17 migrations; zero assessments; zero private queue records."
+      - name: React production build
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      # Every accepted earlier Chromium journey still executes. Phase10 OS
+      # recovery/security-negative tests intentionally leave historical failed
+      # and quarantined worker jobs in this temporary browser database.
+      - name: Real Chromium historical Phase00-10 customer and recovery journeys
+        run: npx playwright test tests/browser/assessment.spec.ts && npx playwright test tests/browser/phase1.spec.ts && npx playwright test tests/browser/phase2.spec.ts && npx playwright test tests/browser/phase3.spec.ts && npx playwright test tests/browser/phase4.spec.ts && npx playwright test tests/browser/phase5.spec.ts && npx playwright test tests/browser/phase6.spec.ts && npx playwright test tests/browser/phase7.spec.ts && npx playwright test tests/browser/phase8.spec.ts && npx playwright test tests/browser/phase9.spec.ts && npx playwright test tests/browser/phase10.spec.ts && npx playwright test tests/browser/phase10-recovery.spec.ts
+      # Phase11 admission / parent-child tests must start with *zero* historical
+      # queue and authority state; otherwise generic real worker claims may
+      # service an unrelated predecessor fixture instead of the new parent.
+      # This is an additional real database, not mocked isolation/authorization.
+      - name: Create independently isolated Phase11 Chromium PostgreSQL database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase11_browser;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase11_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
+      - name: Migrate and assert Phase11 empty test-specific authority and queue
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          npm run migrate
+          versions="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM public.api_schema_migrations')"
+          assessments="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM public.api_assessments')"
+          queue="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')"
+          permits="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM public.api_pt_permits')"
+          test "$versions" = "17"
+          test "$assessments" = "0"
+          test "$queue" = "0"
+          test "$permits" = "0"
+          echo "Real Phase11 Chromium DB ready: 17 migrations, no inherited assessment, worker queue or signed permit."
+      - name: Real Chromium Phase11 independent customer journeys
+        run: npx playwright test tests/browser/phase11.spec.ts
+
+
+  full:
+    if: ${{ contains(github.event.pull_request.title, '[phase13-full]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local_admin_only
+          POSTGRES_DB: api_family
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d api_family"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      PT_TEST_AUTHORITY_ENABLED: "true"
+      NODE_ENV: test
+      SYNTHETIC_AUTH_ENABLED: "true"
+      SYNTHETIC_VERIFICATION_ENABLED: "true"
+      PHASE1_SYNTHETIC_SIGNING_KEY: "LUMICSEC_TEST_ONLY_NEVER_PRODUCTION_phase01_test_fixture_key_2026"
+      DEV_TOKENS_JSON: '{"local-test-token-alpha":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","local-test-token-beta":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}'
+      DATABASE_URL: postgres://api_family:api_family_dev@127.0.0.1:55432/api_family
+      WORKER_DATABASE_URL: postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family
+      MIGRATION_DATABASE_URL: postgres://postgres:local_admin_only@127.0.0.1:55432/api_family
+      VITE_API_BASE: http://127.0.0.1:3001
+      VITE_DEV_TOKEN: local-test-token-alpha
+    steps:
+      - name: Generate isolated per-job test-only permit authority
+        shell: bash
+        run: |
+          SIGNING="$(openssl rand -hex 48)"
+          AUTHORITY="$(openssl rand -hex 48)"
+          echo "::add-mask::$SIGNING"
+          echo "::add-mask::$AUTHORITY"
+          echo "PT_TEST_SIGNING_KEY=$SIGNING" >> "$GITHUB_ENV"
+          echo "PT_TEST_AUTHORITY_KEY=$AUTHORITY" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Exact final HEAD
+        run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Isolated PostgreSQL application and private worker principals
+        env:
+          PGPASSWORD: local_admin_only
+        run: psql -h 127.0.0.1 -p 55432 -U postgres -d api_family -v ON_ERROR_STOP=1 -f infrastructure/postgres-init/001_roles.sql
+      - name: Frozen dependencies
+        run: npm ci --no-audit --no-fund
+      - name: ESLint
+        run: npm run lint
+      - name: Strict TypeScript
+        run: npm run typecheck
+      - name: Full unit, contract and security negative suite
+        run: npm test
+      - name: Real PostgreSQL 001-017 plus historical upgrade, worker and isolation
+        run: npm run test:pg
+      - name: Create independent Phase12 PostgreSQL qualification database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase12_pg;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_pg -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase12_pg TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase12_pg" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase12_pg" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase12_pg" >> "$GITHUB_ENV"
+      - name: Phase12 fresh migration in separately isolated PostgreSQL 16
+        run: npm run migrate
+      - name: Phase12 real tenant authorization, revisions, sharing races, findings and disabled-AI safety
+        run: node --import tsx --test --test-concurrency=1 tests/phase12.pg.test.ts
+      - name: Phase12 populated Phase11-15 to 16 upgrade preservation
+        run: node --import tsx --test --test-concurrency=1 tests/phase12-upgrade.pg.test.ts
+      - name: Create independent api_family_phase13_pg_full PostgreSQL16 database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase13_pg_full;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_pg_full -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_pg_full TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase13_pg_full" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase13_pg_full" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase13_pg_full" >> "$GITHUB_ENV"
+      - name: Fresh migration 017 and strict tenant/worker grants
+        run: npm run migrate
+      - name: Phase13 real PostgreSQL signed events, concurrent quota contention, usage and RLS
+        run: node --import tsx --test --test-concurrency=1 tests/phase13.pg.test.ts
+      - name: Populated Phase12 016-to-017 historical preservation
+        run: node --import tsx --test --test-concurrency=1 tests/phase13-upgrade.pg.test.ts
+
+      # The preceding exhaustive PostgreSQL race/recovery suite deliberately
+      # preserves pending jobs, consumed permits and tenant stop state.
+      # Browser tests must NEVER inherit those security-negative fixtures.
+      # Keep both suites independently authoritative in the same Full CI job.
+      - name: Create separately isolated Chromium PostgreSQL database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_browser;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_browser" >> "$GITHUB_ENV"
+      - name: Migrate and assert clean Chromium tenant and private worker state
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          npm run migrate
+          versions="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM public.api_schema_migrations')"
+          assessments="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM public.api_assessments')"
+          queued="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')"
+          test "$versions" = "17"
+          test "$assessments" = "0"
+          test "$queued" = "0"
+          echo "Chromium isolated PG16: 17 migrations; zero assessments; zero private queue records."
+      - name: React production build
+        run: npm run build
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      # Every accepted earlier Chromium journey still executes. Phase10 OS
+      # recovery/security-negative tests intentionally leave historical failed
+      # and quarantined worker jobs in this temporary browser database.
+      - name: Real Chromium historical Phase00-10 customer and recovery journeys
+        run: npx playwright test tests/browser/assessment.spec.ts && npx playwright test tests/browser/phase1.spec.ts && npx playwright test tests/browser/phase2.spec.ts && npx playwright test tests/browser/phase3.spec.ts && npx playwright test tests/browser/phase4.spec.ts && npx playwright test tests/browser/phase5.spec.ts && npx playwright test tests/browser/phase6.spec.ts && npx playwright test tests/browser/phase7.spec.ts && npx playwright test tests/browser/phase8.spec.ts && npx playwright test tests/browser/phase9.spec.ts && npx playwright test tests/browser/phase10.spec.ts && npx playwright test tests/browser/phase10-recovery.spec.ts
+      # Phase11 admission / parent-child tests must start with *zero* historical
+      # queue and authority state; otherwise generic real worker claims may
+      # service an unrelated predecessor fixture instead of the new parent.
+      # This is an additional real database, not mocked isolation/authorization.
+      - name: Create independently isolated Phase11 Chromium PostgreSQL database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase11_browser;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase11_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase11_browser" >> "$GITHUB_ENV"
+      - name: Migrate and assert Phase11 empty test-specific authority and queue
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          npm run migrate
+          versions="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM public.api_schema_migrations')"
+          assessments="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM public.api_assessments')"
+          queue="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')"
+          permits="$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase11_browser -Atc 'SELECT count(*) FROM public.api_pt_permits')"
+          test "$versions" = "17"
+          test "$assessments" = "0"
+          test "$queue" = "0"
+          test "$permits" = "0"
+          echo "Real Phase11 Chromium DB ready: 17 migrations, no inherited assessment, worker queue or signed permit."
+      - name: Real Chromium Phase11 independent customer journeys
+        run: npx playwright test tests/browser/phase11.spec.ts
+      - name: Create independent Phase12 Chromium PostgreSQL database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase12_browser;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase12_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase12_browser" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase12_browser" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase12_browser" >> "$GITHUB_ENV"
+      - name: Fresh Phase12 browser migration, assert zero inherited jobs/permits
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          npm run migrate
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -Atc 'SELECT count(*) FROM public.api_schema_migrations')" = "17"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -Atc 'SELECT count(*) FROM public.api_assessments')" = "0"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -Atc 'SELECT count(*) FROM api_queue.api_assessment_queue')" = "0"
+          test "$(psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase12_browser -Atc 'SELECT count(*) FROM public.api_pt_permits')" = "0"
+      - name: Install independent Poppler PDF parser
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y poppler-utils
+      - name: Phase12 real Chromium PDF generation, page count, synthetic safety and Unicode checks
+        run: node --import tsx --test tests/phase12-pdf-render.test.ts
+      - name: Phase12 real Chromium React/Fastify/PostgreSQL customer journeys
+        run: npx playwright test tests/browser/phase12.spec.ts
+      - name: Create independent api_family_phase13_browser PostgreSQL16 database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase13_browser;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase13_browser -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase13_browser TO api_family,api_family_queue; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase13_browser" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase13_browser" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase13_browser" >> "$GITHUB_ENV"
+      - name: Fresh Phase13 Chromium database and isolated customer UI
+        run: |
+          npm run migrate
+          npx playwright test tests/browser/phase13.spec.ts
+
+

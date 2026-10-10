@@ -3,13 +3,12 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {randomUUID,randomBytes,createHmac} from "node:crypto";
-import {Pool} from "pg";
 import {migrate,withTenant,pool,closeDatabase} from "../packages/database/src/index.js";
 import {makeApp} from "../packages/service/src/app.js";
 import {processOneJob} from "../packages/worker/src/index.js";
 import {V13} from "../packages/contracts/src/commercial-v13.js";
 import {ingestSyntheticEntitlement,projection,reserveObservedReport,settleObservedReport,
- closeReservation,reconcilePending} from "../packages/service/src/phase13.js";
+ reconcilePending} from "../packages/service/src/phase13.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
 test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=>{
