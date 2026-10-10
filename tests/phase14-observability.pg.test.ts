@@ -46,7 +46,7 @@ test("Phase14 real poisoned worker emits only redacted operational events and pe
   assert.deepEqual(db,{status:"FAILED",reason:"INVENTORY_SNAPSHOT_MISMATCH",reports:0});
   const observed=lines.filter(x=>x.startsWith("API_FAMILY_DIAGNOSTIC ")).map(x=>JSON.parse(x.slice(22)) as {kind:string;classification:string;queueWaitMs:number|null});
   assert(observed.some(x=>x.kind==="QUEUE_CLAIM"&&x.queueWaitMs!==null));
-  assert(observed.some(x=>x.kind==="WORKER_TERMINAL"&&x.classification==="VALIDATION"));
+  assert(observed.some(x=>x.kind==="WORKER_TERMINAL"&&x.classification==="VALIDATION"),JSON.stringify(observed));
   assert(observed.every(x=>typeof x.kind==="string"));
   assert(!lines.join("").includes(id));
   assert(!lines.join("").includes(A));
