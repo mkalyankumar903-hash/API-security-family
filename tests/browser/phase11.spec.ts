@@ -179,3 +179,49 @@ test("Phase11 Chromium: governed vulnerable fixture produces actual SYNTHETIC_PT
  expect(report.customerRuntimeVerified).toBe(false);
  expect(report.confirmedCustomerVulnerabilities).toEqual([]);
 });
+
+test("Phase11 Chromium: consumed permit requires newly signed same-target scope for safe UI reassessment",async({page,request})=>{
+ test.setTimeout(150000);
+ const {tid,sid,scopeId}=await seed(request);
+ const prior=await request.post(API+"/v11/api-vapt/assessments",{
+  headers:{...auth,"idempotency-key":"pt11-consumed-"+randomUUID()},
+  data:{mode:"GOVERNED_SYNTHETIC",scopeId,
+   policyId:"SYNTHETIC_PT_COMPLETE_SUPPORTED",profile:"SECURE_BASELINE"}});
+ expect(prior.status(),await prior.text()).toBe(201);
+ const oldId=(await prior.json() as {id:string}).id;
+ for(let i=0;i<3;i++)expect(await processOneJob()).toBe(true);
+ const historyBefore=await request.get(API+"/v11/api-vapt/assessments/"+oldId+"/report",{headers:auth});
+ expect(historyBefore.status()).toBe(200);
+ const ops=await request.get(API+"/v2/specifications/"+sid+"/operations?limit=100",{headers:auth});
+ expect(ops.status()).toBe(200);
+ const keys=(await ops.json() as {key:string;method:string;path:string}[])
+  .filter(x=>x.method==="GET"&&["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"].includes(x.path))
+  .map(x=>x.key);
+ const fresh=await request.post(API+"/v6/pt/targets/"+tid+"/scopes",{
+  headers:{...auth,"idempotency-key":"pt11-new-scope-"+randomUUID()},
+  data:{specificationId:sid,operationKeys:keys,fixtureId:"pt-security-v1",
+   exclusions:[],maxEvaluations:14,ratePerMinute:14,maxConcurrency:1,deadlineMs:30000,validityMinutes:15}});
+ expect(fresh.status(),await fresh.text()).toBe(201);
+ const newScopeId=(await fresh.json() as {id:string}).id;
+ expect((await request.post(API+"/v6/pt/scopes/"+newScopeId+"/request-authorization",
+  {headers:auth,data:{}})).status()).toBe(201);
+ expect((await request.post(API+"/v6/pt/test-authority/scopes/"+newScopeId+"/issue",
+  {headers:issuer,data:{}})).status()).toBe(201);
+ const panel=await open(page,tid);
+ await expect(panel.getByRole("button",{name:/GOVERNED_SYNTHETIC · COMPLETED/}).first()).toBeVisible();
+ await panel.getByRole("button",{name:/GOVERNED_SYNTHETIC · COMPLETED/}).first().click();
+ await expect(panel.getByText("Immutable composite security report")).toBeVisible({timeout:20000});
+ await panel.getByLabel("Authorized synthetic scope").selectOption(newScopeId);
+ await panel.getByRole("button",{name:"Reassess using selected signed scope"}).click();
+ const targetHistory=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
+ expect(targetHistory.status()).toBe(200);
+ const list=await targetHistory.json() as {id:string}[];
+ const newId=list.find(x=>x.id!==oldId)?.id;
+ expect(newId).toBeTruthy();
+ for(let i=0;i<3;i++)expect(await processOneJob()).toBe(true);
+ await expect(panel.getByText("Immutable composite security report")).toBeVisible({timeout:30000});
+ const compare=await request.get(API+"/v11/api-vapt/assessments/"+oldId+"/compare/"+newId,{headers:auth});
+ expect(compare.status()).toBe(200);
+ expect((await compare.json() as {compatibility:string}).compatibility).toBe("INCOMPATIBLE");
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+oldId+"/report",{headers:auth})).status()).toBe(200);
+});
