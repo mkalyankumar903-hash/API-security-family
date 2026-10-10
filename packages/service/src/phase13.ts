@@ -1,7 +1,7 @@
 /** Phase13 commercial test-projection, no payments, permits, network scans or Host authority issuance. */
 import type {FastifyInstance,FastifyRequest} from "fastify";
 import {randomUUID} from "node:crypto";
-import {withTenant} from "../../database/src/index.js";
+import {withTenant,phase13TestFaultBarrier} from "../../database/src/index.js";
 import type {PoolClient} from "pg";
 import {PtError} from "./pt.js";
 import {verifySyntheticEvent,verifySyntheticExternalSnapshot,verifySyntheticCorrection,fingerprint,unit,features,commercialFeatureCatalog,type Feature} from "../../contracts/src/commercial-v13.js";
@@ -134,7 +134,7 @@ export async function reserveFeatureObservation(t:string,reportId:string,key:str
    [reservationId,t,e.entitlement_id,feature,reportId,m,key,ttlSeconds]);
   if(feature!=="IMMUTABLE_REPORT_OBSERVED")await tx.query("INSERT INTO public.api_v13_feature_sources(id,tenant_id,reservation_id,feature,source_type,source_report_id,source_assessment_id,source_fingerprint,historical_permit_hash,terminal_outcome,entitlement_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'COMPLETED',$10)",[randomUUID(),t,reservationId,feature,source.type,reportId,source.child,source.fingerprint,source.permit,e.revision]);
   return {id:reservationId,state:"RESERVED",replay:false};
- });
+ },"phase13-reserve");
 }
 export async function settleObservedReport(t:string,reservationId:string){
  return settleFeatureObservation(t,reservationId);
@@ -168,10 +168,11 @@ export async function settleFeatureObservation(t:string,reservationId:string){
   await tx.query("UPDATE public.api_v13_reservations SET state='SETTLED',settled_at=clock_timestamp() WHERE id=$1",[r.id]);
   await tx.query("INSERT INTO public.api_v13_usage_ledger(id,tenant_id,reservation_id,feature,source_report_id,month_start,units,source_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
    [ledgerId,t,r.id,feature,r.source_report_id,r.month_start,r.units,source.fingerprint]);
+  await phase13TestFaultBarrier("phase13-settle:between-ledger-outbox");
   await tx.query("INSERT INTO public.api_v13_outbox(id,tenant_id,source_usage_id,payload) VALUES($1,$2,$3,$4::jsonb)",
    [randomUUID(),t,ledgerId,JSON.stringify({schemaVersion:"api-family-commercial-v13",event:"USAGE_OBSERVED",units:r.units,sourceReportId:r.source_report_id,feature,syntheticOnly:true,delivery:"DISABLED"})]);
   return {id:r.id,state:"SETTLED",replay:false};
- });
+ },"phase13-settle");
 }
 export async function closeReservation(t:string,reservationId:string){
  id(t);id(reservationId);
@@ -185,7 +186,7 @@ export async function closeReservation(t:string,reservationId:string){
   const state=Date.parse(String(q.rows[0].expires_at))<=Date.now()?"EXPIRED":"RELEASED";
   await tx.query("UPDATE public.api_v13_reservations SET state=$2 WHERE id=$1",[reservationId,state]);
   return {state};
- });
+ },"phase13-close");
 }
 /** No external snapshot -> PENDING, not a fabricated MATCHED invoice. */
 export async function reconcilePending(t:string,feature:Feature=features[0]){
