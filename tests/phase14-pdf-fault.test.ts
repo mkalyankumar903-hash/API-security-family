@@ -64,3 +64,44 @@ test("Phase14 PDF HTML is escaped, no networking, no Host authorization or VERIF
  assert(html.includes("customer"));
  assert(html.includes("NO LONGER OBSERVED != VERIFIED_FIXED"));
 });
+
+test("Phase14 actual Chromium OS child death before page and during PDF render, plus bounded real timeout",async()=>{
+ const {spawn}=await import("node:child_process");
+ for(const mode of ["before-page","mid-render","render-timeout"] as const){
+  const child=spawn(process.execPath,["--import","tsx","tests/helpers/phase14-pdf-subprocess.ts"],{
+   env:{...process.env,NODE_ENV:"test",SYNTHETIC_AUTH_ENABLED:"true",GITHUB_ACTIONS:"true",
+    PHASE14_PDF_CHILD_FAULT:mode},
+   stdio:["ignore","pipe","pipe","ipc"]
+  });
+  let transcript="",renderStarted=false,killedBrowser=false,success=false;
+  child.stderr?.on("data",(x:Buffer)=>{transcript+=x.toString().slice(0,1000);});
+  try{
+   const completed=new Promise<{code:number|null;signal:NodeJS.Signals|null}>((resolve,reject)=>{
+    const timeout=setTimeout(()=>{child.kill("SIGKILL");reject(Error("PHASE14_REAL_RENDER_FAULT_TIMEOUT_"+mode));},16000);
+    child.on("message",(raw:unknown)=>{
+     const m=raw as {kind?:string;chromiumPid?:number;failedCode?:string;immutability?:boolean;bytes?:number;code?:string};
+     if(m.kind==="PHASE14_BROWSER_LAUNCHED"||m.kind==="PHASE14_RENDER_IN_FLIGHT"){
+      renderStarted=true;
+      if(!Number.isSafeInteger(m.chromiumPid)||!m.chromiumPid||m.chromiumPid<=1||
+       m.chromiumPid===child.pid){reject(Error("PHASE14_INVALID_CHROMIUM_OS_PID"));return;}
+      try{process.kill(m.chromiumPid,"SIGKILL");killedBrowser=true;child.send({kind:"PHASE14_CONTINUE"});}
+      catch(e){reject(e);}
+     }
+     if(m.kind==="PHASE14_PDF_CHILD_DONE"){
+      assert.equal(m.immutability,true);
+      assert(m.bytes&&m.bytes>1000);
+      assert.equal(m.failedCode,mode==="render-timeout"?"PDF_RENDER_TIMEOUT":"PDF_RENDERER_UNAVAILABLE_OR_TIMED_OUT");
+      success=true;
+     }
+     if(m.kind==="PHASE14_PDF_CHILD_ERROR")reject(Error("PDF_CHILD_"+m.code));
+    });
+    child.once("exit",(code,signal)=>{clearTimeout(timeout);resolve({code,signal});});
+    child.once("error",reject);
+   });
+   const exit=await completed;
+   assert.deepEqual(exit,{code:0,signal:null},"child must verify no partial PDF and recover "+mode+" "+transcript.slice(-250));
+   assert(success,"real rendered recovery observed");
+   if(mode!=="render-timeout"){assert(renderStarted);assert(killedBrowser,"OS process SIGKILL required");}
+  }finally{if(child.exitCode===null)child.kill("SIGKILL");}
+ }
+});
