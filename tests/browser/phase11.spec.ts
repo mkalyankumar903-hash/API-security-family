@@ -212,7 +212,11 @@ test("Phase11 Chromium: consumed permit requires newly signed same-target scope 
  await panel.getByRole("button",{name:/GOVERNED_SYNTHETIC · COMPLETED/}).first().click();
  await expect(panel.getByText("Immutable composite security report")).toBeVisible({timeout:20000});
  await panel.getByLabel("Authorized synthetic scope").selectOption(newScopeId);
+ const reassessmentResponse=page.waitForResponse(r=>
+  r.url().includes("/v11/api-vapt/assessments/")&&r.url().endsWith("/reassess")&&
+  r.request().method()==="POST");
  await panel.getByRole("button",{name:"Reassess using selected signed scope"}).click();
+ expect((await reassessmentResponse).status()).toBe(201);
  const targetHistory=await request.get(API+"/v11/api-vapt/targets/"+tid+"/history",{headers:auth});
  expect(targetHistory.status()).toBe(200);
  const list=await targetHistory.json() as {id:string}[];
