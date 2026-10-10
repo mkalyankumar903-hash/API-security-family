@@ -49,6 +49,7 @@ export async function migrate(): Promise<void> {
   const pt11 = resolve(fileURLToPath(new URL("../migrations/015_phase11_complete_autonomous_api_vapt.sql", import.meta.url)));
   const phase12 = resolve(fileURLToPath(new URL("../migrations/016_phase12_unified_experience_reports.sql", import.meta.url)));
   const phase13 = resolve(fileURLToPath(new URL("../migrations/017_phase13_commercial_entitlements_usage.sql", import.meta.url)));
+  const phase13Recovery = resolve(fileURLToPath(new URL("../migrations/018_phase13_multi_meter_recovery.sql", import.meta.url)));
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -144,6 +145,11 @@ export async function migrate(): Promise<void> {
     if(!p13.rowCount){
       await owner.query(readFileSync(phase13,"utf8"));
       await owner.query("INSERT INTO api_schema_migrations(version) VALUES('017')");
+    }
+    const recovery18=await owner.query("SELECT version FROM api_schema_migrations WHERE version='018'");
+    if(!recovery18.rowCount){
+      await owner.query(readFileSync(phase13Recovery,"utf8"));
+      await owner.query("INSERT INTO api_schema_migrations(version) VALUES('018')");
     }
     await owner.query("COMMIT");
   } catch(error) {await owner.query("ROLLBACK"); throw error;}
