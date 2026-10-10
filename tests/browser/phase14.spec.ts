@@ -41,12 +41,15 @@ test("Phase14 real Chromium keyboard navigation, 320px, 200% zoom, pseudo-RTL an
  await page.getByLabel("Select target").selectOption(old);
  const panel=page.locator("#phase13-commercial");
  await expect(panel.getByRole("heading",{level:2})).toBeVisible();
- const combo=panel.getByLabel("Commercial QA locale");
+ const combo=panel.locator("#phase13-locale");
+ await expect(combo).toHaveAccessibleName("Commercial QA locale");
  await combo.focus();
  await expect(combo).toBeFocused();
  await page.keyboard.press("ArrowDown");
  await expect(combo).toHaveValue("en-XA");
+ await expect(combo).toHaveAccessibleName(/⟦/);
  await combo.selectOption("en-XB");
+ await expect(combo).toHaveAccessibleName("⟦Commercial QA locale⟧");
  await expect(panel).toHaveAttribute("dir","rtl");
  await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});
  await expect(panel.getByRole("table",{name:"Observed report capacity — not a bill or subscription"})).toBeVisible();
