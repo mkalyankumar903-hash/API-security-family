@@ -170,8 +170,14 @@ async function fail(tenant:string,id:string,token:string,code:string):Promise<vo
   await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[id,token]);
  });
 }
-export type Pt9QualificationBarriers={afterEvaluation?:(completed:number)=>Promise<void>;
- afterCheckpoint?:(stageId:string)=>Promise<void>};
+export type Pt9QualificationBarriers={
+ afterEvaluation?:(completed:number)=>Promise<void>;
+ afterCheckpoint?:(stageId:string)=>Promise<void>;
+ beforeReservation?:()=>Promise<void>;
+ afterReservation?:()=>Promise<void>;
+ afterFixtureBeforeReceipt?:(backendPid:number)=>Promise<void>;
+ beforeFinalization?:()=>Promise<void>;
+};
 export async function processPtOrchestrationJob(tenant:string,id:string,token:string,
  barriers?:Pt9QualificationBarriers):Promise<void>{
  let count=0;
@@ -180,7 +186,10 @@ export async function processPtOrchestrationJob(tenant:string,id:string,token:st
   for(const stage of plan.stages){
    const started=await startStage(tenant,id,token,stage.id);
    if(!started)continue;
-   if(stage.type==="FINALIZATION"){await publish(tenant,id,token,plan);return;}
+   if(stage.type==="FINALIZATION"){
+     if(process.env.NODE_ENV==="test"&&barriers?.beforeFinalization)await barriers.beforeFinalization();
+     await publish(tenant,id,token,plan);return;
+    }
    for(const item of plan.evaluations.filter(x=>stage.evaluationKeys.includes(x.evaluationKey))){
     const prior=await withWorkerTenant(tenant,async tx=>
      (await tx.query("SELECT state FROM api_pt_detection_evaluations WHERE assessment_id=$1 AND evaluation_key=$2",[id,item.evaluationKey])).rows[0]?.state as string|undefined);
@@ -189,7 +198,8 @@ export async function processPtOrchestrationJob(tenant:string,id:string,token:st
     if(prior==="UNCERTAIN")throw new Error("PT9_UNCERTAIN_EVALUATION_NO_REPLAY");
     const result=await governedPtDetectionInteraction(tenant,id,token,{
      evaluationKey:item.evaluationKey,operationKey:item.operationKey,
-     method:"GET",path:item.path,actor:item.actor,profile:plan.profile});
+     method:"GET",path:item.path,actor:item.actor,profile:plan.profile},
+     process.env.NODE_ENV==="test"?barriers:undefined);
     if(result.status!=="CONSUMED")throw new Error("PT9_GOVERNED_EVALUATION_"+result.status+"_"+result.code);
     count++;
     if(barriers?.afterEvaluation)await barriers.afterEvaluation(count);
