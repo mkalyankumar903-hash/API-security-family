@@ -7,7 +7,7 @@ CREATE TABLE public.api_v13_entitlement_events(
  state text NOT NULL CHECK(state IN ('ISSUED','REVOKED')),
  issuer text NOT NULL CHECK(issuer='lumicsec-ci-synthetic-v13'),
  audience text NOT NULL CHECK(audience='api-family-v13-test'),
- payload_fingerprint char(64) NOT NULL CHECK(payload_fingerprint ~ '^[a-f0-9]{64}$'),
+ expires_at timestamptz NOT NULL, payload_fingerprint char(64) NOT NULL CHECK(payload_fingerprint ~ '^[a-f0-9]{64}$'),
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  UNIQUE(tenant_id,event_id),UNIQUE(tenant_id,entitlement_id,revision));
 CREATE INDEX api_v13_entitlement_latest ON public.api_v13_entitlement_events(tenant_id,feature,revision DESC,id);
@@ -21,7 +21,7 @@ CREATE TABLE public.api_v13_reservations(
  state text NOT NULL DEFAULT 'RESERVED' CHECK(state IN ('RESERVED','SETTLED','RELEASED','EXPIRED')),
  expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  settled_at timestamptz, UNIQUE(tenant_id,idempotency_key),
- UNIQUE(tenant_id,source_report_id,feature),
+ UNIQUE(tenant_id,source_report_id,feature), UNIQUE(tenant_id,id),
  FOREIGN KEY(tenant_id,source_report_id) REFERENCES public.api_vapt11_reports(tenant_id,parent_assessment_id));
 CREATE INDEX api_v13_reservations_account ON public.api_v13_reservations(tenant_id,feature,month_start,state,expires_at);
 
@@ -32,7 +32,7 @@ CREATE TABLE public.api_v13_usage_ledger(
  units integer NOT NULL CHECK(units BETWEEN 1 AND 1000000),
  source_fingerprint char(64) NOT NULL CHECK(source_fingerprint ~ '^[a-f0-9]{64}$'),
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
- UNIQUE(tenant_id,reservation_id),UNIQUE(tenant_id,source_report_id,feature),
+ UNIQUE(tenant_id,reservation_id),UNIQUE(tenant_id,source_report_id,feature), UNIQUE(tenant_id,id),
  FOREIGN KEY(tenant_id,source_report_id) REFERENCES public.api_vapt11_reports(tenant_id,parent_assessment_id),
  FOREIGN KEY(tenant_id,reservation_id) REFERENCES public.api_v13_reservations(tenant_id,id));
 CREATE INDEX api_v13_usage_history ON public.api_v13_usage_ledger(tenant_id,feature,month_start,created_at DESC,id);

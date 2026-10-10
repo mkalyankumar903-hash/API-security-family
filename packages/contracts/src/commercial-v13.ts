@@ -27,7 +27,7 @@ export function validateEvent(value:unknown,now=Date.now()):CommercialEvent{
   throw new CommercialContractError("UNSUPPORTED_CONTRACT");
  for(const key of ["eventId","tenantId","entitlementId"])
   if(typeof e[key]!=="string"||!UUID.test(e[key]))throw new CommercialContractError("INVALID_BINDING");
- if(typeof e.issuedAt!=="string"||typeof e.expiresAt!=="string"||!/^\\d{4}-/.test(e.issuedAt)||!/^\\d{4}-/.test(e.expiresAt))
+ if(typeof e.issuedAt!=="string"||typeof e.expiresAt!=="string"||!/^\d{4}-/.test(e.issuedAt)||!/^\d{4}-/.test(e.expiresAt))
   throw new CommercialContractError("INVALID_EVENT_TIME");
  const issued=Date.parse(e.issuedAt),expires=Date.parse(e.expiresAt);
  if(!Number.isFinite(issued)||!Number.isFinite(expires)||expires<=issued||now-issued>300000||issued-now>30000||expires<=now)

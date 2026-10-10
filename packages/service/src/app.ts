@@ -17,6 +17,7 @@ import {registerAutonomousVaptRoutes} from "./autonomous-vapt.js";
 import {registerPhase12Routes} from "./phase12.js";
 import {registerPhase12WorkflowRoutes} from "./phase12-workflows.js";
 import {registerPhase12FindingRoutes} from "./phase12-findings.js";
+import {registerPhase13Routes} from "./phase13.js";
 
 class ApiError extends Error { constructor(public statusCode: number, public code: string) { super(code); } }
 const sessions = new WeakMap<FastifyRequest,string>();
@@ -52,6 +53,7 @@ export async function makeApp(): Promise<FastifyInstance> {
   const identities = setupSyntheticAuthority();
   const app = Fastify({ logger: false, bodyLimit: 1100000, genReqId: () => uuid() });
   await app.register(cors, { origin:["http://127.0.0.1:5173","http://localhost:5173"], allowedHeaders: ["authorization","content-type","idempotency-key"], methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"] });
+  app.addHook("onSend",async (req,reply,payload)=>{if(req.method==="GET")reply.header("Cache-Control","no-store").header("Pragma","no-cache");return payload;});
   app.addHook("preHandler", async (req) => {
     if (req.url === "/health/live") return;
     const authorization = req.headers.authorization;
@@ -196,5 +198,6 @@ export async function makeApp(): Promise<FastifyInstance> {
   registerPhase12Routes(app,tenant);
   registerPhase12WorkflowRoutes(app,tenant);
   registerPhase12FindingRoutes(app,tenant);
+  registerPhase13Routes(app,tenant);
   return app;
 }
