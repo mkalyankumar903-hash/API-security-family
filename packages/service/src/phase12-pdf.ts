@@ -176,7 +176,11 @@ export async function renderPhase12Pdf(report:Report,branding?:ReportBrand):Prom
  running++;
  const started=process.hrtime.bigint();
  try{
-  const browser=await chromium.launch({headless:true,timeout:15000});
+  // GitHub-hosted deterministic executable-launch failure, never enabled in production.
+  const fault=process.env.NODE_ENV==="test"&&process.env.SYNTHETIC_AUTH_ENABLED==="true"&&
+    process.env.PHASE14_TEST_PDF_UNAVAILABLE==="true";
+  const browser=await chromium.launch({headless:true,timeout:15000,
+    ...(fault?{executablePath:"/phase14-disposable-ci-nonexistent-chromium"}:{})});
   try{
    const context=await browser.newContext({javaScriptEnabled:false,acceptDownloads:false});
    try{
