@@ -155,3 +155,27 @@ test("Phase11 Chromium: controlled reassessment creates fresh identity without r
  const diff=await compared.json() as {compatibility:string;verifiedFixed:boolean};
  expect(diff.compatibility).toBe("COMPATIBLE");expect(diff.verifiedFixed).toBe(false);
 });
+
+test("Phase11 Chromium: governed vulnerable fixture produces actual SYNTHETIC_PT observations without customer confirmation",async({request})=>{
+ test.setTimeout(150000);
+ const {scopeId}=await seed(request);
+ const run=await request.post(API+"/v11/api-vapt/assessments",{
+  headers:{...auth,"idempotency-key":"pt11-observed-"+randomUUID()},
+  data:{mode:"GOVERNED_SYNTHETIC",scopeId,policyId:"SYNTHETIC_PT_COMPLETE_SUPPORTED",
+   profile:"MISSING_AUTH_ENFORCEMENT"}});
+ expect(run.status(),await run.text()).toBe(201);
+ const id=(await run.json() as {id:string}).id;
+ for(let i=0;i<3;i++)expect(await processOneJob()).toBe(true);
+ const response=await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth});
+ expect(response.status(),await response.text()).toBe(200);
+ const report=await response.json() as {verifiedFixed:boolean;customerRuntimeVerified:boolean;
+  confirmedCustomerVulnerabilities:unknown[];
+  findings:{source:string;verifiedFixed:boolean;customerVulnerabilityConfirmed:boolean}[];
+  pt:{syntheticObservations:number}};
+ expect(report.pt.syntheticObservations).toBeGreaterThan(0);
+ expect(report.findings.some(x=>x.source==="SYNTHETIC_PT")).toBe(true);
+ expect(report.findings.every(x=>x.verifiedFixed===false&&x.customerVulnerabilityConfirmed===false)).toBe(true);
+ expect(report.verifiedFixed).toBe(false);
+ expect(report.customerRuntimeVerified).toBe(false);
+ expect(report.confirmedCustomerVulnerabilities).toEqual([]);
+});
