@@ -59,7 +59,7 @@ CREATE TABLE public.api_v13_reconciliation(
  external_fingerprint char(64) CHECK(external_fingerprint ~ '^[a-f0-9]{64}$'),
  state text NOT NULL CHECK(state IN('MATCHED','MISMATCH','PENDING_EXTERNAL_AUTHORITY','INVALID_SOURCE','UNSUPPORTED_CONTRACT')),
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
- UNIQUE(tenant_id,feature,month_start,external_revision,external_fingerprint));
+ UNIQUE(tenant_id,feature,month_start,external_revision));
 CREATE INDEX api_v13_reconciliation_history ON public.api_v13_reconciliation(tenant_id,created_at DESC,id);
 DO $security$ DECLARE tab text;
 BEGIN

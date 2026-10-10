@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {randomUUID,randomBytes,createHmac} from "node:crypto";
-import {validateEvent,verifySyntheticEvent,unit,V13,hostNotConfigured} from "../packages/contracts/src/commercial-v13.js";
+import {validateEvent,verifySyntheticEvent,verifyRotatedSyntheticEvent,verifySyntheticExternalSnapshot,unit,V13,hostNotConfigured} from "../packages/contracts/src/commercial-v13.js";
 import {V13Client,V13ClientError} from "../packages/sdk/src/v13.js";
 const e=()=>({schemaVersion:V13,eventId:randomUUID(),tenantId:randomUUID(),
  issuer:"lumicsec-ci-synthetic-v13",audience:"api-family-v13-test",issuedAt:new Date().toISOString(),
@@ -47,4 +47,38 @@ test("Phase13 SDK injects auth at request time, validates origin, never creates 
   fetcher:(async()=>new Response(JSON.stringify({error:"PERMISSION_DENIED"}),{status:403})) as typeof fetch}).summary(),
   (error:unknown)=>error instanceof V13ClientError&&error.code==="MISSING_AUTHENTICATION");
  assert.throws(()=>sdk.decision(-1),/INVALID_QUANTITY/);
+});
+
+test("Phase13 key rotation rejects wrong key id or expired trust window",()=>{
+ const previous=process.env.NODE_ENV,flag=process.env.SYNTHETIC_AUTH_ENABLED;
+ process.env.NODE_ENV="test";process.env.SYNTHETIC_AUTH_ENABLED="true";
+ const key=randomBytes(48),raw=Buffer.from(JSON.stringify(e()));
+ const sig=createHmac("sha256",key).update(raw).digest("hex");
+ try{
+  const now=Date.now(),keys=[{keyId:"2026-key",key,validFrom:now-60000,validUntil:now+60000}];
+  assert.equal(verifyRotatedSyntheticEvent(raw,sig,"2026-key",keys,now).schemaVersion,V13);
+  assert.throws(()=>verifyRotatedSyntheticEvent(raw,sig,"wrong",keys,now),/UNTRUSTED_SIGNING_KEY/);
+  assert.throws(()=>verifyRotatedSyntheticEvent(raw,sig,"2026-key",keys,now+120000),/UNTRUSTED_SIGNING_KEY/);
+  assert.throws(()=>verifyRotatedSyntheticEvent(raw,sig,"2026-key",
+   [{...keys[0],key:randomBytes(48)}],now),/INVALID_EVENT_SIGNATURE/);
+ }finally{if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+ if(flag===undefined)delete process.env.SYNTHETIC_AUTH_ENABLED;else process.env.SYNTHETIC_AUTH_ENABLED=flag;}
+});
+test("Phase13 external snapshot independent signature validation is mandatory",()=>{
+ const prev=process.env.NODE_ENV,flag=process.env.SYNTHETIC_AUTH_ENABLED;
+ process.env.NODE_ENV="test";process.env.SYNTHETIC_AUTH_ENABLED="true";
+ const key=randomBytes(48),now=new Date();
+ const snapshot={schemaVersion:V13,snapshotId:randomUUID(),tenantId:randomUUID(),
+  issuer:"lumicsec-ci-external-accounting-v13",audience:"api-family-reconcile-v13-test",
+  feature:"IMMUTABLE_REPORT_OBSERVED",meterVersion:1,
+  monthStart:now.toISOString().slice(0,7)+"-01",watermarkAt:now.toISOString(),
+  observedUnits:0,revision:1,issuedAt:now.toISOString(),expiresAt:new Date(now.getTime()+120000).toISOString()};
+ const raw=Buffer.from(JSON.stringify(snapshot)),sig=createHmac("sha256",key).update(raw).digest("hex");
+ try{
+  assert.equal(verifySyntheticExternalSnapshot(raw,sig,key).observedUnits,0);
+  assert.throws(()=>verifySyntheticExternalSnapshot(raw,"0".repeat(64),key),/INVALID_SNAPSHOT_SIGNATURE/);
+  assert.throws(()=>verifySyntheticExternalSnapshot(Buffer.from(JSON.stringify({...snapshot,meterVersion:2})),
+   createHmac("sha256",key).update(JSON.stringify({...snapshot,meterVersion:2})).digest("hex"),key),/UNSUPPORTED_CONTRACT/);
+ }finally{if(prev===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=prev;
+ if(flag===undefined)delete process.env.SYNTHETIC_AUTH_ENABLED;else process.env.SYNTHETIC_AUTH_ENABLED=flag;}
 });

@@ -15,7 +15,7 @@ This phase builds a test-only, tenant-scoped, commercially inert foundation on a
 - Host adapter types are **not connected** to approved deployed Host authority/JWKS, billing or customer tenant memberships.
 - Current entitlement issuer is strictly `lumicsec-ci-synthetic-v13` (never production). Host entitlement verification and production operational authorization remain **HOST_BLOCKED**.
 - Current ledger supports only a narrow source-confirmed immutable report meter, not every candidate usage category.
-- Reconciliation with no independent signed external snapshot remains `PENDING_EXTERNAL_AUTHORITY`; a local counter must not be treated as a Host invoice.
+- Without independently signed external authority reconciliation remains `PENDING_EXTERNAL_AUTHORITY`. A separate CI-only external accounting fixture can produce `MATCHED` / `MISMATCH` with signed independent units, revision/watermark checks and immutable history. **Synthetic matches never qualify live Host invoices**.
 - Outbox is durable **but delivery intentionally disabled**. No actual callbacks or live signing key rotation.
 - Current UI is English with existing Phase 12 QA pseudo-locales retained; no translation or WCAG certification is claimed.
 

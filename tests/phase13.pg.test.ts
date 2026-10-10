@@ -8,7 +8,7 @@ import {makeApp} from "../packages/service/src/app.js";
 import {processOneJob} from "../packages/worker/src/index.js";
 import {V13} from "../packages/contracts/src/commercial-v13.js";
 import {ingestSyntheticEntitlement,projection,reserveObservedReport,settleObservedReport,
- reconcilePending} from "../packages/service/src/phase13.js";
+ reconcilePending,reconcileSyntheticExternalSnapshot} from "../packages/service/src/phase13.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
 test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=>{
@@ -99,6 +99,32 @@ test("Phase13 PostgreSQL 17 real tenant capability and quota decisions",async t=
    assert.equal(found.rows[0].n,1);
    await assert.rejects(()=>reserveObservedReport(A,r2,"phase13-repeat-"+randomUUID()),/QUOTA_EXCEEDED/);
    assert.equal((await call("GET","/v13/reservations",undefined,true)).body,"[]");
+  });
+  await t.test("independent signed accounting snapshot mismatch, replay and stale revision",async()=>{
+   const accountKey=randomBytes(48);
+   const makeSnapshot=(revision:number,units:number,tenant=A)=>{
+    const raw=Buffer.from(JSON.stringify({schemaVersion:V13,snapshotId:randomUUID(),tenantId:tenant,
+     issuer:"lumicsec-ci-external-accounting-v13",audience:"api-family-reconcile-v13-test",
+     feature:"IMMUTABLE_REPORT_OBSERVED",meterVersion:1,
+     monthStart:new Date().toISOString().slice(0,7)+"-01",
+     watermarkAt:new Date().toISOString(),observedUnits:units,revision,
+     issuedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+120000).toISOString()}));
+    return {raw,signature:createHmac("sha256",accountKey).update(raw).digest("hex")};
+   };
+   const external=makeSnapshot(1,0);
+   const mismatch=await reconcileSyntheticExternalSnapshot(A,external.raw,external.signature,accountKey);
+   assert.equal(mismatch.state,"MISMATCH");
+   assert.equal((await reconcileSyntheticExternalSnapshot(A,external.raw,external.signature,accountKey)).replay,true);
+   const stale=makeSnapshot(1,1);
+   await assert.rejects(()=>reconcileSyntheticExternalSnapshot(A,stale.raw,stale.signature,accountKey),/SNAPSHOT_REVISION_CONFLICT/);
+   const cross=makeSnapshot(2,1,B);
+   await assert.rejects(()=>reconcileSyntheticExternalSnapshot(A,cross.raw,cross.signature,accountKey),/SNAPSHOT_TENANT_MISMATCH/);
+   const good=makeSnapshot(2,1);
+   const compared=await reconcileSyntheticExternalSnapshot(A,good.raw,good.signature,accountKey);
+   assert.equal(compared.state,"MATCHED");assert.equal(compared.syntheticExternalOnly,true);
+   const outdated=makeSnapshot(1,1);
+   await assert.rejects(()=>reconcileSyntheticExternalSnapshot(A,outdated.raw,outdated.signature,accountKey),/SNAPSHOT_STALE_REVISION/);
+   assert.equal((await call("GET","/v13/reconciliations",undefined,true)).body,"[]");
   });
   await t.test("immutable usage, tenant RLS, pending not self-matched and revoked state",async()=>{
    const firstPending=await reconcilePending(A),again=await reconcilePending(A);

@@ -4,7 +4,7 @@ import {randomUUID} from "node:crypto";
 import {withTenant} from "../../database/src/index.js";
 import type {PoolClient} from "pg";
 import {PtError} from "./pt.js";
-import {verifySyntheticEvent,fingerprint,unit,features} from "../../contracts/src/commercial-v13.js";
+import {verifySyntheticEvent,verifySyntheticExternalSnapshot,fingerprint,unit,features} from "../../contracts/src/commercial-v13.js";
 const fail=(code:string,status=409):never=>{throw new PtError(status,code);};
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const id=(v:unknown)=>typeof v==="string"&&UUID.test(v)?v:fail("INVALID_ID",400);
@@ -136,6 +136,35 @@ export async function reconcilePending(t:string){
   return {id:rid,state:"PENDING_EXTERNAL_AUTHORITY"};
  });
 }
+/** Independently signed CI external fixture; real Host accounting remains unconfigured. */
+export async function reconcileSyntheticExternalSnapshot(t:string,raw:Uint8Array,signature:string,key:Uint8Array){
+ id(t);
+ const s=verifySyntheticExternalSnapshot(raw,signature,key);
+ if(s.tenantId!==t)fail("SNAPSHOT_TENANT_MISMATCH",403);
+ const digest=fingerprint(raw);
+ return withTenant(t,async tx=>{
+  await lock(tx,t,s.feature);
+  const previous=await tx.query("SELECT id,state,external_revision,external_fingerprint FROM public.api_v13_reconciliation WHERE feature=$1 AND month_start=$2 AND external_revision IS NOT NULL ORDER BY external_revision DESC LIMIT 1",
+   [s.feature,s.monthStart]);
+  if(previous.rowCount){
+   const p=previous.rows[0];
+   if(p.external_revision===s.revision){
+    if(p.external_fingerprint!==digest)fail("SNAPSHOT_REVISION_CONFLICT");
+    return {id:p.id,state:p.state,replay:true};
+   }
+   if(p.external_revision>s.revision)fail("SNAPSHOT_STALE_REVISION");
+  }else if(s.revision!==1)fail("SNAPSHOT_REVISION_CONFLICT");
+  const local=await tx.query("SELECT coalesce(sum(units),0)::int AS n FROM public.api_v13_usage_ledger WHERE feature=$1 AND month_start=$2 AND created_at<=$3",
+   [s.feature,s.monthStart,s.watermarkAt]);
+  const observed=Number(local.rows[0].n);
+  const state=observed===s.observedUnits?"MATCHED":"MISMATCH";
+  const id=randomUUID();
+  await tx.query("INSERT INTO public.api_v13_reconciliation(id,tenant_id,feature,month_start,external_revision,local_units,external_units,external_fingerprint,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+   [id,t,s.feature,s.monthStart,s.revision,observed,s.observedUnits,digest,state]);
+  return {id,state,replay:false,syntheticExternalOnly:true};
+ });
+}
+
 export function registerPhase13Routes(app:FastifyInstance,identity:(req:FastifyRequest)=>string){
  app.get("/v13/capabilities",async()=>({schemaVersion:"api-family-commercial-v13",syntheticOnly:true,
   productionHostIntegration:false,hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",meterDefinitions:[
