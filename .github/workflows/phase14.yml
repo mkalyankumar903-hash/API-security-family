@@ -485,6 +485,8 @@ jobs:
         run: npm test
       - name: Phase14 measured bounded synthetic parsing and isolated load
         run: node --import tsx --test tests/phase14-performance.test.ts
+      - name: Phase14 measured inventory, diff, detection and SDK baseline
+        run: node --import tsx --test tests/phase14-performance-extended.test.ts
       - name: Real PostgreSQL 001-019 plus historical upgrade, worker and isolation
         run: npm run test:pg
       - name: Create independent Phase12 PostgreSQL qualification database
@@ -686,3 +688,5 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Synthetic performance and bounded-load samples
         run: node --import tsx --test tests/phase14-performance.test.ts
+      - name: Synthetic inventory/diff/SDK samples
+        run: node --import tsx --test tests/phase14-performance-extended.test.ts
