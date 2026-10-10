@@ -199,13 +199,17 @@ export async function makeApp(): Promise<FastifyInstance> {
   });
   app.post("/v1/assessments/:id/cancel",async req=>{
     const id=paramsId(req);
-    return withTenant(tenant(req),async tx=>{
+    const committed=await withTenant(tenant(req),async tx=>{
       const authorized = await tx.query("SELECT public.api_cancel_assessment($1) AS cancelled",[id]);
       if (!authorized.rows[0]?.cancelled) throw new ApiError(409,"NOT_CANCELLABLE_OR_NOT_FOUND");
       const r=await tx.query("SELECT id,status FROM api_assessments WHERE id=$1",[id]);
       await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,'ASSESSMENT_CANCELLED',$3)",[uuid(),tenant(req),id]);
       return r.rows[0];
     });
+    // The SQL SECURITY DEFINER cancellation has COMMITTED before this event.
+    if(committed.status==="CANCELLED")emitDiagnostic({
+      kind:"ASSESSMENT_TRANSITION",classification:"OK",statusCode:200,state:"CANCELLED"});
+    return committed;
   });
   await registerOnboardingRoutes(app,tenant);
   await registerDiscoveryRoutes(app,tenant);
