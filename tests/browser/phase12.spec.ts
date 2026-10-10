@@ -181,3 +181,32 @@ test("Phase12 real Chromium: Phase11 incompatible immutable comparison displays 
  await expect(section.getByText("VERSION_OR_FIXTURE_CONTEXT_CHANGED")).toBeVisible();
  await expect(section.getByText("No longer observed NEVER establishes VERIFIED_FIXED.")).toBeVisible();
 });
+
+
+test("Phase12 real Chromium: explicit pseudo-RTL QA, accessible labels, UTC dates and reduced motion",async({page,request})=>{
+ test.setTimeout(150000);
+ const {targetId,assessmentId}=await seed(request);
+ await page.setViewportSize({width:768,height:1024});
+ await page.emulateMedia({reducedMotion:"reduce"});
+ await page.goto("/");
+ await page.getByLabel("Select target").selectOption(targetId);
+ const section=page.locator("#phase12-workspace");
+ await section.getByLabel("Select a completed immutable composite report").selectOption(assessmentId);
+ await expect(section.getByText("Immutable report presentation")).toBeVisible();
+ await section.getByLabel("Interface locale (English and test-only pseudo-locales)").selectOption("en-XB");
+ await expect(section).toHaveAttribute("dir","rtl");
+ await expect(section.getByRole("heading",{name:/Unified API security workspace/})).toBeVisible();
+ await expect(page).toHaveURL(/apiLocale=en-XB/);
+ const unlabeled=await section.locator("input,select,textarea").evaluateAll(nodes=>
+  nodes.filter(node=>{const el=node as HTMLInputElement;return !el.labels?.length &&
+   !el.getAttribute("aria-label")&&!el.getAttribute("aria-labelledby");})
+  .map(node=>node.outerHTML.slice(0,120)));
+ expect(unlabeled).toEqual([]);
+ const transition=await section.evaluate(el=>getComputedStyle(el).transitionDuration);
+ expect(transition).toBe("0s");
+ await page.reload();
+ await expect(section).toHaveAttribute("dir","rtl");
+ await expect(section.getByLabel(/Interface locale/)).toHaveValue("en-XB");
+ const width=await page.evaluate(()=>document.documentElement.scrollWidth);
+ expect(width).toBeLessThanOrEqual(800);
+});
