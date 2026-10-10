@@ -8,21 +8,30 @@ export const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 
 // SELECT/UPDATE/DELETE/CLAIM queue records; never share these connection strings.
 export const workerPool = new Pool({ connectionString: process.env.WORKER_DATABASE_URL, max: 5, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 });
 export type Client = PoolClient;
-export function withTenant<T>(tenantId: string, fn: (tx: PoolClient) => Promise<T>): Promise<T> {
-  return tenantTransaction(pool,tenantId,fn);
+export function withTenant<T>(tenantId: string, fn: (tx: PoolClient) => Promise<T>, faultTag?: string): Promise<T> {
+  return tenantTransaction(pool,tenantId,fn,faultTag);
+}
+/** GitHub-hosted deterministic child-only kill barrier; it never runs for a production request. */
+export async function phase13TestFaultBarrier(stage:string):Promise<void>{
+ if(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true"||
+  process.env.PHASE13_TEST_FAULT_STAGE!==stage||!process.send)return;
+ await new Promise<void>((resolve,reject)=>process.send?.({phase13Barrier:stage},error=>error?reject(error):resolve()));
+ await new Promise<void>(()=>{/* The parent terminates only this isolated child. */});
 }
 export function withWorkerTenant<T>(tenantId: string,fn:(tx:PoolClient)=>Promise<T>):Promise<T> {
   if (!process.env.WORKER_DATABASE_URL) throw new Error("WORKER_DATABASE_URL_REQUIRED");
   return tenantTransaction(workerPool,tenantId,fn);
 }
-async function tenantTransaction<T>(connection:Pool,tenantId:string,fn:(tx:PoolClient)=>Promise<T>):Promise<T> {
+async function tenantTransaction<T>(connection:Pool,tenantId:string,fn:(tx:PoolClient)=>Promise<T>,faultTag?:string):Promise<T> {
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(tenantId)) throw new Error("INVALID_TENANT_AUTHORITY");
   const tx = await connection.connect();
   try {
     await tx.query("BEGIN");
     await tx.query("SELECT set_config('api.tenant_id', $1, true)", [tenantId]);
     const result = await fn(tx);
+    if(faultTag)await phase13TestFaultBarrier(faultTag+":before-commit");
     await tx.query("COMMIT");
+    if(faultTag)await phase13TestFaultBarrier(faultTag+":after-commit");
     return result;
   } catch (error) {
     await tx.query("ROLLBACK");
