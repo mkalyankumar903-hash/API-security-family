@@ -77,6 +77,17 @@ test("Phase10 independent-session 25-case security acceptance rework: exact #7,#
   const keys=["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"].map(path=>{
    const key=op.find(x=>x.method==="GET"&&x.path===path)?.key;assert.ok(key);return key;
   });
+  const finishPt=async(id:string)=>{
+   const state=await read(id);
+   if(state.status==="PROCESSING"||state.status==="QUEUED"){
+    const cancellation=await req("POST","/v9/pt/orchestrations/"+id+"/cancel",{});
+    assert.equal(cancellation.statusCode,200,cancellation.body);
+   }
+   const after=await read(id);
+   assert.notEqual(after.status,"COMPLETED");
+   assert.equal(after.queue,null,"no aborted PT job can hijack the next deterministic claim");
+   assert.equal(after.reports+after.ptReports,0);
+  };
   const pt=async()=>{
    const scope=await call("POST","/v6/pt/targets/"+tid+"/scopes",{
     specificationId:ptSpec.specificationId,operationKeys:keys,fixtureId:"pt-security-v1",
@@ -160,6 +171,7 @@ test("Phase10 independent-session 25-case security acceptance rework: exact #7,#
    const state=await read(j.id);
    assert.notEqual(state.status,"COMPLETED");assert.equal(state.reports+state.ptReports,0);
    assert.equal((await req("POST","/v6/pt/test-authority/resume",{},undefined,true)).statusCode,200);
+   await finishPt(j.id);
   });
   await t.test("#13 renewal vs deadline transaction, deadline wins",async()=>{
    const j=await pt();
@@ -174,6 +186,7 @@ test("Phase10 independent-session 25-case security acceptance rework: exact #7,#
    assert.equal(await scheduleConservativeRetry(j.claim,{code:"08006"}),"NOT_RETRYABLE");
    const state=await read(j.id);
    assert.equal(state.reports+state.ptReports,0);assert.equal(state.evaluations.length,0);
+   await finishPt(j.id);
   });
   await t.test("#15 retry vs trusted permit revocation, revocation wins",async()=>{
    const j=await pt();
@@ -192,6 +205,7 @@ test("Phase10 independent-session 25-case security acceptance rework: exact #7,#
    assert.equal(state.reports+state.ptReports,0);assert.equal(state.evaluations.length,0);
    const b=await withTenant(TENANT,tx=>tx.query("SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[j.permit]));
    assert.equal(b.rows[0].consumed,0);assert.equal(b.rows[0].reserved,0);
+   await finishPt(j.id);
   });
   await t.test("#16 retry exhaustion vs concurrent terminal commit, terminal wins",async()=>{
    const id=await makeJob();
