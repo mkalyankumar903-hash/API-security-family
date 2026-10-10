@@ -2,9 +2,10 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {randomUUID} from "node:crypto";
-import {migrate,pool,withTenant,withWorkerTenant,closeDatabase} from "../packages/database/src/index.js";
+import {migrate,pool,withTenant,withWorkerTenant,claimJob,closeDatabase} from "../packages/database/src/index.js";
 import {makeApp} from "../packages/service/src/app.js";
 import {processOneJob} from "../packages/worker/src/index.js";
+import {processAutonomousVaptJob} from "../packages/worker/src/autonomous-vapt.js";
 
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const SOURCE=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
@@ -105,6 +106,27 @@ test("Phase11 real PostgreSQL: offline then signed-governed child then atomic un
   assert.equal(offlineReport.json().fullAuthorizedVaptCompleted,false);
   assert.equal((offlineReport.json().pt as {executedEvaluations:number}).executedEvaluations,0);
   assert.equal((offlineReport.json().coverage as {ptNotTested:boolean}).ptNotTested,true);
+  // Phase11-specific real-PostgreSQL crash/takeover qualification at the exact
+  // parent publication boundary. A former worker must never publish.
+  const recovery=await call("POST","/v11/api-vapt/assessments",{
+   mode:"OFFLINE_ONLY",targetId:tid,specificationId:specId},{key:"vapt11-recovery-"+randomUUID()});
+  ok(recovery,201);
+  const recoveryId=recovery.json().id as string;
+  assert.equal(await processOneJob(),true,"recovery offline child is authoritative");
+  const stale=await claimJob();assert.equal(stale?.assessment_id,recoveryId);
+  await withWorkerTenant(A,tx=>tx.query(
+   "UPDATE api_queue.api_assessment_queue SET locked_until=clock_timestamp()-interval '1 second' WHERE assessment_id=$1",[recoveryId]));
+  const replacement=await claimJob();assert.equal(replacement?.assessment_id,recoveryId);
+  assert.notEqual(stale!.claim_token,replacement!.claim_token);
+  await assert.rejects(()=>processAutonomousVaptJob(A,recoveryId,stale!.claim_token),
+   /VAPT11_PARENT_LEASE_LOST/,"stale generation cannot publish immutable report");
+  await processAutonomousVaptJob(A,recoveryId,replacement!.claim_token);
+  const recovered=await call("GET","/v11/api-vapt/assessments/"+recoveryId+"/report");
+  ok(recovered,200);
+  assert.equal((recovered.json() as {status:string}).status,"COMPLETED");
+  assert.equal((await withTenant(A,tx=>tx.query(
+   "SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[recoveryId]))).rows[0].n,1);
+
   const cancel=await call("POST","/v11/api-vapt/assessments",{
    mode:"OFFLINE_ONLY",targetId:tid,specificationId:specId},{key:"vapt11-cancel-"+randomUUID()});ok(cancel,201);
   const cid=cancel.json().id as string;
