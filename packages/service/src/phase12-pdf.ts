@@ -32,6 +32,19 @@ export function buildPhase12PdfHtml(report:Report,custom?:ReportBrand){
   "<p class=\"subtle\">A fix claim is not VERIFIED_FIXED. Source: ",escape(finding.key),"</p></article>"
  ].join("")).join("");
  const limitations=report.limitations.map(x=>"<li>"+escape(x)+"</li>").join("");
+ const impact=new Map<string,number>();
+ for(const finding of report.findings)impact.set(finding.impact,(impact.get(finding.impact)??0)+1);
+ const impactRows=[...impact.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([level,n])=>entry(level,n));
+ const inventoryRows=report.inventory.operations.slice(0,250).map(op=>
+  entry(op.method+" "+op.path,op.key));
+ const componentRows=report.components.map(x=>entry(x.engine+" / "+(x.id??"UNKNOWN"),x.status));
+ const stageRows=report.autonomous.stages.map(x=>entry(x.stageId,x.engine));
+ const evidenceRows=report.findings.slice(0,250).map(f=>entry(f.ruleId+" / "+f.revision,
+  f.evidenceFingerprint+" / "+f.source));
+ const remediationRows=report.findings.slice(0,250).map(f=>entry(f.ruleId+
+  " — "+(f.operationKey||"Operation unspecified"),f.remediation));
+ const truncatedOperations=report.inventory.operations.length>250;
+ const truncatedEvidence=report.findings.length>250;
  return `<!doctype html><html lang="en"><head><meta charset="UTF-8"/>
  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; font-src 'none'; script-src 'none'"/>
  <title>${escape(brand.reportTitle)}</title><style>
@@ -48,42 +61,107 @@ export function buildPhase12PdfHtml(report:Report,custom?:ReportBrand){
  section{break-inside:auto} li{margin:5pt 0;overflow-wrap:anywhere}
  .mandatory{border:2pt solid #44566e;padding:10pt;break-inside:avoid-page}
  </style></head><body>
- <header><p class="subtle">${escape(brand.displayName)} · Presentation version 1 · Branding version ${brand.version}</p>
+ <header><p class="subtle">${escape(brand.displayName)} · Presentation schema version 1 · Branding version ${brand.version}</p>
  <h1>${escape(brand.reportTitle)}</h1>
  <p><b>Assessment:</b> <code>${escape(report.assessmentId)}</code></p>
  <p><b>Immutable source fingerprint:</b> <code>${escape(report.sourceFingerprint)}</code></p>
  <p><b>Source committed (UTC):</b> ${escape(report.sourceCreatedAt)}</p>
  <p class="banner">ISOLATED SYNTHETIC SECURITY EVIDENCE — NOT A LIVE CUSTOMER PENETRATION TEST.</p></header>
- ${table("1. Scope and environment",[
- entry("Target identifier",report.scope.targetId),
- entry("Specification identifier",report.scope.specificationId),
- entry("Specification version",report.scope.specificationVersion),
- entry("Mode",report.mode),
- entry("Engine",report.scope.engineVersion),
- entry("Imported specification fingerprint",report.scope.specimenFingerprint)])}
- ${table("2. Executive overview",[
- entry("Observed evidence-backed findings",report.summary.findingCount),
- entry("Production runtime confirmed vulnerabilities",0),
- entry("Offline only",report.summary.offlineOnly?"YES":"NO"),
- entry("Governed synthetic assessment completed",report.summary.fullAuthorizedSyntheticAssessment?"YES":"NO"),
- entry("Customer runtime verified","NO"),
- entry("Verified fixed","NO")])}
- <section><h2>3. Methodology and classification</h2>
- <p>Imported specification analysis is document-only. Governed PT uses isolated synthetic fixtures, and its observations cannot establish customer production vulnerabilities.</p>
- <p>No customer network requests are authorized by this report. Execution of a worker is not vulnerability verification.</p></section>
- ${table("4. Actual coverage and unknowns",[
- entry("Imported operations",report.coverage.importedOperations),
- entry("Offline operations analyzed",report.coverage.offlineOperations),
- entry("Selected synthetic PT rules",report.coverage.ptRulesSelected),
- entry("Executed synthetic PT rules",report.coverage.ptRulesExecuted),
- entry("Planned synthetic evaluations",report.coverage.ptEvaluationsPlanned),
- entry("Executed synthetic evaluations",report.coverage.ptEvaluationsExecuted),
- entry("Runtime assessments not performed",report.coverage.notTested?"YES":"NO")])}
- <section><h2>5. Evidence-backed findings and remediation</h2>
- ${findings||"<p>No findings were observed in this report. This does NOT imply the API is secure.</p>"}
+ ${table("1. Report identity and cover",[
+  entry("Presentation contract",report.schemaVersion),
+  entry("Source assessment",report.assessmentId),
+  entry("Source fingerprint",report.sourceFingerprint)])}
+ ${table("2. Scope and environment",[
+  entry("Target identifier",report.scope.targetId),
+  entry("Specification identifier",report.scope.specificationId),
+  entry("Assessment mode",report.mode),
+  entry("Execution engine",report.scope.engineVersion),
+  entry("Customer runtime verified","NO")])}
+ <section><h2>3. Assessment methodology</h2>
+  <p>SPEC_ONLY is static specification observation, not customer network execution.
+  GOVERNED_SYNTHETIC is isolated, signed-permit-controlled fixture execution, not a production pentest.
+  Evidence is drawn from the committed Phase11 parent report.</p></section>
+ ${table("4. Target and specification summary",[
+  entry("Specification version",report.scope.specificationVersion),
+  entry("Specification fingerprint",report.scope.specimenFingerprint),
+  entry("Inventory fingerprint",report.scope.inventoryFingerprint),
+  entry("Imported operations",report.coverage.importedOperations),
+  entry("Offline analysis engine",report.scope.offlineEngine)])}
+ ${table("5. Executive overview",[
+  entry("Observed findings",report.summary.findingCount),
+  entry("Real customer vulnerabilities confirmed",0),
+  entry("Offline only",report.summary.offlineOnly?"YES":"NO"),
+  entry("Full governed synthetic assessment completed",report.summary.fullAuthorizedSyntheticAssessment?"YES":"NO"),
+  entry("Verified fixed","NO")])}
+ ${table("6. Evidence classification",[
+  entry("Offline observation",report.evidenceClassification.offline),
+  entry("Fixture observation",report.evidenceClassification.runtime),
+  entry("Customer runtime",report.evidenceClassification.realCustomerRuntime),
+  entry("Canonical retest authority",report.evidenceClassification.fixedVerification)])}
+ ${table("7. Actual finding impact categories",impactRows.length?impactRows:[
+  entry("Observed findings","NONE — absence of findings is not proof of safety")])}
+ <section><h2>8. Detailed evidence-backed findings</h2>
+  ${findings||"<p>No findings were observed in this report. This does NOT imply the API is secure.</p>"}
  </section>
- <section><h2>6. Limitations and unsupported evidence</h2><ul>${limitations}</ul></section>
- <section class="mandatory"><h2>Mandatory synthetic security disclaimer</h2>
+ ${table("9. Evidence-linked remediation recommendations",remediationRows.length?remediationRows:[
+  entry("Current evidence","No observed finding to remediate. Review gaps and untested behavior")])}
+ ${table("10. API inventory and operation coverage",[
+  entry("Imported operations",report.coverage.importedOperations),
+  entry("Offline operations analyzed",report.coverage.offlineOperations),
+  entry("Supported synthetic fixture operations",report.inventory.supportedSyntheticOperations),
+  entry("Synthetic PT evaluations",String(report.coverage.ptEvaluationsExecuted)+"/"+String(report.coverage.ptEvaluationsPlanned)),
+  ...inventoryRows,
+  ...(truncatedOperations?[entry("Display truncation","Only first 250 imported operations shown; source JSON export retains complete bounded projection")]:[])
+ ])}
+ ${table("11. Offline specification analysis",[
+  entry("Offline engine",report.scope.offlineEngine),
+  entry("Operations analyzed",report.offline.operationsAnalyzed),
+  entry("Observation limitations",report.offline.warning)])}
+ ${table("12. Governed synthetic PT result",[
+  entry("Scope fixture identifier",report.scope.fixtureId||"NONE — offline only"),
+  entry("Fixture version",report.scope.fixtureVersion??"NOT TESTED"),
+  entry("Fixture profile",report.scope.fixtureProfile||"NOT TESTED"),
+  entry("Selected rules",report.coverage.ptRulesSelected),
+  entry("Executed rules",report.coverage.ptRulesExecuted),
+  entry("Planned evaluations",report.syntheticPt.plannedEvaluations),
+  entry("Executed evaluations",report.syntheticPt.executedEvaluations),
+  entry("Secure-negative fixture checks",report.syntheticPt.secureNegativeChecks),
+  entry("Synthetic observations",report.syntheticPt.syntheticObservations)])}
+ ${table("13. Autonomous orchestration stage coverage",[
+  entry("Required stages",report.autonomous.requiredStages),
+  entry("Completed stages",report.autonomous.completedStages),
+  entry("Unknown or unstarted outcomes",report.autonomous.unstartedOrUnknown?"YES":"NO"),
+  ...stageRows,...componentRows])}
+ ${table("14. Isolated synthetic authorization and governor",[
+  entry("Scope revision",report.scope.scopeRevision),
+  entry("Plan fingerprint",report.scope.planFingerprint),
+  entry("Synthetic policy",report.scope.ptPolicy||"NO LIVE PT POLICY"),
+  entry("Redacted signed permit fingerprint",report.scope.permitFingerprint||"NOT APPLICABLE"),
+  entry("Customer network requests",report.customerNetworkRequests),
+  entry("External Host approval","NOT INTEGRATED")])}
+ ${table("15. Unknown and unsupported behavior",[
+  entry("Real customer runtime assessment","NOT EXECUTED"),
+  entry("Offline-only runtime unknown",report.coverage.notTested?"YES":"NO"),
+  entry("Assessment with no runtime evidence","UNKNOWN, never SAFE")])}
+ <section><h2>16. Assessment limitations and caveats</h2><ul>${limitations}</ul></section>
+ ${table("17. Historical comparison and compatibility",[
+  entry("Lineage predecessor",report.lineageParentId??"NONE"),
+  entry("Historical difference","NOT COMPUTED IN INDIVIDUAL REPORT"),
+  entry("Compatibility requirement","Use authorized paired report comparison before interpreting trends"),
+  entry("No longer observed","NEVER VERIFIED_FIXED")])}
+ ${table("18. Appendix of redacted evidence references",[
+  ...evidenceRows,
+  ...(truncatedEvidence?[entry("Display truncation","Only first 250 evidence references shown; use authorized JSON projection for additional records")]:[]),
+  ...(evidenceRows.length===0?[entry("Observed evidence","NONE")]:[])
+ ])}
+ ${table("19. Presentation generation and provenance metadata",[
+  entry("Source committed at UTC",report.sourceCreatedAt),
+  entry("Immutable source fingerprint",report.sourceFingerprint),
+  entry("Presentation schema",report.schemaVersion),
+  entry("Branding version",brand.version),
+  entry("Customer runtime verified",report.customerRuntimeVerified?"YES":"NO"),
+  entry("Security verdict mutation","NONE — generation is presentation only")])}
+ <section class="mandatory"><h2>20. Mandatory synthetic security disclaimer</h2>
  <p>${escape(report.disclaimer)}</p>
  <p>NO EVIDENCE != SAFE; UNKNOWN != SAFE; NO LONGER OBSERVED != VERIFIED_FIXED.</p>
  <p>PDF GENERATION != NEW ASSESSMENT. Only the future authorized Host RetestVerificationAuthority can establish VERIFIED_FIXED.</p>
