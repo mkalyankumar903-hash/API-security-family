@@ -4,7 +4,7 @@ import {randomUUID} from "node:crypto";
 import {withTenant} from "../../database/src/index.js";
 import type {PoolClient} from "pg";
 import {PtError} from "./pt.js";
-import {verifySyntheticEvent,verifySyntheticExternalSnapshot,fingerprint,unit,features} from "../../contracts/src/commercial-v13.js";
+import {verifySyntheticEvent,verifySyntheticExternalSnapshot,verifySyntheticCorrection,fingerprint,unit,features} from "../../contracts/src/commercial-v13.js";
 const fail=(code:string,status=409):never=>{throw new PtError(status,code);};
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const id=(v:unknown)=>typeof v==="string"&&UUID.test(v)?v:fail("INVALID_ID",400);
@@ -24,8 +24,9 @@ async function latest(tx:PoolClient){
 }
 async function totals(tx:PoolClient,m:string){
  const used=await tx.query("SELECT coalesce(sum(units),0)::int AS n FROM public.api_v13_usage_ledger WHERE month_start=$1",[m]);
+ const adjustments=await tx.query("SELECT coalesce(sum(unit_delta),0)::int AS n FROM public.api_v13_usage_corrections WHERE source_usage_id IN (SELECT id FROM public.api_v13_usage_ledger WHERE month_start=$1)",[m]);
  const reserved=await tx.query("SELECT coalesce(sum(units),0)::int AS n FROM public.api_v13_reservations WHERE month_start=$1 AND state='RESERVED' AND expires_at>clock_timestamp()",[m]);
- return {consumed:Number(used.rows[0].n),reserved:Number(reserved.rows[0].n)};
+ return {consumed:Number(used.rows[0].n)+Number(adjustments.rows[0].n),reserved:Number(reserved.rows[0].n)};
 }
 export async function projection(tenantId:string){
  return withTenant(tenantId,async tx=>{
@@ -138,6 +139,28 @@ export async function reconcilePending(t:string){
   return {id:rid,state:"PENDING_EXTERNAL_AUTHORITY"};
  });
 }
+/** Dedicated CI-only signed corrections; never permit arbitrary client counters or destructive edits. */
+export async function ingestSyntheticUsageCorrection(raw:Uint8Array,signature:string,key:Uint8Array){
+ const e=verifySyntheticCorrection(raw,signature,key),digest=fingerprint(raw);
+ return withTenant(e.tenantId,async tx=>{
+  await lock(tx,e.tenantId,"IMMUTABLE_REPORT_OBSERVED");
+  const old=await tx.query("SELECT id,payload_fingerprint FROM public.api_v13_usage_corrections WHERE correction_id=$1",[e.correctionId]);
+  if(old.rowCount){
+   if(old.rows[0].payload_fingerprint!==digest)fail("CORRECTION_ID_REUSE_CONFLICT");
+   return {id:old.rows[0].id,replay:true};
+  }
+  const source=await tx.query("SELECT id,units FROM public.api_v13_usage_ledger WHERE id=$1",[e.usageId]);
+  if(!source.rowCount)fail("USAGE_SOURCE_NOT_FOUND",404);
+  const adjusted=await tx.query("SELECT coalesce(sum(unit_delta),0)::int AS n FROM public.api_v13_usage_corrections WHERE source_usage_id=$1",[e.usageId]);
+  const original=Number(source.rows[0].units),effective=original+Number(adjusted.rows[0].n)+e.unitDelta;
+  if(effective<0||effective>original)fail("INVALID_USAGE_CORRECTION",409);
+  const correctionId=randomUUID();
+  await tx.query("INSERT INTO public.api_v13_usage_corrections(id,tenant_id,correction_id,source_usage_id,unit_delta,reason,payload_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7)",
+   [correctionId,e.tenantId,e.correctionId,e.usageId,e.unitDelta,e.reason,digest]);
+  return {id:correctionId,replay:false,syntheticOnly:true,effectiveUnits:effective};
+ });
+}
+
 /** Independently signed CI external fixture; real Host accounting remains unconfigured. */
 export async function reconcileSyntheticExternalSnapshot(t:string,raw:Uint8Array,signature:string,key:Uint8Array){
  id(t);
@@ -158,7 +181,9 @@ export async function reconcileSyntheticExternalSnapshot(t:string,raw:Uint8Array
   }else if(s.revision!==1)fail("SNAPSHOT_REVISION_CONFLICT");
   const local=await tx.query("SELECT coalesce(sum(units),0)::int AS n FROM public.api_v13_usage_ledger WHERE feature=$1 AND month_start=$2 AND created_at<=$3",
    [s.feature,s.monthStart,s.watermarkAt]);
-  const observed=Number(local.rows[0].n);
+  const corrected=await tx.query("SELECT coalesce(sum(c.unit_delta),0)::int AS n FROM public.api_v13_usage_corrections c JOIN public.api_v13_usage_ledger l ON l.tenant_id=c.tenant_id AND l.id=c.source_usage_id WHERE l.feature=$1 AND l.month_start=$2 AND l.created_at<=$3 AND c.created_at<=$3",
+   [s.feature,s.monthStart,s.watermarkAt]);
+  const observed=Number(local.rows[0].n)+Number(corrected.rows[0].n);
   const state=observed===s.observedUnits?"MATCHED":"MISMATCH";
   const id=randomUUID();
   await tx.query("INSERT INTO public.api_v13_reconciliation(id,tenant_id,feature,month_start,external_revision,local_units,external_units,external_fingerprint,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
@@ -177,6 +202,10 @@ export function registerPhase13Routes(app:FastifyInstance,identity:(req:FastifyR
  app.get("/v13/usage/events",async req=>{
   const t=identity(req),p=page(req);
   return withTenant(t,async tx=>(await tx.query("SELECT id,feature,source_report_id AS \"sourceReportId\",units,source_fingerprint AS \"sourceFingerprint\",created_at AS \"createdAt\" FROM public.api_v13_usage_ledger ORDER BY created_at DESC,id DESC LIMIT $1 OFFSET $2",[p.n,p.o])).rows);
+ });
+ app.get("/v13/usage/corrections",async req=>{
+  const t=identity(req),p=page(req);
+  return withTenant(t,async tx=>(await tx.query("SELECT id,source_usage_id AS \"sourceUsageId\",unit_delta AS \"unitDelta\",reason,created_at AS \"createdAt\" FROM public.api_v13_usage_corrections ORDER BY created_at DESC,id DESC LIMIT $1 OFFSET $2",[p.n,p.o])).rows);
  });
  app.get("/v13/reservations",async req=>{
   const t=identity(req),p=page(req);

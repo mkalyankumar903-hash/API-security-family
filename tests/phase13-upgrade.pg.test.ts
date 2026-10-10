@@ -102,7 +102,7 @@ test("Phase13 populated 016→017 preserves original immutable reports, VAPT lin
   const metadata=await database.query("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname LIKE 'api_v12_%' AND relkind='r'");
   assert.equal(metadata.rowCount,4);assert(metadata.rows.every(x=>x.relrowsecurity&&x.relforcerowsecurity));
   const v13=await database.query("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname LIKE 'api_v13_%' AND relkind='r'");
-  assert.equal(v13.rowCount,6);assert(v13.rows.every(x=>x.relrowsecurity&&x.relforcerowsecurity));
+  assert.equal(v13.rowCount,7);assert(v13.rows.every(x=>x.relrowsecurity&&x.relforcerowsecurity));
   const empty=await database.query("SELECT count(*)::int AS n FROM public.api_v12_annotations");
   assert.equal(empty.rows[0].n,0);
  }finally{

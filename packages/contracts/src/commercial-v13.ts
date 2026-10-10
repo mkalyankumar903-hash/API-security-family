@@ -101,3 +101,39 @@ export function verifySyntheticExternalSnapshot(raw:Uint8Array,signature:string,
   throw new CommercialContractError("INVALID_SNAPSHOT_REVISION");
  return e as unknown as SyntheticExternalSnapshot;
 }
+
+// A strictly separated accounting correction, never an invoice, payment or finding authority.
+export type SyntheticCorrectionEvent={schemaVersion:typeof V13;correctionId:string;tenantId:string;
+ issuer:"lumicsec-ci-correction-v13";audience:"api-family-correction-v13-test";
+ usageId:string;unitDelta:number;reason:"SOURCE_INVALIDATED"|"MEASUREMENT_CORRECTION";
+ issuedAt:string;expiresAt:string};
+const correctionFields=["schemaVersion","correctionId","tenantId","issuer","audience",
+ "usageId","unitDelta","reason","issuedAt","expiresAt"];
+export function verifySyntheticCorrection(raw:Uint8Array,signature:string,key:Uint8Array,now=Date.now()):SyntheticCorrectionEvent{
+ if(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true")
+  throw new CommercialContractError("HOST_AUTHORITY_NOT_CONFIGURED");
+ if(raw.byteLength>4096||key.byteLength<32||!/^([a-f0-9]{64})$/.test(signature))
+  throw new CommercialContractError("INVALID_CORRECTION_SIGNATURE");
+ const digest=createHmac("sha256",key).update(raw).digest();
+ if(!timingSafeEqual(digest,Buffer.from(signature,"hex")))
+  throw new CommercialContractError("INVALID_CORRECTION_SIGNATURE");
+ let parsed:unknown;
+ try{parsed=JSON.parse(Buffer.from(raw).toString("utf8")) as unknown;}catch{throw new CommercialContractError("INVALID_CORRECTION");}
+ if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw new CommercialContractError("INVALID_CORRECTION");
+ const e=parsed as Record<string,unknown>;
+ if(Object.keys(e).length!==correctionFields.length||Object.keys(e).some(k=>!correctionFields.includes(k))||
+  e.schemaVersion!==V13||e.issuer!=="lumicsec-ci-correction-v13"||e.audience!=="api-family-correction-v13-test")
+  throw new CommercialContractError("UNSUPPORTED_CONTRACT");
+ if(typeof e.correctionId!=="string"||!UUID.test(e.correctionId)||typeof e.tenantId!=="string"||
+  !UUID.test(e.tenantId)||typeof e.usageId!=="string"||!UUID.test(e.usageId))
+  throw new CommercialContractError("INVALID_BINDING");
+ if(!["SOURCE_INVALIDATED","MEASUREMENT_CORRECTION"].includes(String(e.reason)))
+  throw new CommercialContractError("INVALID_CORRECTION_REASON");
+ if(typeof e.unitDelta!=="number"||!Number.isSafeInteger(e.unitDelta)||
+  e.unitDelta===0||Math.abs(e.unitDelta)>1000000)throw new CommercialContractError("INVALID_QUANTITY");
+ if(typeof e.issuedAt!=="string"||typeof e.expiresAt!=="string")throw new CommercialContractError("INVALID_CORRECTION_TIME");
+ const issued=Date.parse(e.issuedAt),expires=Date.parse(e.expiresAt);
+ if(!Number.isFinite(issued)||!Number.isFinite(expires)||issued-now>30000||
+  now-issued>300000||expires<=now||expires<=issued)throw new CommercialContractError("INVALID_CORRECTION_TIME");
+ return e as unknown as SyntheticCorrectionEvent;
+}
