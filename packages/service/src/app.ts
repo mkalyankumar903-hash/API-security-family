@@ -13,6 +13,7 @@ import {registerPtRoutes,PtError} from "./pt.js";
 import {registerPtProductRoutes} from "./pt-product.js";
 import {registerOrchestratorRoutes} from "./orchestrator.js";
 import {registerWorkerSafetyRoutes} from "./worker-safety.js";
+import {registerAutonomousVaptRoutes} from "./autonomous-vapt.js";
 
 class ApiError extends Error { constructor(public statusCode: number, public code: string) { super(code); } }
 const sessions = new WeakMap<FastifyRequest,string>();
@@ -188,5 +189,6 @@ export async function makeApp(): Promise<FastifyInstance> {
   registerPtProductRoutes(app,tenant);
   registerOrchestratorRoutes(app,tenant);
   registerWorkerSafetyRoutes(app,tenant);
+  registerAutonomousVaptRoutes(app,tenant);
   return app;
 }

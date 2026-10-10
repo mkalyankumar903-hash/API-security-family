@@ -7,6 +7,7 @@ import {processAuthFixtureJob} from "./auth.js";
 import {processPtJob} from "./pt.js";
 import {processPtDetectionJob} from "./pt-detection.js";
 import {processPtOrchestrationJob} from "./pt-orchestrator.js";
+import {processAutonomousVaptJob} from "./autonomous-vapt.js";
 import {scheduleConservativeRetry} from "./safety-retry.js";
 import type {Inventory} from "../../discovery/src/index.js";
 import { claimJob,renewWorkerClaim,finishWorkerAttempt,releaseUnstartedWorkerClaim, uuid, withWorkerTenant } from "../../database/src/index.js";
@@ -53,8 +54,12 @@ export async function processOneJob(options:{signal?:AbortSignal}={}): Promise<b
       return true;
     }
     if(!["legacy-v1","inventory-v1","inventory-v2","auth-fixture-v1",
-      "pt-fixture-v1","pt-detection-v1","pt-orchestrator-v1"].includes(job.engine_version)){
+      "pt-fixture-v1","pt-detection-v1","pt-orchestrator-v1","autonomous-api-vapt-v1"].includes(job.engine_version)){
       throw new Error("UNSUPPORTED_WORKER_ENGINE");
+    }
+    if(job.engine_version==="autonomous-api-vapt-v1"){
+      await processAutonomousVaptJob(tenant,jobId,token);
+      return true;
     }
     if(job.engine_version==="pt-orchestrator-v1"){
       await processPtOrchestrationJob(tenant,jobId,token);

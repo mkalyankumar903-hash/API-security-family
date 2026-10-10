@@ -35,7 +35,7 @@ type Scope={
 type Permit={id:string;claims:PtClaims;token_hash:string;signed_body:string;revoked_at:string|null;
  expires_at:string;consumed:number;reserved:number;rate_used:number;rate_start:string};
 type Current={lifecycle:string;environment:string;verification_version:number;scope_revision:number};
-async function context(tx:PoolClient,sid:string,lock=false){
+export async function context(tx:PoolClient,sid:string,lock=false){
  const scope=await tx.query("SELECT * FROM api_pt_scopes WHERE id=$1",[sid]);
  if(!scope.rowCount)throw new PtError(404,"SCOPE_NOT_FOUND");
  const s=scope.rows[0] as Scope;
@@ -57,11 +57,11 @@ function binding(tenant:string,s:Scope,p?:Permit):Binding{
   maxEvaluations:s.max_evaluations,ratePerMinute:s.rate_per_minute,
   maxConcurrency:s.max_concurrency,deadlineMs:s.deadline_ms};
 }
-function makePlan(policyId:string,profile:string,tenant:string,s:Scope,p:Permit|undefined,ops:Operation[]){
+export function makePlan(policyId:string,profile:string,tenant:string,s:Scope,p:Permit|undefined,ops:Operation[]){
  try{return buildOrchestrationPlan(policyId,profile,binding(tenant,s,p),ops);}
  catch(e){if(e instanceof OrchestratorPlanError)throw new PtError(409,e.code);throw e;}
 }
-function checkPermit(tenant:string,s:Scope,current:Current,p?:Permit):string|null{
+export function checkPermit(tenant:string,s:Scope,current:Current,p?:Permit):string|null{
  if(current.lifecycle!=="ACTIVE"||current.environment!=="SYNTHETIC")return "TARGET_NOT_SYNTHETIC_ACTIVE";
  if(current.verification_version!==s.target_verification_version||
   current.scope_revision!==s.target_scope_revision)return "TARGET_SCOPE_CHANGED";
@@ -82,7 +82,7 @@ function checkPermit(tenant:string,s:Scope,current:Current,p?:Permit):string|nul
   return null;
  }catch{return "PERMIT_INTEGRITY_INVALID";}
 }
-async function stopped(tx:PoolClient,tenant:string,lock=false):Promise<boolean>{
+export async function stopped(tx:PoolClient,tenant:string,lock=false):Promise<boolean>{
  await tx.query("INSERT INTO api_pt_stop(tenant_id) VALUES($1) ON CONFLICT DO NOTHING",[tenant]);
  const r=await tx.query("SELECT enabled FROM api_pt_stop WHERE tenant_id=$1"+(lock?" FOR UPDATE":""),[tenant]);
  return r.rows[0]?.enabled===true;
