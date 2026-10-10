@@ -14,7 +14,7 @@ const files=[
  "014_phase10_worker_execution_safety.sql","015_phase11_complete_autonomous_api_vapt.sql",
  "016_phase12_unified_experience_reports.sql"];
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
-test("Phase13 populated 016→017 preserves original immutable reports, VAPT links, targets and private queue",async()=>{
+test("Phase13 populated 016→018 preserves original immutable reports, VAPT links, targets and private queue",async()=>{
  const root=process.env.MIGRATION_DATABASE_URL;
  if(!root)throw new Error("MIGRATION_DATABASE_URL_REQUIRED");
  const admin=new Pool({connectionString:root,max:1});
@@ -92,17 +92,24 @@ test("Phase13 populated 016→017 preserves original immutable reports, VAPT lin
    await database.query("COMMIT");
   }catch(e){await database.query("ROLLBACK");throw e;}
   assert.equal((await database.query("SELECT count(*)::int AS n FROM public.api_v12_report_audit")).rows[0].n,phase12ReportCount);
+  // Upgrade a populated 017 database by additive 018 without rewriting historical rows.
+  await database.query("BEGIN");
+  try{
+   await database.query(readFileSync(new URL("../packages/database/migrations/018_phase13_multi_meter_recovery.sql",import.meta.url),"utf8"));
+   await database.query("INSERT INTO public.api_schema_migrations(version) VALUES('018')");
+   await database.query("COMMIT");
+  }catch(e){await database.query("ROLLBACK");throw e;}
   const after=await snapshot();
   assert.deepEqual(after,before,"Migration 016 altered original historical reports or queue");
   const versions=await database.query("SELECT version FROM public.api_schema_migrations ORDER BY version");
-  assert.equal(versions.rowCount,17);
+  assert.equal(versions.rowCount,18);
   const report=await database.query("SELECT fingerprint,projection FROM public.api_vapt11_reports WHERE parent_assessment_id=$1",[parent]);
   assert.equal(report.rows[0].fingerprint,digest(parentProjection));
   assert.deepEqual(report.rows[0].projection,parentProjection);
   const metadata=await database.query("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname LIKE 'api_v12_%' AND relkind='r'");
   assert.equal(metadata.rowCount,4);assert(metadata.rows.every(x=>x.relrowsecurity&&x.relforcerowsecurity));
   const v13=await database.query("SELECT relname,relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname LIKE 'api_v13_%' AND relkind='r'");
-  assert.equal(v13.rowCount,7);assert(v13.rows.every(x=>x.relrowsecurity&&x.relforcerowsecurity));
+  assert.equal(v13.rowCount,11);assert(v13.rows.every(x=>x.relrowsecurity&&x.relforcerowsecurity));
   const empty=await database.query("SELECT count(*)::int AS n FROM public.api_v12_annotations");
   assert.equal(empty.rows[0].n,0);
  }finally{
