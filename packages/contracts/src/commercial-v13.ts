@@ -1,19 +1,19 @@
 /** Isolated v13 contracts. Nothing here mints a production Host identity. */
 import {createHash,createHmac,timingSafeEqual} from "node:crypto";
 export const V13="api-family-commercial-v13" as const;
-export const features=["IMMUTABLE_REPORT_OBSERVED"] as const;
+export const features=["IMMUTABLE_REPORT_OBSERVED","OFFLINE_API_ASSESSMENT_COMPLETED","GOVERNED_API_PT_COMPLETED"] as const;
 export type Feature=typeof features[number];
 /** Versioned capability definitions are not interchangeable with enabled meters or entitlements. */
 export const commercialFeatureCatalog=[
  {feature:"IMMUTABLE_REPORT_OBSERVED",version:1,state:"NON_BILLABLE_OBSERVATION",
   evidence:"PERSISTED_IMMUTABLE_PHASE11_REPORT",outcome:"SUCCESSFUL_PARENT_REPORT_ONLY",
   charges:false,canAuthorizeScanning:false},
- {feature:"OFFLINE_API_ASSESSMENT_COMPLETED",version:1,state:"DISABLED_NO_METER",
-  evidence:"IMMUTABLE_OFFLINE_ASSESSMENT_SOURCE_REQUIRED",outcome:"SUCCESS_ONLY_NOT_INSTRUMENTED",
+ {feature:"OFFLINE_API_ASSESSMENT_COMPLETED",version:1,state:"NON_BILLABLE_OBSERVATION",
+  evidence:"PERSISTED_SUCCESSFUL_OFFLINE_CHILD_REPORT",outcome:"SUCCESSFUL_PERSISTED_OFFLINE_CHILD",
   charges:false,canAuthorizeScanning:false},
- {feature:"GOVERNED_API_PT_COMPLETED",version:1,state:"DISABLED_HOST_AUTHORITY",
-  evidence:"SIGNED_SCOPED_PERMIT_AND_IMMUTABLE_TERMINAL_SOURCE_REQUIRED",
-  outcome:"SUCCESS_ONLY_NOT_INSTRUMENTED",charges:false,canAuthorizeScanning:false}
+ {feature:"GOVERNED_API_PT_COMPLETED",version:1,state:"NON_BILLABLE_OBSERVATION",
+  evidence:"SIGNED_SYNTHETIC_PERMIT_AND_SUCCESSFUL_PT9_TERMINAL",
+  outcome:"SUCCESSFUL_AUTHORIZED_SYNTHETIC_CHILD",charges:false,canAuthorizeScanning:false}
 ] as const;
 export function classifyCatalogFeature(feature:unknown,version:unknown){
  const hit=commercialFeatureCatalog.find(x=>x.feature===feature&&x.version===version);
@@ -50,7 +50,7 @@ export function validateEvent(value:unknown,now=Date.now()):CommercialEvent{
  const issued=Date.parse(e.issuedAt),expires=Date.parse(e.expiresAt);
  if(!Number.isFinite(issued)||!Number.isFinite(expires)||expires<=issued||now-issued>300000||issued-now>30000||expires<=now)
   throw new CommercialContractError("EVENT_EXPIRED_OR_SKEWED");
- if(e.feature!=="IMMUTABLE_REPORT_OBSERVED"||!["ISSUED","REVOKED"].includes(String(e.status))||
+ if(!features.includes(e.feature as Feature)||!["ISSUED","REVOKED"].includes(String(e.status))||
   typeof e.revision!=="number"||!Number.isSafeInteger(e.revision)||e.revision<1||e.revision>1000000)
   throw new CommercialContractError("INVALID_ENTITLEMENT_EVENT");
  unit(e.limit);
@@ -101,7 +101,7 @@ export function verifySyntheticExternalSnapshot(raw:Uint8Array,signature:string,
  const e=parsed as Record<string,unknown>;
  if(Object.keys(e).length!==externalFields.length||Object.keys(e).some(k=>!externalFields.includes(k))||
   e.schemaVersion!==V13||e.issuer!=="lumicsec-ci-external-accounting-v13"||
-  e.audience!=="api-family-reconcile-v13-test"||e.feature!==features[0]||e.meterVersion!==1)
+  e.audience!=="api-family-reconcile-v13-test"||!features.includes(e.feature as Feature)||e.meterVersion!==1)
   throw new CommercialContractError("UNSUPPORTED_CONTRACT");
  if(typeof e.snapshotId!=="string"||!UUID.test(e.snapshotId)||typeof e.tenantId!=="string"||!UUID.test(e.tenantId))
   throw new CommercialContractError("INVALID_BINDING");
