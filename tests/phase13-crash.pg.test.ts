@@ -13,7 +13,7 @@ import {V13} from "../packages/contracts/src/commercial-v13.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
 type ChildResult={barrier?:string;value?:Record<string,unknown>;error?:string;code:number|null;signal:string|null};
-async function child(kind:string,source:string,key:string,barrier=""):Promise<ChildResult>{
+async function child(kind:string,source:string,key="",barrier=""):Promise<ChildResult>{
  const file=fileURLToPath(new URL("./helpers/phase13-crash-child.ts",import.meta.url));
  return new Promise((resolve,reject)=>{
   const proc=fork(file,[kind,A,source,key],{
