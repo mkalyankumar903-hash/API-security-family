@@ -266,6 +266,52 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
     expiresAt:new Date(now.getTime()+100000).toISOString()}));
    assert.equal((await reconcileSyntheticExternalSnapshot(A,snap,createHmac("sha256",snapKey).update(snap).digest("hex"),snapKey)).state,"MATCHED");
   });
+  await t.test("018 governed synthetic PT source requires real signed permit and successful persisted terminal",async()=>{
+   const feature="GOVERNED_API_PT_COMPLETED",eid=randomUUID();
+   const raw=Buffer.from(JSON.stringify({schemaVersion:V13,eventId:randomUUID(),tenantId:A,
+    issuer:"lumicsec-ci-synthetic-v13",audience:"api-family-v13-test",
+    issuedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+240000).toISOString(),
+    entitlementId:eid,revision:1,feature,limit:1,status:"ISSUED"}));
+   await ingestSyntheticEntitlement(raw,createHmac("sha256",key).update(raw).digest("hex"),key);
+   await assert.rejects(()=>reserveFeatureObservation(A,r1,"phase13-governed-no-evidence-"+randomUUID(),feature),
+    /SIGNED_GOVERNED_PT_EVIDENCE_MISSING/);
+   const rawOps=await call("GET","/v2/specifications/"+specId+"/operations?limit=100");
+   assert.equal(rawOps.statusCode,200,rawOps.body);
+   const operations=rawOps.json() as {key:string;method:string;path:string}[];
+   const operationKeys=["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"].map(path=>
+    operations.find(x=>x.path===path&&x.method==="GET")?.key);
+   assert(operationKeys.every(Boolean));
+   const scope=await ok("POST","/v6/pt/targets/"+targetId+"/scopes",{
+    specificationId:specId,operationKeys,fixtureId:"pt-security-v1",exclusions:[],
+    maxEvaluations:14,ratePerMinute:14,maxConcurrency:1,deadlineMs:30000,validityMinutes:15
+   },"phase13-governed-scope-"+randomUUID());
+   const scopeId=scope.id as string;
+   const authorized=await call("POST","/v6/pt/scopes/"+scopeId+"/request-authorization",{});
+   assert.equal(authorized.statusCode,201,authorized.body);
+   const issue=await app.inject({method:"POST",url:"/v6/pt/test-authority/scopes/"+scopeId+"/issue",payload:{},
+    headers:{authorization:"Bearer local-test-token-alpha","x-pt-authority-key":process.env.PT_TEST_AUTHORITY_KEY??""}});
+   assert.equal(issue.statusCode,201,issue.body);
+   const admitted=await ok("POST","/v11/api-vapt/assessments",{
+    mode:"GOVERNED_SYNTHETIC",scopeId,policyId:"SYNTHETIC_PT_COMPLETE_SUPPORTED",profile:"SECURE_BASELINE"
+   },"phase13-governed-"+randomUUID());
+   const governedId=admitted.id as string;
+   for(let i=0;i<3;i++)assert.equal(await processOneJob(),true,"all governed parent/child workers run");
+   const report=await call("GET","/v11/api-vapt/assessments/"+governedId+"/report");
+   assert.equal(report.statusCode,200,report.body);
+   assert.equal(report.json().status,"COMPLETED");
+   const reserved=await reserveFeatureObservation(A,governedId,"phase13-governed-account-"+randomUUID(),feature);
+   assert.equal((await settleFeatureObservation(A,reserved.id)).state,"SETTLED");
+   assert.equal((await settleFeatureObservation(A,reserved.id)).replay,true);
+   assert.equal((await projection(A,feature)).consumed,1);
+   assert.equal((await projection(A,"OFFLINE_API_ASSESSMENT_COMPLETED")).consumed,2);
+   const evidence=await withTenant(A,tx=>tx.query("SELECT * FROM public.api_v13_feature_sources WHERE feature=$1",[feature]));
+   assert.equal(evidence.rowCount,1);
+   assert.equal(evidence.rows[0].source_type,"SIGNED_GOVERNED_SYNTHETIC_PT");
+   assert.match(String(evidence.rows[0].historical_permit_hash),/^[a-f0-9]{64}$/);
+   const attempted=await reserveFeatureObservation(A,governedId,"phase13-governed-double-"+randomUUID(),feature).then(()=>false).catch(()=>true);
+   assert.equal(attempted,true,"same committed PT terminal never counted twice");
+   assert.equal((await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_usage_ledger WHERE feature=$1",[feature]))).rows[0].n,0);
+  });
   await t.test("018 synthetic QA-only retry, sink idempotency, lease fencing and dead letter; real outbox stays disabled",async()=>{
    const out=await withTenant(A,tx=>tx.query("SELECT o.id,o.delivery_state,o.attempt_count FROM public.api_v13_outbox o JOIN public.api_v13_usage_ledger l ON l.id=o.source_usage_id WHERE l.feature='OFFLINE_API_ASSESSMENT_COMPLETED' ORDER BY o.created_at,o.id"));
    assert.equal(out.rowCount,2);
