@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {performance} from "node:perf_hooks";
 import {makeApp} from "../packages/service/src/app.js";
-import {migrate,withTenant,withWorkerTenant,workerPool,pool,closeDatabase} from "../packages/database/src/index.js";
+import {migrate,withTenant,withWorkerTenant,pool,closeDatabase} from "../packages/database/src/index.js";
 import {processOneJob} from "../packages/worker/src/index.js";
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
  B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -24,7 +24,7 @@ test("Phase14 PostgreSQL sustained 68:10 imbalanced tenant admission, fairness a
   payload:body,headers:{authorization:"Bearer "+token(tenant),...(key?{"idempotency-key":key}:{})}});
  const fixtureId=new Map<string,{target:string;spec:string}>();
  const baselineHeap=process.memoryUsage().heapUsed;
- let capacityDenied=0,checkedMax=0,loops=0;
+ let capacityDenied=0;
  try{
   for(const tenant of [A,B]){
    const t=await call(tenant,"/v1/targets",{name:"Noisy "+randomUUID().slice(0,8),
@@ -35,7 +35,7 @@ test("Phase14 PostgreSQL sustained 68:10 imbalanced tenant admission, fairness a
    assert.equal(p.statusCode,201,p.body);
    fixtureId.set(tenant,{target,spec:p.json().id as string});
   }
-  const begun=performance.now(),submitTimes:number[]=[];
+  const submitTimes:number[]=[];
   for(const [tenant,n] of [[A,68],[B,10]] as const){
    const fixture=fixtureId.get(tenant)!;
    for(let i=0;i<n;i++){
@@ -56,12 +56,11 @@ test("Phase14 PostgreSQL sustained 68:10 imbalanced tenant admission, fairness a
   assert.equal(aIds.length,64);
   assert.equal(bIds.length,10);
   assert.equal(capacityDenied,4);
-  const all=[...aIds,...bIds];
+
   const done=new Set<string>(),maxActive={A:0,B:0};
   const startedAt=performance.now();
   await Promise.all(Array.from({length:3},async()=>{
    while(done.size<all.length&&performance.now()-startedAt<60000){
-    loops++;
     const work=await processOneJob();
     if(!work)await new Promise(resolve=>setTimeout(resolve,30));
     const rows=await withTenant(A,tx=>tx.query(
@@ -102,11 +101,16 @@ test("Phase14 PostgreSQL sustained 68:10 imbalanced tenant admission, fairness a
     admitted:ids.length,rejected:tenant===A?4:0,finished:ids.length,failed:0,
     ...results,workerConcurrency:3,observedMaxTenantActive:tenant===A?maxActive.A:maxActive.B}));
   }
-  const ordered=await withWorkerTenant(A,tx=>tx.query(
-    "SELECT tenant_id,assessment_id FROM api_worker_attempts WHERE assessment_id=ANY($1::uuid[]) ORDER BY started_at,id",[all]));
-  assert.equal(ordered.rowCount,74);
-  const firstLight=ordered.rows.findIndex(x=>x.tenant_id===B);
-  const lastLight=Math.max(...ordered.rows.map((x,i)=>x.tenant_id===B?i:-1));
+  const orderA=await withTenant(A,tx=>tx.query(
+    "SELECT tenant_id,assessment_id,started_at,id FROM api_worker_attempts WHERE assessment_id=ANY($1::uuid[])",[aIds]));
+  const orderB=await withTenant(B,tx=>tx.query(
+    "SELECT tenant_id,assessment_id,started_at,id FROM api_worker_attempts WHERE assessment_id=ANY($1::uuid[])",[bIds]));
+  const ordered=[...orderA.rows,...orderB.rows].sort((x,y)=>
+   new Date(x.started_at).getTime()-new Date(y.started_at).getTime()||
+    String(x.id).localeCompare(String(y.id)));
+  assert.equal(ordered.length,74);
+  const firstLight=ordered.findIndex(x=>x.tenant_id===B);
+  const lastLight=Math.max(...ordered.map((x,i)=>x.tenant_id===B?i:-1));
   assert(firstLight>=0&&firstLight<=10,"light tenant must be claimed early despite 64 heavy queued");
   assert(lastLight<73,"light tenant never waits for full heavy backlog drain");
   const cross=await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM api_reports WHERE assessment_id=ANY($1::uuid[])",[aIds]));
