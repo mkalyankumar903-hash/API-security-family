@@ -242,6 +242,8 @@ export function registerAutonomousVaptRoutes(app:FastifyInstance,identity:(r:Fas
     x.offlineEngine!==y.offlineEngine||x.ptPolicyId!==y.ptPolicyId||
     x.ptPolicyVersion!==y.ptPolicyVersion||x.ptProfile!==y.ptProfile||
     x.fixtureId!==y.fixtureId||x.fixtureVersion!==y.fixtureVersion||
+    x.scopeId!==y.scopeId||x.plannedEvaluations!==y.plannedEvaluations||
+    JSON.stringify(x.operations)!==JSON.stringify(y.operations)||
     JSON.stringify(x.rules)!==JSON.stringify(y.rules))
     return {compatibility:"INCOMPATIBLE",reason:"VERSION_OR_FIXTURE_CONTEXT_CHANGED",
      customerNetworkRequests:0,verifiedFixed:false};
