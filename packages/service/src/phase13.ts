@@ -103,14 +103,21 @@ async function qualifiedSource(tx:PoolClient,reportId:string,feature:Feature){
    !v.stored_permit_claims||v.permit_revoked)
   fail("SIGNED_GOVERNED_PT_EVIDENCE_MISSING");
  // Reconstruct and independently validate the original signed CI permit without
- // persisting its bearer. Historical source validity is evaluated at durable PT
- // terminal publication, not at observation time after the permit may expire.
+ // persisting a bearer. Authenticate at the SIGNED permit's own validity interval:
+ // this observation must not require a historic completed permit to remain live.
+ // Successful PT terminal and consumed receipt evidence are checked independently.
  try{
-  const signed=verifyStoredTestPermit(v.stored_permit_claims as PtClaims,
-    String(v.permit_hash),String(v.stored_permit_body),
-    Date.parse(String(v.pt_report_created_at)));
+  const claimed=v.stored_permit_claims as PtClaims;
+  const proofInstant=claimed.notBefore+1;
+  const signed=verifyStoredTestPermit(claimed,String(v.permit_hash),
+    String(v.stored_permit_body),proofInstant);
+  const lineage=await tx.query("SELECT "+
+   "(SELECT count(*)::int FROM public.api_pt9_stages st WHERE st.assessment_id=$1 AND st.status<>'COMPLETED') AS unfinished,"+
+   "(SELECT count(*)::int FROM public.api_pt_receipts rec WHERE rec.assessment_id=$1 AND rec.permit_hash=$2 AND rec.decision='ALLOWED') AS authorized_receipts",
+   [String(v.pt_assessment_id),String(v.permit_hash)]);
   if(signed.permitId===undefined||signed.scopeId!==v.stored_permit_scope_id||
-     signed.tenantId!==String((await tx.query("SELECT current_setting('api.tenant_id') AS id")).rows[0].id))
+     signed.tenantId!==String((await tx.query("SELECT current_setting('api.tenant_id') AS id")).rows[0].id)||
+     Number(lineage.rows[0]?.unfinished)!==0||Number(lineage.rows[0]?.authorized_receipts)<1)
     fail("SIGNED_GOVERNED_PT_EVIDENCE_MISSING");
  }catch(error){
   // Reveal only a bounded code to isolated CI, never raw signed bodies, keys or claims.
