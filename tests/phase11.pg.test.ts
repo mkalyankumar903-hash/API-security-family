@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {randomUUID} from "node:crypto";
-import {migrate,pool,withTenant,closeDatabase} from "../packages/database/src/index.js";
+import {migrate,pool,withTenant,withWorkerTenant,closeDatabase} from "../packages/database/src/index.js";
 import {makeApp} from "../packages/service/src/app.js";
 import {processOneJob} from "../packages/worker/src/index.js";
 
@@ -51,6 +51,17 @@ test("Phase11 real PostgreSQL: offline then signed-governed child then atomic un
   const payload={mode:"GOVERNED_SYNTHETIC",scopeId:sid,policyId:"SYNTHETIC_PT_COMPLETE_SUPPORTED",profile:"SECURE_BASELINE"};
   const created=await call("POST","/v11/api-vapt/assessments",payload,{key:idem});ok(created,201);
   const parent=created.json().id as string;
+  // Even the private worker database role cannot manufacture successful parent
+  // publication before real completed offline + PT component evidence.
+  const forged={schemaVersion:"autonomous-api-vapt-report-v1",assessmentId:parent,
+   offlineAssessmentId:created.json().offlineAssessmentId,
+   ptAssessmentId:created.json().ptAssessmentId,mode:"GOVERNED_SYNTHETIC",
+   fullAuthorizedVaptCompleted:true,planFingerprint:created.json().planFingerprint,
+   status:"COMPLETED",syntheticOnly:true,verifiedFixed:false,customerRuntimeVerified:false,customerNetworkRequests:0};
+  await assert.rejects(()=>withWorkerTenant(A,tx=>tx.query(
+   "INSERT INTO api_vapt11_reports(id,tenant_id,parent_assessment_id,projection,fingerprint) VALUES($1,$2,$3,$4::jsonb,$5)",
+   [randomUUID(),A,parent,JSON.stringify(forged),"a".repeat(64)])),/VAPT11_OFFLINE_OR_PARENT_NOT_COMPLETE/);
+
   const duplicated=await call("POST","/v11/api-vapt/assessments",payload,{key:idem});ok(duplicated,200);
   assert.equal(duplicated.json().id,parent);
   assert.equal((await call("GET","/v11/api-vapt/assessments/"+parent)).json().status,"QUEUED");
