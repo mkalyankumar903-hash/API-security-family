@@ -1,5 +1,6 @@
 /** Phase13 isolated synthetic delivery qualification only. NO network transport. */
 import {randomUUID} from "node:crypto";
+import {emitDiagnostic} from "../../contracts/src/operational-diagnostics-v14.js";
 import {withQaTenant} from "../../database/src/index.js";
 import {fingerprint} from "../../contracts/src/commercial-v13.js";
 const qa=()=>{if(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true")
@@ -78,7 +79,7 @@ export async function ackQaDelivery(tenant:string,deliveryId:string,token:string
 /** No unsafe exception strings, URLs, tokens or payloads in durable diagnostics. */
 export async function failQaDelivery(tenant:string,deliveryId:string,token:string){
  qa();safe(tenant);safe(deliveryId);safe(token);
- return withQaTenant(tenant,async tx=>{
+ const result=await withQaTenant(tenant,async tx=>{
   const q=await tx.query("SELECT state,lease_token,lease_until,attempt_count FROM public.api_v13_qa_delivery WHERE id=$1 FOR UPDATE",[deliveryId]);
   if(!q.rowCount||q.rows[0].state!=="LEASED"||q.rows[0].lease_token!==token||
    Date.parse(String(q.rows[0].lease_until))<=Date.now())throw Error("QA_STALE_LEASE");
@@ -88,4 +89,6 @@ export async function failQaDelivery(tenant:string,deliveryId:string,token:strin
   await event(tx,tenant,deliveryId,terminal?"DEAD_LETTER":"RETRY_SCHEDULED",n,terminal?"MAX_ATTEMPTS":"SYNTHETIC_RETRY");
   return {state:terminal?"DEAD_LETTER":"RETRY",backoffSeconds:terminal?0:seconds};
  });
+ emitDiagnostic({kind:"QA_DELIVERY",classification:result.state==="DEAD_LETTER"?"EXHAUSTED":"RETRY",statusCode:result.state==="DEAD_LETTER"?409:202});
+ return result;
 }
