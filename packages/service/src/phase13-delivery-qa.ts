@@ -97,6 +97,6 @@ export async function failQaDelivery(tenant:string,deliveryId:string,token:strin
   await event(tx,tenant,deliveryId,terminal?"DEAD_LETTER":"RETRY_SCHEDULED",n,terminal?"MAX_ATTEMPTS":"SYNTHETIC_RETRY");
   return {state:terminal?"DEAD_LETTER":"RETRY",backoffSeconds:terminal?0:seconds};
  });
- emitDiagnostic({kind:"QA_DELIVERY",classification:result.state==="DEAD_LETTER"?"EXHAUSTED":"RETRY",statusCode:result.state==="DEAD_LETTER"?409:202});
+ emitDiagnostic({kind:"QA_DELIVERY",classification:result.state==="DEAD_LETTER"?"EXHAUSTED":"RETRY",statusCode:result.state==="DEAD_LETTER"?409:202,state:result.state});
  return result;
 }
