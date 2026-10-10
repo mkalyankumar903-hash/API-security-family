@@ -2,6 +2,7 @@
 import type {FastifyInstance,FastifyRequest} from "fastify";
 import {randomUUID} from "node:crypto";
 import {withTenant,phase13TestFaultBarrier} from "../../database/src/index.js";
+import {emitDiagnostic} from "../../contracts/src/operational-diagnostics-v14.js";
 import type {PoolClient} from "pg";
 import {PtError} from "./pt.js";
 import {verifyStoredTestPermit,type PtClaims} from "../../pt/src/permit.js";
@@ -45,7 +46,7 @@ export async function projection(tenantId:string,feature:Feature=features[0]){
 /** CI-only imported signed envelope; NOT a REST endpoint or Host production verifier. */
 export async function ingestSyntheticEntitlement(raw:Uint8Array,signature:string,key:Uint8Array){
  const e=verifySyntheticEvent(raw,signature,key),digest=fingerprint(raw);
- return withTenant(e.tenantId,async tx=>{
+ const result=await withTenant(e.tenantId,async tx=>{
   await lock(tx,e.tenantId,e.feature);
   const duplicate=await tx.query("SELECT payload_fingerprint FROM public.api_v13_event_inbox WHERE event_id=$1",[e.eventId]);
   if(duplicate.rowCount){
@@ -62,6 +63,8 @@ export async function ingestSyntheticEntitlement(raw:Uint8Array,signature:string
    [randomUUID(),e.tenantId,e.entitlementId,e.eventId,e.revision,e.feature,e.limit,e.status,e.issuer,e.audience,e.expiresAt,digest]);
   return {eventId:e.eventId,replay:false};
  });
+ emitDiagnostic({kind:"METER_ENTITLEMENT",classification:result.replay?"STALE":"OK",statusCode:200,state:e.state});
+ return result;
 }
 /** Resolve only authoritative terminal sources. Existing immutable parent report is a minimum
  * prerequisite for every meter; offline/PT also require their own successful child evidence.
@@ -145,7 +148,7 @@ export async function reserveFeatureObservation(t:string,reportId:string,key:str
  if(!Number.isSafeInteger(ttlSeconds)||ttlSeconds<1||ttlSeconds>300)fail("INVALID_RESERVATION_TTL",400);
  if(ttlSeconds!==300&&(process.env.NODE_ENV!=="test"||process.env.SYNTHETIC_AUTH_ENABLED!=="true"))fail("HOST_AUTHORITY_NOT_CONFIGURED",403);
  id(t);id(reportId);checkKey(key);
- return withTenant(t,async tx=>{
+ const result=await withTenant(t,async tx=>{
   await lock(tx,t,feature);
   await tx.query("UPDATE public.api_v13_reservations SET state='EXPIRED' WHERE feature=$1 AND state='RESERVED' AND expires_at<=clock_timestamp()",[feature]);
   const old=await tx.query("SELECT * FROM public.api_v13_reservations WHERE idempotency_key=$1",[key]);
@@ -167,13 +170,15 @@ export async function reserveFeatureObservation(t:string,reportId:string,key:str
   if(feature!=="IMMUTABLE_REPORT_OBSERVED")await tx.query("INSERT INTO public.api_v13_feature_sources(id,tenant_id,reservation_id,feature,source_type,source_report_id,source_assessment_id,source_fingerprint,historical_permit_hash,terminal_outcome,entitlement_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'COMPLETED',$10)",[randomUUID(),t,reservationId,feature,source.type,reportId,source.child,source.fingerprint,source.permit,e.revision]);
   return {id:reservationId,state:"RESERVED",replay:false};
  },"phase13-reserve");
+ emitDiagnostic({kind:"METER_RESERVATION",classification:result.replay?"STALE":"OK",statusCode:result.replay?200:201,feature,state:result.state});
+ return result;
 }
 export async function settleObservedReport(t:string,reservationId:string){
  return settleFeatureObservation(t,reservationId);
 }
 export async function settleFeatureObservation(t:string,reservationId:string){
  id(t);id(reservationId);
- return withTenant(t,async tx=>{
+ const result=await withTenant(t,async tx=>{
   const sourceFeature=await tx.query("SELECT feature FROM public.api_v13_reservations WHERE id=$1",[reservationId]);
   if(!sourceFeature.rowCount)fail("RESERVATION_NOT_FOUND",404);
   const feature=sourceFeature.rows[0].feature as Feature;
@@ -205,10 +210,12 @@ export async function settleFeatureObservation(t:string,reservationId:string){
    [randomUUID(),t,ledgerId,JSON.stringify({schemaVersion:"api-family-commercial-v13",event:"USAGE_OBSERVED",units:r.units,sourceReportId:r.source_report_id,feature,syntheticOnly:true,delivery:"DISABLED"})]);
   return {id:r.id,state:"SETTLED",replay:false};
  },"phase13-settle");
+ emitDiagnostic({kind:"METER_SETTLEMENT",classification:result.replay?"STALE":"OK",statusCode:200,state:result.state});
+ return result;
 }
 export async function closeReservation(t:string,reservationId:string){
  id(t);id(reservationId);
- return withTenant(t,async tx=>{
+ const result=await withTenant(t,async tx=>{
   const sourceFeature=await tx.query("SELECT feature FROM public.api_v13_reservations WHERE id=$1",[reservationId]);
   if(!sourceFeature.rowCount)fail("RESERVATION_NOT_FOUND",404);
   await lock(tx,t,String(sourceFeature.rows[0].feature));
@@ -219,11 +226,13 @@ export async function closeReservation(t:string,reservationId:string){
   await tx.query("UPDATE public.api_v13_reservations SET state=$2 WHERE id=$1",[reservationId,state]);
   return {state};
  },"phase13-close");
+ emitDiagnostic({kind:"METER_EXPIRY",classification:"OK",statusCode:200,state:result.state});
+ return result;
 }
 /** No external snapshot -> PENDING, not a fabricated MATCHED invoice. */
 export async function reconcilePending(t:string,feature:Feature=features[0]){
  id(t);
- return withTenant(t,async tx=>{
+ const result=await withTenant(t,async tx=>{
   await lock(tx,t,feature);
   const m=await month(tx),tot=await totals(tx,m,feature);
   const prior=await tx.query("SELECT id,state,local_units FROM public.api_v13_reconciliation WHERE feature=$2 AND month_start=$1 AND external_revision IS NULL ORDER BY created_at DESC,id DESC LIMIT 1",[m,feature]);
@@ -233,11 +242,13 @@ export async function reconcilePending(t:string,feature:Feature=features[0]){
    [rid,t,feature,m,tot.consumed]);
   return {id:rid,state:"PENDING_EXTERNAL_AUTHORITY"};
  });
+ emitDiagnostic({kind:"METER_RECONCILIATION",classification:"OK",statusCode:200,feature,state:result.state});
+ return result;
 }
 /** Dedicated CI-only signed corrections; never permit arbitrary client counters or destructive edits. */
 export async function ingestSyntheticUsageCorrection(raw:Uint8Array,signature:string,key:Uint8Array){
  const e=verifySyntheticCorrection(raw,signature,key),digest=fingerprint(raw);
- return withTenant(e.tenantId,async tx=>{
+ const result=await withTenant(e.tenantId,async tx=>{
   const sourceFeature=await tx.query("SELECT feature FROM public.api_v13_usage_ledger WHERE id=$1",[e.usageId]);
   if(!sourceFeature.rowCount)fail("USAGE_SOURCE_NOT_FOUND",404);
   await lock(tx,e.tenantId,String(sourceFeature.rows[0].feature));
@@ -256,6 +267,8 @@ export async function ingestSyntheticUsageCorrection(raw:Uint8Array,signature:st
    [correctionId,e.tenantId,e.correctionId,e.usageId,e.unitDelta,e.reason,digest]);
   return {id:correctionId,replay:false,syntheticOnly:true,effectiveUnits:effective};
  });
+ emitDiagnostic({kind:"METER_CORRECTION",classification:result.replay?"STALE":"OK",statusCode:200,state:"COMPLETED"});
+ return result;
 }
 
 /** Independently signed CI external fixture; real Host accounting remains unconfigured. */
@@ -264,7 +277,7 @@ export async function reconcileSyntheticExternalSnapshot(t:string,raw:Uint8Array
  const s=verifySyntheticExternalSnapshot(raw,signature,key);
  if(s.tenantId!==t)fail("SNAPSHOT_TENANT_MISMATCH",403);
  const digest=fingerprint(raw);
- return withTenant(t,async tx=>{
+ const result=await withTenant(t,async tx=>{
   await lock(tx,t,s.feature);
   const previous=await tx.query("SELECT id,state,external_revision,external_fingerprint FROM public.api_v13_reconciliation WHERE feature=$1 AND month_start=$2 AND external_revision IS NOT NULL ORDER BY external_revision DESC LIMIT 1",
    [s.feature,s.monthStart]);
@@ -287,6 +300,8 @@ export async function reconcileSyntheticExternalSnapshot(t:string,raw:Uint8Array
    [id,t,s.feature,s.monthStart,s.revision,observed,s.observedUnits,digest,state]);
   return {id,state,replay:false,syntheticExternalOnly:true};
  });
+ emitDiagnostic({kind:"METER_RECONCILIATION",classification:result.replay?"STALE":"OK",statusCode:200,feature:s.feature,state:result.state});
+ return result;
 }
 
 export function registerPhase13Routes(app:FastifyInstance,identity:(req:FastifyRequest)=>string){
