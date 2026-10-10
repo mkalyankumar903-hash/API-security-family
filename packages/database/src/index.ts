@@ -359,11 +359,18 @@ export async function finishWorkerAttempt(claim:WorkerClaim):Promise<void>{
      [uuid(),claim.tenant_id,claim.assessment_id,claim.attempt_id,reason]);
    }
   }
-  const quarantined=changed.rowCount&&outcome==="FAILED"?
+  // Migration 014's authoritative DB trigger may have already committed the
+  // attempt state atomically with the assessment terminal transition.
+  // Zero UPDATE rows here does NOT mean the attempt failed to commit.
+  const persisted=await tx.query(
+   "SELECT state FROM public.api_worker_attempts WHERE id=$1 AND claim_token=$2 AND claim_generation=$3",
+   [claim.attempt_id,claim.claim_token,claim.claim_generation]);
+  const committed=current&&persisted.rowCount===1&&persisted.rows[0].state===outcome;
+  const quarantined=committed&&outcome==="FAILED"?
    await tx.query("SELECT 1 FROM public.api_worker_quarantine WHERE assessment_id=$1",[claim.assessment_id]):null;
-  const report=changed.rowCount&&outcome==="COMPLETED"?
+  const report=committed&&outcome==="COMPLETED"?
    await tx.query("SELECT EXISTS(SELECT 1 FROM public.api_reports WHERE assessment_id=$1) AS found",[claim.assessment_id]):null;
-  return changed.rowCount?{outcome,quarantined:Boolean(quarantined?.rowCount),
+  return committed?{outcome,quarantined:Boolean(quarantined?.rowCount),
    hasReport:report?.rows[0]?.found===true}:null;
  });
  if(final){
