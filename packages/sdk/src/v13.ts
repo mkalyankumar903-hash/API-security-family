@@ -9,15 +9,17 @@ export class V13ClientError extends Error{
  constructor(readonly status:number,readonly code:string){super(code);}
 }
 export type V13ClientOptions={
- baseUrl:string;accessToken:()=>string|Promise<string>;fetcher?:typeof fetch;timeoutMs?:number;
+ baseUrl:string;accessToken:()=>string|Promise<string>;fetcher?:typeof fetch;timeoutMs?:number;maxRetries?:0|1|2;
 };
 export class V13Client{
  private readonly request:typeof fetch;
  private readonly base:string;
  private readonly timeoutMs:number;
  constructor(private readonly config:V13ClientOptions){
-  const url=new URL(config.baseUrl);
-  if(!["https:","http:"].includes(url.protocol)||url.username||url.password||url.search||url.hash||
+  let url:URL;
+  try{url=new URL(config.baseUrl);}catch{throw new Error("INVALID_API_ORIGIN");}
+  if(config.maxRetries!==undefined&&![0,1,2].includes(config.maxRetries))throw new Error("INVALID_RETRY_BUDGET");
+  if(!["https:","http:"].includes(url.protocol)||url.username||url.password||url.search||url.hash||url.pathname!=="/"||
    (url.protocol==="http:"&&!["127.0.0.1","localhost","[::1]"].includes(url.hostname)))
    throw new Error("INVALID_API_ORIGIN");
   if(!Number.isSafeInteger(config.timeoutMs??10000)||(config.timeoutMs??10000)<100||(config.timeoutMs??10000)>60000)
@@ -26,23 +28,79 @@ export class V13Client{
   // Window.fetch is a WebIDL operation: preserve the global receiver when passed to a class.
   this.request=(config.fetcher??globalThis.fetch).bind(globalThis);
  }
+ /** Bound every response body before parsing: a hostile adapter cannot force unbounded JSON buffering. */
+ private async readJson(response:Response):Promise<unknown>{
+  const length=response.headers.get("content-length");
+  if(length!==null&&(!/^\\d+$/.test(length)||Number(length)>1048576))throw new V13ClientError(response.status,"RESPONSE_SIZE_LIMIT");
+  const type=response.headers.get("content-type")?.toLowerCase()??"";
+  if(type.startsWith("text/html")||type.includes("application/octet-stream"))throw new V13ClientError(response.status,"INVALID_CONTENT_TYPE");
+  const reader=response.body?.getReader();
+  if(!reader)throw new V13ClientError(response.status,"INVALID_RESPONSE");
+  const parts:Uint8Array[]=[];
+  let size=0;
+  try{
+   for(;;){
+    const {done,value}=await reader.read();
+    if(done)break;
+    size+=value.byteLength;
+    if(size>1048576){await reader.cancel().catch(()=>undefined);throw new V13ClientError(response.status,"RESPONSE_SIZE_LIMIT");}
+    parts.push(value);
+   }
+   const buffer=new Uint8Array(size);
+   let offset=0;
+   for(const chunk of parts){buffer.set(chunk,offset);offset+=chunk.byteLength;}
+   return JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(buffer)) as unknown;
+  }catch(error){
+   if(error instanceof V13ClientError)throw error;
+   throw new V13ClientError(response.status,"INVALID_RESPONSE");
+  }finally{reader.releaseLock();}
+ }
  private async get<T>(path:string,signal?:AbortSignal):Promise<T>{
-  const token=await this.config.accessToken();
-  if(!token||/[\r\n]/.test(token))throw new V13ClientError(401,"MISSING_AUTHENTICATION");
+  if(signal?.aborted)throw new V13ClientError(0,"ABORTED");
+  let token:string;
+  try{token=await this.config.accessToken();}catch{throw new V13ClientError(401,"AUTH_PROVIDER_FAILED");}
+  if(typeof token!=="string"||token.length===0||token.length>4096||/[^\\x21-\\x7e]/.test(token))
+   throw new V13ClientError(401,"MISSING_AUTHENTICATION");
   const combined=AbortSignal.any([AbortSignal.timeout(this.timeoutMs),...(signal?[signal]:[])]);
-  let response:Response;
-  try{response=await this.request(this.base+path,{
-   method:"GET",headers:{authorization:"Bearer "+token,accept:"application/json"},
-   cache:"no-store",signal:combined,redirect:"error"});
-  }catch{throw new V13ClientError(0,"TRANSPORT_OR_TIMEOUT");}
-  let payload:unknown;
-  try{payload=await response.json() as unknown;}catch{throw new V13ClientError(response.status,"INVALID_RESPONSE");}
+  let response:Response|undefined;
+  for(let attempt=0;attempt<=(this.config.maxRetries??0);attempt++){
+   if(combined.aborted)throw new V13ClientError(0,signal?.aborted?"ABORTED":"TRANSPORT_OR_TIMEOUT");
+   try{response=await this.request(this.base+path,{
+    method:"GET",headers:{authorization:"Bearer "+token,accept:"application/json"},
+    cache:"no-store",signal:combined,redirect:"error"});
+   }catch{
+    if(signal?.aborted)throw new V13ClientError(0,"ABORTED");
+    if(attempt===(this.config.maxRetries??0)||combined.aborted)throw new V13ClientError(0,"TRANSPORT_OR_TIMEOUT");
+    await this.backoff(attempt,combined,signal);
+    continue;
+   }
+   if([429,502,503,504].includes(response.status)&&attempt<(this.config.maxRetries??0)){
+    await response.body?.cancel().catch(()=>undefined);
+    await this.backoff(attempt,combined,signal);
+    continue;
+   }
+   break;
+  }
+  if(!response)throw new V13ClientError(0,"TRANSPORT_OR_TIMEOUT");
+  const payload=await this.readJson(response);
   if(!response.ok){
    const code=typeof payload==="object"&&payload!==null&&"error" in payload&&
-    typeof payload.error==="string"?payload.error:"API_ERROR";
+    typeof payload.error==="string"&&/^[A-Z0-9_]{1,80}$/.test(payload.error)?payload.error:"API_ERROR";
    throw new V13ClientError(response.status,code);
   }
+  if(payload===null||typeof payload!=="object")throw new V13ClientError(response.status,"INVALID_RESPONSE");
+  if(!Array.isArray(payload)&&"schemaVersion" in payload&&
+    payload.schemaVersion!=="api-family-commercial-v13")
+   throw new V13ClientError(response.status,"SCHEMA_VERSION_MISMATCH");
   return payload as T;
+ }
+ private async backoff(attempt:number,signal:AbortSignal,caller?:AbortSignal):Promise<void>{
+  await new Promise<void>((resolve,reject)=>{
+   if(signal.aborted){reject(new V13ClientError(0,caller?.aborted?"ABORTED":"TRANSPORT_OR_TIMEOUT"));return;}
+   const onAbort=()=>{clearTimeout(timer);reject(new V13ClientError(0,caller?.aborted?"ABORTED":"TRANSPORT_OR_TIMEOUT"));};
+   const timer=setTimeout(()=>{signal.removeEventListener("abort",onAbort);resolve();},50*(attempt+1));
+   signal.addEventListener("abort",onAbort,{once:true});
+  });
  }
  capabilities(signal?:AbortSignal){return this.get<{schemaVersion:string;hostAuthority:string;meterDefinitions:unknown[];scanningAuthority:false}>("/v13/capabilities",signal);}
  summary(signal?:AbortSignal){return this.get<CommercialSummary>("/v13/usage/summary",signal);}
