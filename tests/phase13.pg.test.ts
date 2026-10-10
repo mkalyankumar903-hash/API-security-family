@@ -276,6 +276,24 @@ test("Phase13 PostgreSQL 18 real tenant capability and quota decisions",async t=
     watermarkAt:now.toISOString(),observedUnits:2,revision:1,issuedAt:now.toISOString(),
     expiresAt:new Date(now.getTime()+100000).toISOString()}));
    assert.equal((await reconcileSyntheticExternalSnapshot(A,snap,createHmac("sha256",snapKey).update(snap).digest("hex"),snapKey)).state,"MATCHED");
+   const offlineUsage=(await withTenant(A,tx=>tx.query(
+    "SELECT id FROM public.api_v13_usage_ledger WHERE feature=$1 ORDER BY created_at,id LIMIT 1",[feature]))).rows[0].id as string;
+   const corrKey=randomBytes(48);
+   const correction=(delta:number)=>{const raw=Buffer.from(JSON.stringify({schemaVersion:V13,
+    correctionId:randomUUID(),tenantId:A,issuer:"lumicsec-ci-correction-v13",
+    audience:"api-family-correction-v13-test",usageId:offlineUsage,unitDelta:delta,
+    reason:"MEASUREMENT_CORRECTION",issuedAt:new Date().toISOString(),
+    expiresAt:new Date(Date.now()+90000).toISOString()}));
+    return {raw,sig:createHmac("sha256",corrKey).update(raw).digest("hex")};};
+   const less=correction(-1);
+   assert.equal((await ingestSyntheticUsageCorrection(less.raw,less.sig,corrKey)).effectiveUnits,0);
+   assert.equal((await projection(A,feature)).consumed,1);
+   assert.equal((await projection(A)).consumed,2,"offline correction cannot alter another meter's usage");
+   assert.equal((await reconcilePending(A,feature)).state,"PENDING_EXTERNAL_AUTHORITY");
+   const restore=correction(1);
+   assert.equal((await ingestSyntheticUsageCorrection(restore.raw,restore.sig,corrKey)).effectiveUnits,1);
+   assert.equal((await projection(A,feature)).consumed,2);
+
   });
   await t.test("018 governed synthetic PT source requires real signed permit and successful persisted terminal",async()=>{
    const feature="GOVERNED_API_PT_COMPLETED",eid=randomUUID();
