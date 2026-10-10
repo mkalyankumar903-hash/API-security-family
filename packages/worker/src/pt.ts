@@ -238,8 +238,16 @@ export type DetectionEvaluationInput={
  evaluationKey:string;operationKey:string;path:string;method:"GET";actor:string;profile:string;
 };
 export type DetectionEvaluationOutcome={status:"CONSUMED"|"UNCERTAIN"|"DENIED";code:string;evidence:Evidence|null};
+/** Isolated test-process fault barriers only. These cannot be supplied by a
+ * customer, HTTP route, production worker CLI or permit issuer. */
+export type PtDetectionFaultHooks={
+ beforeReservation?:()=>Promise<void>;
+ afterReservation?:()=>Promise<void>;
+ afterFixtureBeforeReceipt?:(backendPid:number)=>Promise<void>;
+};
 export async function governedPtDetectionInteraction(tenant:string,id:string,token:string,
- input:DetectionEvaluationInput):Promise<DetectionEvaluationOutcome>{
+ input:DetectionEvaluationInput,hooks?:PtDetectionFaultHooks):Promise<DetectionEvaluationOutcome>{
+ if(process.env.NODE_ENV==="test"&&hooks?.beforeReservation)await hooks.beforeReservation();
  if(!/^[A-Z0-9-]{4,48}:[a-z]{3,20}$/.test(input.evaluationKey)||
   !isActor(input.actor)||!isProfile(input.profile)||!isDetectionPath(input.path))
   return {status:"DENIED",code:"UNTRUSTED_DETECTION_PLAN",evidence:null};
@@ -271,6 +279,7 @@ export async function governedPtDetectionInteraction(tenant:string,id:string,tok
   return {status:"RESERVED",code:"RESERVED"};
  });
  if(admission.status!=="RESERVED")return {status:admission.status as "UNCERTAIN"|"DENIED",code:admission.code,evidence:null};
+ if(process.env.NODE_ENV==="test"&&hooks?.afterReservation)await hooks.afterReservation();
  return withWorkerTenant(tenant,async tx=>{
   if(await stopActive(tx,tenant))return {status:"DENIED" as const,code:"EMERGENCY_STOP_ACTIVE",evidence:null};
   const s=await context(tx,tenant,id,true);
@@ -287,6 +296,13 @@ export async function governedPtDetectionInteraction(tenant:string,id:string,tok
      method:input.method,path:input.path as Evidence["path"],actor:input.actor as Evidence["actor"],profile:input.profile as Evidence["profile"]
     });
    }catch{code="TRUSTED_FIXTURE_FAILED";}
+  }
+  // The real synthetic fixture has finished, but receipt/consumption remains
+  // uncommitted. SIGKILL or backend termination here must keep RESERVED and
+  // force UNKNOWN/UNCERTAIN with zero unauthorized replay on recovery.
+  if(process.env.NODE_ENV==="test"&&hooks?.afterFixtureBeforeReceipt){
+   const backend=(await tx.query("SELECT pg_backend_pid() AS pid")).rows[0].pid as number;
+   await hooks.afterFixtureBeforeReceipt(backend);
   }
   await tx.query("UPDATE api_pt_detection_evaluations SET state=$3,evidence=$4::jsonb,reason=$5,settled_at=now() WHERE assessment_id=$1 AND evaluation_key=$2",
    [id,input.evaluationKey,evidence?"CONSUMED":"UNCERTAIN",evidence?JSON.stringify(evidence):null,code]);
