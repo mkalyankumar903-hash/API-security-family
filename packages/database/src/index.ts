@@ -307,7 +307,7 @@ export async function releaseUnstartedWorkerClaim(claim:WorkerClaim):Promise<boo
 
 /** Final state comes from committed PostgreSQL status, never a worker's success flag. */
 export async function finishWorkerAttempt(claim:WorkerClaim):Promise<void>{
- await withWorkerTenant(claim.tenant_id,async tx=>{
+ const final=await withWorkerTenant(claim.tenant_id,async tx=>{
   const state=await tx.query("SELECT status,error_code,engine_version FROM public.api_assessments WHERE id=$1",[claim.assessment_id]);
   const q=await tx.query("SELECT claim_token,claim_generation FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[claim.assessment_id]);
   const current=!q.rowCount||(q.rows[0].claim_token===claim.claim_token&&Number(q.rows[0].claim_generation)===claim.claim_generation);
@@ -359,6 +359,18 @@ export async function finishWorkerAttempt(claim:WorkerClaim):Promise<void>{
      [uuid(),claim.tenant_id,claim.assessment_id,claim.attempt_id,reason]);
    }
   }
+  const quarantined=changed.rowCount&&outcome==="FAILED"?
+   await tx.query("SELECT 1 FROM public.api_worker_quarantine WHERE assessment_id=$1",[claim.assessment_id]):null;
+  const report=changed.rowCount&&outcome==="COMPLETED"?
+   await tx.query("SELECT EXISTS(SELECT 1 FROM public.api_reports WHERE assessment_id=$1) AS found",[claim.assessment_id]):null;
+  return changed.rowCount?{outcome,quarantined:Boolean(quarantined?.rowCount),
+   hasReport:report?.rows[0]?.found===true}:null;
  });
+ if(final){
+  emitDiagnostic({kind:"WORKER_TERMINAL",
+   classification:final.outcome==="LOST"?"STALE":final.quarantined?"VALIDATION":final.outcome==="FAILED"?"INTERNAL":"OK",
+   statusCode:final.outcome==="COMPLETED"?200:409,attempt:claim.claim_generation,state:final.outcome});
+  if(final.hasReport)emitDiagnostic({kind:"REPORT_FINALIZED",classification:"OK",statusCode:200,state:"COMPLETED"});
+ }
 }
 export async function closeDatabase(): Promise<void> { await pool.end(); await workerPool.end(); if(qaPool)await qaPool.end(); }
