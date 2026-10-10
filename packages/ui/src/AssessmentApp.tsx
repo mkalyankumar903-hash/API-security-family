@@ -7,6 +7,7 @@ import {PtConsole} from "./PtConsole.js";
 import {PtProductExplorer} from "./PtProductExplorer.js";
 import {PtOrchestrationConsole} from "./PtOrchestrationConsole.js";
 import {AutonomousVaptWorkspace} from "./AutonomousVaptWorkspace.js";
+import {Phase12Workspace} from "./Phase12Workspace.js";
 import React, { useEffect, useState } from "react";
 const API_BASE = (typeof import.meta.env === "object" && import.meta.env.VITE_API_BASE) || "http://127.0.0.1:3001";
 type Target = {id:string;name:string;base_url:string;environment:string;lifecycle:string;revision:number;ownership_status:string};
@@ -133,6 +134,7 @@ export function AssessmentApp({initialToken}:{initialToken?:string}) {
       <label htmlFor="target">Select target</label><select id="target" value={targetId} onChange={e=>setTargetId(e.target.value)}><option value="">Select an authorized API target</option>{targets.map(t=><option key={t.id} value={t.id}>{t.name} · {t.environment}</option>)}</select>
       <form onSubmit={e=>void createTarget(e)}><div className="formgrid"><label>Target name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)} placeholder="Payments API"/></label><label>HTTPS base URL<input required type="url" value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="https://api.example.invalid"/></label><label>Environment<select value={environment} onChange={e=>setEnvironment(e.target.value)}><option>SYNTHETIC</option><option>STAGING</option><option>PRODUCTION</option></select></label></div><button disabled={busy||!token} type="submit">Register target</button></form>
     </section>
+    {targetId&&<Phase12Workspace key={"phase12-"+targetId+token} token={token} targetId={targetId}/>}
     <UnifiedAssessment token={token} targetId={targetId}/>
     {targetId&&<PtConsole key={"pt6-"+targetId+token} token={token} targetId={targetId} active={targets.find(t=>t.id===targetId)?.lifecycle==="ACTIVE"}/>}
     {targetId&&<PtProductExplorer key={"pt8-"+targetId+token} token={token} targetId={targetId}/>}
