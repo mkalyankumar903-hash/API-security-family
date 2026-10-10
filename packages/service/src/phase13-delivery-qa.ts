@@ -14,7 +14,7 @@ const event=async(tx:import("pg").PoolClient,t:string,d:string,code:string,attem
 /** CI-only opt-in: the actual immutable outbox is never moved from DISABLED. */
 export async function enqueueQaDelivery(tenant:string,outboxId:string){
  qa();safe(tenant);safe(outboxId);
- return withQaTenant(tenant,async tx=>{
+ const result=await withQaTenant(tenant,async tx=>{
   const source=await tx.query("SELECT id FROM public.api_v13_outbox WHERE id=$1 AND payload->>'syntheticOnly'='true' AND delivery_state='DISABLED' AND attempt_count=0",[outboxId]);
   if(!source.rowCount)throw Error("QA_SOURCE_NOT_ELIGIBLE");
   const id=randomUUID();
@@ -23,12 +23,14 @@ export async function enqueueQaDelivery(tenant:string,outboxId:string){
   const actual=inserted.rowCount?id:(await tx.query("SELECT id FROM public.api_v13_qa_delivery WHERE outbox_id=$1",[outboxId])).rows[0].id as string;
   return {id:actual,replay:!inserted.rowCount};
  });
+ emitDiagnostic({kind:"QA_DELIVERY",classification:result.replay?"STALE":"OK",statusCode:201,state:"PENDING"});
+ return result;
 }
 /** A locked, fenced claim is never a production webhook permission. */
 export async function claimQaDelivery(tenant:string,deliveryId:string,leaseSeconds=2){
  qa();safe(tenant);safe(deliveryId);
  if(!Number.isSafeInteger(leaseSeconds)||leaseSeconds<1||leaseSeconds>30)throw Error("INVALID_QA_LEASE");
- return withQaTenant(tenant,async tx=>{
+ const result=await withQaTenant(tenant,async tx=>{
   const q=await tx.query("SELECT * FROM public.api_v13_qa_delivery WHERE id=$1 FOR UPDATE",[deliveryId]);
   if(!q.rowCount)throw Error("QA_DELIVERY_NOT_FOUND");
   const d=q.rows[0];const n=Number(d.attempt_count);
@@ -46,11 +48,13 @@ export async function claimQaDelivery(tenant:string,deliveryId:string,leaseSecon
   await event(tx,tenant,deliveryId,"CLAIMED",n+1);
   return {state:"LEASED",token,attempt:n+1,replay:false};
  });
+ emitDiagnostic({kind:"QA_DELIVERY",classification:result.replay?"STALE":"OK",statusCode:200,state:result.state==="LEASED"?"CLAIMED":result.state});
+ return result;
 }
 /** Synthetic sink persists only a redacted deterministic receipt, no HTTP or callback. */
 export async function consumeQaSink(tenant:string,deliveryId:string,token:string){
  qa();safe(tenant);safe(deliveryId);safe(token);
- return withQaTenant(tenant,async tx=>{
+ const result=await withQaTenant(tenant,async tx=>{
   const d=await tx.query("SELECT state,lease_token,lease_until,outbox_id FROM public.api_v13_qa_delivery WHERE id=$1 FOR UPDATE",[deliveryId]);
   if(!d.rowCount||d.rows[0].state!=="LEASED"||d.rows[0].lease_token!==token||Date.parse(String(d.rows[0].lease_until))<=Date.now())throw Error("QA_STALE_LEASE");
   const o=await tx.query("SELECT source_usage_id,payload FROM public.api_v13_outbox WHERE id=$1 AND delivery_state='DISABLED'",[d.rows[0].outbox_id]);
@@ -60,10 +64,12 @@ export async function consumeQaSink(tenant:string,deliveryId:string,token:string
    [randomUUID(),tenant,deliveryId,digest]);
   return {replay:!saved.rowCount,receiptHash:digest};
  });
+ emitDiagnostic({kind:"QA_DELIVERY",classification:result.replay?"STALE":"OK",statusCode:200,state:"PENDING"});
+ return result;
 }
 export async function ackQaDelivery(tenant:string,deliveryId:string,token:string){
  qa();safe(tenant);safe(deliveryId);safe(token);
- return withQaTenant(tenant,async tx=>{
+ const result=await withQaTenant(tenant,async tx=>{
   const q=await tx.query("SELECT state,lease_token,lease_until,attempt_count FROM public.api_v13_qa_delivery WHERE id=$1 FOR UPDATE",[deliveryId]);
   if(!q.rowCount)throw Error("QA_DELIVERY_NOT_FOUND");
   const d=q.rows[0];
@@ -75,6 +81,8 @@ export async function ackQaDelivery(tenant:string,deliveryId:string,token:string
   await event(tx,tenant,deliveryId,"ACKED",Number(d.attempt_count));
   return {state:"ACKED",replay:false};
  });
+ emitDiagnostic({kind:"QA_DELIVERY",classification:result.replay?"STALE":"OK",statusCode:200,state:result.state});
+ return result;
 }
 /** No unsafe exception strings, URLs, tokens or payloads in durable diagnostics. */
 export async function failQaDelivery(tenant:string,deliveryId:string,token:string){
