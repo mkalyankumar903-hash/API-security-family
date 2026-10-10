@@ -90,7 +90,7 @@ export function validateAutonomousVaptPlan(input:VaptInput,stored:VaptPlan):void
 }
 
 export type OfflineObservation={
- ruleId:string;ruleRevision:string;operationKey:string|null;fingerprint:string;
+ ruleId:string;ruleRevision:string;operationKey:string|null;pointer:string;fingerprint:string;
  category:string;impact:string;confidence:string;explanation:string;remediation:string;
 };
 export type SyntheticObservation={
@@ -123,20 +123,23 @@ function priority(impact:string,source:"SPEC_ONLY"|"SYNTHETIC_PT",confidence:str
    "Evidence from governed synthetic fixture only; customer runtime security unverified"};
 }
 export function correlateAutonomousVaptEvidence(context:{
- tenantId:string;targetId:string;specFingerprint:string;fixtureId:string|null;
+ tenantId:string;targetId:string;specFingerprint:string;inventoryFingerprint:string;
+ offlineEngine:"inventory-v1"|"inventory-v2";fixtureId:string|null;
  fixtureVersion:number|null;profile:string|null;ptRuleOperations:Record<string,string>;
 },offline:readonly OfflineObservation[],synthetic:readonly SyntheticObservation[]):{
  observations:UnifiedObservation[];relationships:Correlation[];
 }{
- const {tenantId,targetId,specFingerprint,fixtureId,fixtureVersion,profile,ptRuleOperations}=context;
- if(!UUID.test(tenantId)||!UUID.test(targetId)||!HEX.test(specFingerprint))
+ const {tenantId,targetId,specFingerprint,inventoryFingerprint,offlineEngine,fixtureId,fixtureVersion,profile,ptRuleOperations}=context;
+ if(!UUID.test(tenantId)||!UUID.test(targetId)||!HEX.test(specFingerprint)||
+  !HEX.test(inventoryFingerprint)||!["inventory-v1","inventory-v2"].includes(offlineEngine))
   deny("INVALID_CORRELATION_CONTEXT");
  const observations:UnifiedObservation[]=[];
  for(const f of offline){
-  if(!f.ruleId.startsWith("API03_")||!HEX.test(f.fingerprint))
+  if(!f.ruleId.startsWith("API03_")||!HEX.test(f.fingerprint)||
+   !f.pointer.startsWith("/")||f.pointer.length>1500)
    deny("INVALID_OFFLINE_PROVENANCE");
-  const key=planFingerprint({tenantId,targetId,specFingerprint,engine:"inventory-v1",
-   rule:f.ruleId,revision:f.ruleRevision,operationKey:f.operationKey??null,evidence:f.fingerprint});
+  const key=planFingerprint({tenantId,targetId,specFingerprint,inventoryFingerprint,engine:offlineEngine,
+   rule:f.ruleId,revision:f.ruleRevision,operationKey:f.operationKey??null,pointer:f.pointer});
   observations.push({key,source:"SPEC_ONLY",ruleId:f.ruleId,revision:f.ruleRevision,
    operationKey:f.operationKey,evidenceFingerprint:f.fingerprint,category:f.category,
    impact:f.impact,confidence:f.confidence,explanation:f.explanation,remediation:f.remediation,

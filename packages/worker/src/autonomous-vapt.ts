@@ -107,10 +107,10 @@ export async function processAutonomousVaptJob(tenant:string,id:string,token:str
     ptReport.accounting?.executed!==evals.length)
     throw new Error("VAPT11_PT_REPORT_INTEGRITY_INVALID");
   }
-  const raw=(await tx.query("SELECT rule_id,rule_version,operation_key,stable_fingerprint,category,severity,evidence_confidence,explanation,remediation FROM api_findings WHERE assessment_id=$1 ORDER BY rule_id,stable_fingerprint",[v.offline_assessment_id])).rows;
+  const raw=(await tx.query("SELECT f.rule_id,f.rule_version,f.operation_key,f.stable_fingerprint,f.category,f.severity,f.evidence_confidence,f.explanation,f.remediation,e.pointer FROM api_findings f JOIN api_evidence e ON e.id=f.evidence_id AND e.tenant_id=f.tenant_id WHERE f.assessment_id=$1 ORDER BY f.rule_id,f.stable_fingerprint",[v.offline_assessment_id])).rows;
   const offlineFindings:OfflineObservation[]=raw.map(x=>({
    ruleId:x.rule_id,ruleRevision:x.rule_version,operationKey:x.operation_key,
-   fingerprint:x.stable_fingerprint,category:x.category,impact:x.severity??"LOW",
+   fingerprint:x.stable_fingerprint,pointer:x.pointer,category:x.category,impact:x.severity??"LOW",
    confidence:x.evidence_confidence??"MEDIUM",explanation:x.explanation,remediation:x.remediation
   }));
   if(offlineFindings.some(x=>!VALID_HEX.test(x.fingerprint)||!x.ruleId.startsWith("API03_")))
@@ -128,6 +128,7 @@ export async function processAutonomousVaptJob(tenant:string,id:string,token:str
   }
   const correlated=correlateAutonomousVaptEvidence({
    tenantId:tenant,targetId:v.target_id,specFingerprint:plan.specFingerprint,
+   inventoryFingerprint:plan.inventoryFingerprint,offlineEngine:plan.offlineEngine,
    fixtureId:plan.fixtureId,fixtureVersion:plan.fixtureVersion,profile:plan.ptProfile,
    ptRuleOperations:ruleOps},offlineFindings,ptObs);
   for(const obs of correlated.observations)await tx.query(

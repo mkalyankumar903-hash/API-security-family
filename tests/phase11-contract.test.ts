@@ -45,9 +45,10 @@ test("Phase11 provenance-bound relationships do not promote verified customer fi
  const synthetic=[{ruleId:"PT-AUTH-ANONYMOUS",revision:"1.0.0",fingerprint:"c".repeat(64),
  code:"SYNTHETIC_OBSERVED",remediation:"Require server-side auth",impact:"MEDIUM",confidence:"HIGH"}];
  const offline=[{ruleId:"API03_AUTH_UNDECLARED",ruleRevision:"1.0.0",
-  operationKey:ops[0]!.key,fingerprint:"d".repeat(64),category:"AUTH",impact:"LOW",
+  operationKey:ops[0]!.key,pointer:"/paths/~1pt~1account/get",fingerprint:"d".repeat(64),category:"AUTH",impact:"LOW",
   confidence:"HIGH",explanation:"No declaration",remediation:"Document expected authentication"}];
- const context={tenantId,targetId,specFingerprint,fixtureId:DETECTION_FIXTURE,fixtureVersion:1,
+ const context={tenantId,targetId,specFingerprint,inventoryFingerprint,offlineEngine:"inventory-v1" as const,
+  fixtureId:DETECTION_FIXTURE,fixtureVersion:1,
   profile:"VULNERABLE_BASELINE",ptRuleOperations};
  const a=correlateAutonomousVaptEvidence(context,offline,synthetic);
  const b=correlateAutonomousVaptEvidence(context,offline,synthetic);
