@@ -1,4 +1,5 @@
 /** Conservative infrastructure retries ONLY before any possibly executed fixture work. */
+import {emitDiagnostic} from "../../contracts/src/operational-diagnostics-v14.js";
 import type {WorkerClaim} from "../../database/src/index.js";
 import {withWorkerTenant,uuid} from "../../database/src/index.js";
 import {persistTerminalCoverage} from "../../pt/src/terminal-coverage.js";
@@ -13,9 +14,9 @@ export function classifyWorkerFailure(error:unknown):RetryClass{
 }
 export type RetryDisposition="NOT_RETRYABLE"|"RETRY_SCHEDULED"|"RETRY_EXHAUSTED"|"STALE";
 export async function scheduleConservativeRetry(claim:WorkerClaim,error:unknown):Promise<RetryDisposition>{
- if(classifyWorkerFailure(error)!=="TRANSIENT_PRE_EXECUTION")return "NOT_RETRYABLE";
+ if(classifyWorkerFailure(error)!=="TRANSIENT_PRE_EXECUTION"){emitDiagnostic({kind:"WORKER_RETRY",classification:"VALIDATION",statusCode:409,attempt:claim.claim_generation});return "NOT_RETRYABLE";}
  const code=(error as {code:string}).code;
- return withWorkerTenant(claim.tenant_id,async tx=>{
+ const result=await withWorkerTenant(claim.tenant_id,async tx=>{
   // Match canonical renewal authority lock order: stop -> job/permit/target
   // -> private queue -> assessment. A concurrent revocation, emergency stop,
   // or deadline transition must serialize before retry eligibility is decided.
@@ -71,4 +72,6 @@ export async function scheduleConservativeRetry(claim:WorkerClaim,error:unknown)
    [uuid(),claim.tenant_id,claim.assessment_id,claim.attempt_id,"TRANSIENT_"+code]);
   return "RETRY_SCHEDULED";
  });
+ emitDiagnostic({kind:"WORKER_RETRY",classification:result==="RETRY_EXHAUSTED"?"EXHAUSTED":result==="RETRY_SCHEDULED"?"RETRY":result==="STALE"?"STALE":"VALIDATION",statusCode:result==="RETRY_SCHEDULED"?202:409,attempt:claim.claim_generation});
+ return result;
 }
