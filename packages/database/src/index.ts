@@ -62,6 +62,8 @@ export async function migrate(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // Serializes all concurrent migrators before first schema creation.
+    await client.query("SELECT pg_advisory_xact_lock(3113,18)");
     await client.query("CREATE TABLE IF NOT EXISTS api_schema_migrations(version text PRIMARY KEY)");
     const already = await client.query("SELECT version FROM api_schema_migrations WHERE version='001'");
     if (!already.rowCount) {
@@ -75,6 +77,9 @@ export async function migrate(): Promise<void> {
   const owner=await privileged.connect();
   try {
     await owner.query("BEGIN");
+    // Migration 018 uses the existing privileged transaction; never mutate
+    // historical files or allow a second migrator to race the same catalog DDL.
+    await owner.query("SELECT pg_advisory_xact_lock(3113,18)");
     const already=await owner.query("SELECT version FROM api_schema_migrations WHERE version='002'");
     if (!already.rowCount) {
       await owner.query(readFileSync(isolation,"utf8"));
