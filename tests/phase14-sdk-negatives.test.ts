@@ -69,3 +69,28 @@ test("Phase14 SDK correct successful JSON envelope still remains Host-disabled",
  assert.throws(()=>sdk.usage(25,100001),/INVALID_PAGINATION/);
  assert.throws(()=>sdk.decision(-1),/INVALID_QUANTITY/);
 });
+
+test("Phase14 SDK rejects materially wrong shapes across every read-only endpoint",async()=>{
+ const endpoints=[
+  (c:V13Client)=>c.capabilities(),(c:V13Client)=>c.summary(),
+  (c:V13Client)=>c.entitlements(),(c:V13Client)=>c.decision(),
+  (c:V13Client)=>c.usage(),(c:V13Client)=>c.corrections(),
+  (c:V13Client)=>c.reservations(),(c:V13Client)=>c.reconciliations()
+ ];
+ for(const invoke of endpoints){
+  const c=client((async()=>new Response(JSON.stringify({schemaVersion:"api-family-commercial-v13",
+   hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",scanningAuthority:false,
+   quota:"UNTRUSTED",meterDefinitions:"not-an-array",allowed:true}),
+   {status:200,headers:{"content-type":"application/json"}})) as typeof fetch);
+  await rejects(invoke(c),"INVALID_RESPONSE");
+ }
+ const rows=[
+  (c:V13Client)=>c.usage(),(c:V13Client)=>c.corrections(),
+  (c:V13Client)=>c.reservations(),(c:V13Client)=>c.reconciliations()
+ ];
+ for(const invoke of rows){
+  const c=client((async()=>new Response(JSON.stringify([{id:"not-a-valid-row",units:"secret",sourceReportId:1}]),
+   {status:200,headers:{"content-type":"application/json"}})) as typeof fetch);
+  await rejects(invoke(c),"INVALID_RESPONSE");
+ }
+});
