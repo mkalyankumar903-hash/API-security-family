@@ -92,6 +92,32 @@ test("Phase11 real PostgreSQL: offline then signed-governed child then atomic un
   assert((historical.json() as unknown as {id:string}[]).some(x=>x.id===parent));
   const reassess=await call("POST","/v11/api-vapt/assessments/"+parent+"/reassess",{}, {key:"vapt11-reassess-"+randomUUID()});
   ok(reassess,409); // original signed permit budget is exhausted; never refresh authority.
+  // Legitimate safe reassessment: a NEW, separately scoped and signed test
+  // authorization rebinds a fresh child graph to preserved parent lineage.
+  const newScope=await call("POST","/v6/pt/targets/"+tid+"/scopes",{
+   specificationId:specId,operationKeys,fixtureId:"pt-security-v1",exclusions:[],
+   maxEvaluations:14,ratePerMinute:14,maxConcurrency:1,deadlineMs:30000,validityMinutes:15
+  },{key:"vapt11-fresh-scope-"+randomUUID()});ok(newScope,201);
+  const newSid=newScope.json().id as string;
+  ok(await call("POST","/v6/pt/scopes/"+newSid+"/request-authorization",{}),201);
+  ok(await call("POST","/v6/pt/test-authority/scopes/"+newSid+"/issue",{}, {authority:true}),201);
+  const second=await call("POST","/v11/api-vapt/assessments/"+parent+"/reassess",{scopeId:newSid},
+   {key:"vapt11-authorized-retest-"+randomUUID()});ok(second,201);
+  const secondId=second.json().id as string;
+  assert.notEqual(secondId,parent);
+  for(let i=0;i<3;i++)assert.equal(await processOneJob(),true);
+  const secondReport=await call("GET","/v11/api-vapt/assessments/"+secondId+"/report");
+  ok(secondReport,200);assert.equal(secondReport.json().verifiedFixed,false);
+  const lineage=await call("GET","/v11/api-vapt/assessments/"+secondId);ok(lineage,200);
+  assert.equal(lineage.json().lineage_parent_id,parent);
+  const oldReport=await call("GET","/v11/api-vapt/assessments/"+parent+"/report");
+  ok(oldReport,200);
+  assert.equal((oldReport.json() as {ptAssessmentId:string}).ptAssessmentId,created.json().ptAssessmentId);
+  const compare=await call("GET","/v11/api-vapt/assessments/"+parent+"/compare/"+secondId);
+  ok(compare,200);
+  assert.equal(compare.json().compatibility,"INCOMPATIBLE","different authority scopes cannot be treated as equivalent observations");
+  const wrongTarget=await target(false);
+
   await assert.rejects(()=>withTenant(A,tx=>tx.query("UPDATE api_vapt11_reports SET fingerprint=$1 WHERE parent_assessment_id=$2",["a".repeat(64),parent])),
    /permission denied|immutable/i);
   const isolated=await withTenant(B,tx=>tx.query("SELECT * FROM api_vapt11_reports WHERE parent_assessment_id=$1",[parent]));

@@ -115,8 +115,11 @@ export function AutonomousVaptWorkspace({token,targetId}:{token:string;targetId:
  }
  async function reassess(){if(!jobId)return;
   await execute(async()=>{
+   const selected=job?.mode==="GOVERNED_SYNTHETIC"?{scopeId}:{};
+   if(job?.mode==="GOVERNED_SYNTHETIC"&&!scopeId)
+    throw new Error("SELECT_NEW_SIGNED_SYNTHETIC_SCOPE");
    const result=await api<{id:string}>(token,"/v11/api-vapt/assessments/"+jobId+"/reassess",{
-    method:"POST",headers:{"idempotency-key":submitKey},body:"{}"});
+    method:"POST",headers:{"idempotency-key":submitKey},body:JSON.stringify(selected)});
    setSubmitKey(crypto.randomUUID());setJobId(result.id);setJob(null);setReport(null);setComparison(null);
    await refresh();
   });
@@ -202,7 +205,7 @@ export function AutonomousVaptWorkspace({token,targetId}:{token:string;targetId:
     </article>)}
    <h4>Coverage and limitations</h4><ul>{report.limitations.map(x=><li key={x}>{x}</li>)}</ul>
    <button onClick={()=>void exportJSON()} disabled={busy}>Export actual immutable JSON report</button>
-   <button onClick={()=>void reassess()} disabled={busy}>Reassess with fresh authorization</button>
+   <button onClick={()=>void reassess()} disabled={busy}>Reassess using selected signed scope</button>
   </div>}
   <h3>Combined assessment history</h3>
   <button disabled={busy} onClick={()=>void execute(refresh)}>Refresh history</button>

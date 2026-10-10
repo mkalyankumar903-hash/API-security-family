@@ -259,16 +259,29 @@ export function registerAutonomousVaptRoutes(app:FastifyInstance,identity:(r:Fas
  });
  app.post("/v11/api-vapt/assessments/:id/reassess",async(req,reply)=>{
   const tenant=identity(req),id=routeId(req),key=requestKey(req);
-  if(req.body!==undefined&&req.body!==null&&
-   (typeof req.body!=="object"||Array.isArray(req.body)||Object.keys(req.body).length>0))
-   throw new PtError(400,"REASSESSMENT_BODY_MUST_BE_EMPTY");
+  const body=req.body??{};
+  if(typeof body!=="object"||Array.isArray(body)||
+   Object.keys(body).some(k=>k!=="scopeId"))
+   throw new PtError(400,"INVALID_REASSESSMENT_BODY");
+  const override=(body as {scopeId?:unknown}).scopeId;
+  const newScopeId=override===undefined?null:asId(override);
   const result=await withTenant(tenant,async tx=>{
    const r=await tx.query("SELECT plan,mode FROM api_vapt11_assessments WHERE parent_assessment_id=$1",[id]);
    if(!r.rowCount)throw new PtError(404,"HISTORICAL_ASSESSMENT_NOT_FOUND");
    const p=r.rows[0].plan as VaptPlan;
-   const b:Request=r.rows[0].mode==="OFFLINE_ONLY"?
+   const offline=r.rows[0].mode==="OFFLINE_ONLY";
+   if(offline&&newScopeId)throw new PtError(400,"OFFLINE_REASSESSMENT_HAS_NO_SCOPE");
+   const chosen=newScopeId??p.scopeId;
+   if(!offline){
+    // Changed authority must be an independently signed scope on the SAME
+    // historical target. Do not borrow a permit from another target or tenant.
+    const candidate=await tx.query("SELECT target_id FROM api_pt_scopes WHERE id=$1",[asId(chosen)]);
+    if(!candidate.rowCount||candidate.rows[0].target_id!==p.targetId)
+     throw new PtError(409,"REASSESSMENT_SCOPE_TARGET_MISMATCH");
+   }
+   const b:Request=offline?
     {mode:"OFFLINE_ONLY",targetId:p.targetId,specificationId:p.specificationId}:
-    {mode:"GOVERNED_SYNTHETIC",scopeId:asId(p.scopeId),policyId:p.ptPolicyId!,profile:p.ptProfile!};
+    {mode:"GOVERNED_SYNTHETIC",scopeId:asId(chosen),policyId:p.ptPolicyId!,profile:p.ptProfile!};
    return create(tx,tenant,b,key,id);
   });
   reply.code(result.created?201:200).send(result);
