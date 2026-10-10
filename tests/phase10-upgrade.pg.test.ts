@@ -54,9 +54,10 @@ test("Phase10 populated 013 -> 014: forward-only migration preserves historical 
    "pt-fixture-v1","pt-detection-v1","pt-orchestrator-v1"]){
    const id=randomUUID();
    const ptEngine=engine.startsWith("pt-");
-   await db.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",[
+   await db.query("INSERT INTO api_assessments(id,tenant_id,target_id,specification_id,status,mode,idempotency_key,engine_version,inventory_version,inventory_raw_fingerprint,inventory_fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",[
     id,t,target,spec,ptEngine?"FAILED":"COMPLETED",ptEngine?"SYNTHETIC_PT_FIXTURE":"SPEC_ONLY",
-    "historical-version-"+engine,engine]);
+    "historical-version-"+engine,engine,engine==="legacy-v1"?null:1,
+    engine==="legacy-v1"?null:"a".repeat(64),engine==="legacy-v1"?null:"b".repeat(64)]);
    if(!ptEngine){
     await db.query("INSERT INTO api_reports(id,tenant_id,assessment_id,projection) VALUES($1,$2,$3,$4::jsonb)",[
      randomUUID(),t,id,JSON.stringify({schemaVersion:"historical-"+engine,
