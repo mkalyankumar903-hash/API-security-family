@@ -116,9 +116,12 @@ test("Phase11 25 genuine PostgreSQL interleavings, isolation, authority and fail
    assert(results.every(r=>r.statusCode===409));
   });
   await t.test("13 customer role cannot SELECT private claims even when requests race",async()=>{
+   // The schema itself is private: PostgreSQL may raise 42501 before
+   // has_table_privilege can return false. Either denial is secure.
    const results=await Promise.all(Array.from({length:4},()=>withTenant(A,tx=>tx.query(
-    "SELECT has_table_privilege(current_user,'api_queue.api_assessment_queue','SELECT') AS read"))));
-   assert(results.every(x=>x.rows[0].read===false));
+    "SELECT has_table_privilege(current_user,'api_queue.api_assessment_queue','SELECT') AS read"))
+    .then(x=>x.rows[0].read===false,e=>String((e as {code?:string}).code)==="42501")));
+   assert(results.every(Boolean),"private queue schema/table never grants application access");
   });
   await t.test("14 unrelated tenant cannot read private worker attempts",async()=>{
    const [a,b]=await Promise.all([withTenant(A,tx=>tx.query("SELECT id FROM api_worker_attempts WHERE assessment_id=$1",[id])),
