@@ -81,7 +81,7 @@ test("Phase14 C3 revoked permit and stopped governor emit sanitized diagnostics 
     stoppedEvents:events.rowCount,receipts:receipts.rows[0].n};
   });
   assert(terminal.enabled);assert.equal(terminal.state,"CANCELLED");
-  assert(terminal.revoked);assert(terminal.stoppedEvents>0);assert.equal(terminal.receipts,0);
+  assert(terminal.revoked);assert(Number(terminal.stoppedEvents)>0);assert.equal(terminal.receipts,0);
   assert(records.some(v=>v.includes('"kind":"ASSESSMENT_TRANSITION"')&&
    v.includes('"state":"CANCELLED"')&&v.includes('"classification":"AUTH"')));
   assert(records.every(v=>!v.includes(permit)&&!v.includes(secondPermit)&&
