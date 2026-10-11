@@ -75,8 +75,14 @@ test("Phase14 real governed PT: user cancellation after committed evaluation and
   socket.on("error",()=>{});
   await new Promise<void>((resolve,reject)=>{socket.once("connect",()=>resolve());socket.once("error",reject)});
   const aborted=new Promise<void>(resolve=>socket.once("close",()=>resolve()));
+  const served=new Promise<string>((resolve,reject)=>{
+   socket.once("data",b=>resolve(b.toString("utf8")));
+   socket.once("error",reject);
+  });
   socket.write("GET /v9/pt/orchestrations/"+user.id+" HTTP/1.1\r\nHost: 127.0.0.1:"+address.port+
    "\r\nAuthorization: Bearer local-test-token-alpha\r\nConnection: keep-alive\r\n\r\n");
+  const actualHttp=await served;
+  assert.match(actualHttp,/HTTP\/1\.1 200/,"actual server accepted request during governed worker execution");
   socket.destroy();await aborted;
   assert.equal((await snapshot(user.id)).consumed,1,"lost read transport never rewinds committed execution");
   const cancel=requireCode(await call("POST","/v9/pt/orchestrations/"+user.id+"/cancel",{}),200);
