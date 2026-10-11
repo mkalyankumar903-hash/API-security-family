@@ -266,3 +266,96 @@ test("Phase14 A2 genuine SIGTERM during committed governed PT evaluation; fenced
   }finally{if(original.exitCode===null)original.kill("SIGKILL");}
  }finally{await app.close();}
 });
+
+
+test("Phase14 real OS governed PT: customer cancels after one committed evaluation while worker is paused",async()=>{
+ const app=await makeApp(),fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
+ const call=async(method:"GET"|"POST",url:string,payload?:object,key?:string,authority=false)=>{
+  const response=await app.inject({method,url,payload,headers:{
+   authorization:"Bearer local-test-token-alpha",
+   ...(key?{"idempotency-key":key}:{}),
+   ...(authority?{"x-pt-authority-key":process.env.PT_TEST_AUTHORITY_KEY??""}:{})}});
+  assert(response.statusCode>=200&&response.statusCode<300,response.body);
+  return response.json() as Record<string,unknown>;
+ };
+ try{
+  const t=await call("POST","/v1/targets",{name:"Active customer cancel "+randomUUID().slice(0,8),
+   environment:"SYNTHETIC",baseUrl:"https://oscancel-"+randomUUID().slice(0,8)+".fixture.invalid"});
+  const target=t.id as string;
+  const imported=await call("POST","/v2/targets/"+target+"/specifications/imports",
+   {filename:"phase07-security.openapi.json",content:fixture},"oscancel-spec-"+randomUUID());
+  const spec=imported.specificationId as string;
+  const ops=await call("GET","/v2/specifications/"+spec+"/operations?limit=100") as unknown as
+   {key:string;method:string;path:string}[];
+  const operationKeys=["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"].map(path=>
+   ops.find(op=>op.path===path&&op.method==="GET")?.key);
+  assert(operationKeys.every(Boolean));
+  const created=await call("POST","/v6/pt/targets/"+target+"/scopes",{
+   specificationId:spec,operationKeys,fixtureId:"pt-security-v1",exclusions:[],
+   maxEvaluations:14,ratePerMinute:14,maxConcurrency:1,deadlineMs:30000,validityMinutes:15
+  },"oscancel-scope-"+randomUUID());
+  const scope=created.id as string;
+  await call("POST","/v6/pt/scopes/"+scope+"/request-authorization",{});
+  const permit=(await call("POST","/v6/pt/test-authority/scopes/"+scope+"/issue",{},undefined,true)).id as string;
+  const parent=await call("POST","/v11/api-vapt/assessments",{
+   mode:"GOVERNED_SYNTHETIC",scopeId:scope,
+   policyId:"SYNTHETIC_PT_COMPLETE_SUPPORTED",profile:"SECURE_BASELINE"
+  },"oscancel-parent-"+randomUUID());
+  const id=parent.id as string,pt=parent.ptAssessmentId as string;
+  assert.equal(await processOneJob(),true,"offline child must commit before governed execution");
+  const original=spawnWorker("active-pt");
+  try{
+   const ready=stage(original,"READY"),consumed=stage(original,"PHASE14_ACTIVE_PT_EVALUATION_COMMITTED",12000);
+   await ready;
+   const marker=await consumed;
+   assert.equal(marker.assessmentId,pt);
+   const before=await withTenant(TENANT,async tx=>{
+    const evaluations=await tx.query(
+     "SELECT count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1 AND state='CONSUMED'",[pt]);
+    const reports=await tx.query("SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]);
+    return {consumed:evaluations.rows[0].n,reports:reports.rows[0].n};
+   });
+   assert.deepEqual(before,{consumed:1,reports:0});
+   const previous=await withWorkerTenant(TENANT,async tx=>{
+    const queue=await tx.query("SELECT claim_token,claim_generation FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[pt]);
+    const attempts=await tx.query("SELECT id FROM api_worker_attempts WHERE assessment_id=$1 AND state='ACTIVE'",[pt]);
+    assert.equal(queue.rowCount,1);assert.equal(attempts.rowCount,1);
+    return {tenant_id:TENANT,assessment_id:pt,
+     claim_token:queue.rows[0].claim_token as string,
+     claim_generation:Number(queue.rows[0].claim_generation),
+     attempt_id:attempts.rows[0].id as string} satisfies WorkerClaim;
+   });
+   const cancel=await call("POST","/v11/api-vapt/assessments/"+id+"/cancel",{});
+   assert.equal(cancel.status,"CANCELLED");
+   const stopped=exitChild(original);original.kill("SIGTERM");
+   const outcome=await stopped;assert.equal(outcome.code,75);
+   assert(outcome.elapsedMs<2400,"actual OS-process stop must stay bounded");
+   assert.equal(await renewWorkerClaim(previous),false);
+   assert.equal(await releaseUnstartedWorkerClaim(previous),false);
+   // Finalize the stale worker's attempt from durable SQL only, not a fake successful job.
+   await finishWorkerAttempt(previous);
+   const snapshot=await withTenant(TENANT,async tx=>{
+    const state=await tx.query("SELECT status FROM api_assessments WHERE id=ANY($1::uuid[]) ORDER BY id",[[id,pt]]);
+    const receipts=await tx.query("SELECT state FROM api_pt_detection_evaluations WHERE assessment_id=$1",[pt]);
+    const parentReports=await tx.query("SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]);
+    const ptReports=await tx.query("SELECT count(*)::int AS n FROM api_pt9_reports WHERE assessment_id=$1",[pt]);
+    const attempts=await tx.query("SELECT state FROM api_worker_attempts WHERE assessment_id=$1 ORDER BY claim_generation",[pt]);
+    const permitRow=await tx.query("SELECT consumed,reserved FROM api_pt_permits WHERE id=$1",[permit]);
+    return {states:state.rows.map(x=>x.status),consumed:receipts.rows.filter(x=>x.state==="CONSUMED").length,
+     parentReports:parentReports.rows[0].n,ptReports:ptReports.rows[0].n,
+     attempts:attempts.rows.map(x=>x.state),permit:permitRow.rows[0]};
+   });
+   assert.deepEqual(snapshot.states,["CANCELLED","CANCELLED"]);
+   assert.equal(snapshot.consumed,1);assert.equal(snapshot.parentReports,0);
+   assert.equal(snapshot.ptReports,0);
+   assert.equal(snapshot.permit.consumed,1);
+   assert.equal(snapshot.permit.reserved,0);
+   assert.deepEqual(snapshot.attempts,["CANCELLED"]);
+   assert.equal((await app.inject({method:"GET",url:"/v11/api-vapt/assessments/"+id+"/report",
+    headers:{authorization:"Bearer local-test-token-alpha"}})).statusCode,409);
+   console.log("PHASE14_ACTIVE_OS_CUSTOMER_CANCEL_PASS "+JSON.stringify({
+    firstConsumed:1,afterConsumed:1,parentReports:0,ptReports:0,oldLeaseFenced:true,
+    terminal:"CANCELLED",noExternalTargets:true,verifiedFixed:false}));
+  }finally{if(original.exitCode===null&&original.signalCode===null)original.kill("SIGKILL");}
+ }finally{await app.close();}
+});
