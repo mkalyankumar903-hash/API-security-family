@@ -69,6 +69,19 @@ test("Phase14 C3 revoked permit and stopped governor emit sanitized diagnostics 
   const started=await withTenant(tenant,tx=>tx.query("SELECT status FROM api_assessments WHERE id=$1",[jid]));
   assert.equal(started.rows[0].status,"QUEUED");
   records.length=0;
+  // A failed authorization must not mutate the governor, cancel a queued job,
+  // or falsely emit a committed terminal/cancellation diagnostic.
+  const forbiddenStop=await app.inject({method:"POST",url:"/v6/pt/test-authority/stop",
+   payload:{},headers:{authorization:"Bearer local-test-token-alpha",
+    "x-pt-authority-key":"invalid-test-authority"}});
+  assert.equal(forbiddenStop.statusCode,403,forbiddenStop.body);
+  assert.equal(records.filter(v=>v.includes('"kind":"ASSESSMENT_TRANSITION"')).length,0);
+  const deniedState=await withTenant(tenant,async tx=>{
+   const s=await tx.query("SELECT enabled FROM api_pt_stop WHERE tenant_id=$1",[tenant]);
+   const a=await tx.query("SELECT status FROM api_assessments WHERE id=$1",[jid]);
+   return {enabled:s.rows[0]?.enabled,state:a.rows[0]?.status};
+  });
+  assert.deepEqual(deniedState,{enabled:false,state:"QUEUED"});
   const stopped=await call("POST","/v6/pt/test-authority/stop",{},undefined,true);
   assert.equal(stopped.enabled,true);
   const terminal=await withTenant(tenant,async tx=>{
