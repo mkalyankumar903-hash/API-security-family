@@ -161,6 +161,22 @@ jobs:
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase13_crash_targeted" >> "$GITHUB_ENV"
       - name: Phase13 real PostgreSQL child-process SIGKILL and synthetic sink crash/restart
         run: node --import tsx --test --test-concurrency=1 tests/phase13-crash.pg.test.ts
+      - name: Create independent Phase14 E6 first-write PostgreSQL16 benchmark database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase14_e6;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase14_e6 -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase14_e6 TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase14_e6" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase14_e6" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase14_e6" >> "$GITHUB_ENV"
+      - name: Fresh immutable 001-019 for isolated E6 actual source benchmarks
+        run: npm run migrate
+      - name: Phase14 E6 real signed governed PT parent child worker recovery and commercial first-write benchmarks
+        run: node --import tsx --test --test-concurrency=1 tests/phase14-e6.pg.test.ts
+
 
 
   browser-targeted:
@@ -261,6 +277,9 @@ jobs:
       - name: Phase14 Chromium failure, recovery and Host-blocked security
         if: ${{ !contains(github.event.pull_request.title, '[phase14-p11]') }}
         run: npx playwright test tests/browser/phase14.spec.ts
+      - name: Phase14 F5 genuine concurrent React Fastify PostgreSQL cancellation and stale UI defenses
+        if: ${{ !contains(github.event.pull_request.title, '[phase14-p11]') }}
+        run: npx playwright test tests/browser/phase14-f5.spec.ts
 
   historical:
     if: ${{ contains(github.event.pull_request.title, '[phase14-history]') }}
@@ -572,6 +591,22 @@ jobs:
           echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase13_crash_full" >> "$GITHUB_ENV"
       - name: Phase13 real PostgreSQL child-process SIGKILL and synthetic sink crash/restart
         run: node --import tsx --test --test-concurrency=1 tests/phase13-crash.pg.test.ts
+      - name: Create independent Phase14 E6 first-write PostgreSQL16 benchmark database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE api_family_phase14_e6;"
+          psql -h 127.0.0.1 -p 55432 -U postgres -d api_family_phase14_e6 -v ON_ERROR_STOP=1 -c "GRANT CONNECT ON DATABASE api_family_phase14_e6 TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"
+          echo "DATABASE_URL=postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase14_e6" >> "$GITHUB_ENV"
+          echo "WORKER_DATABASE_URL=postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase14_e6" >> "$GITHUB_ENV"
+          echo "MIGRATION_DATABASE_URL=postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase14_e6" >> "$GITHUB_ENV"
+      - name: Fresh immutable 001-019 for isolated E6 actual source benchmarks
+        run: npm run migrate
+      - name: Phase14 E6 real signed governed PT parent child worker recovery and commercial first-write benchmarks
+        run: node --import tsx --test --test-concurrency=1 tests/phase14-e6.pg.test.ts
+
 
       # The preceding exhaustive PostgreSQL race/recovery suite deliberately
       # preserves pending jobs, consumed permits and tenant stop state.
@@ -701,6 +736,8 @@ jobs:
           npx playwright test tests/browser/phase13.spec.ts
       - name: Phase14 real Chromium React Fastify PostgreSQL failure and recovery
         run: npx playwright test tests/browser/phase14.spec.ts
+      - name: Phase14 F5 independent real Chromium repeated submission cancellation and identity races
+        run: npx playwright test tests/browser/phase14-f5.spec.ts
 
 
 
