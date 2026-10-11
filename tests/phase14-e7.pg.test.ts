@@ -85,3 +85,83 @@ test("Phase14 E7 actual committed transient backoff and generation-fenced recove
    productionSlo:false}));
  }finally{await app.close();}
 });
+
+
+test("Phase14 E7 actual 2-4-8 second committed retry distribution and terminal exhaustion",async()=>{
+ await migrate();const app=await makeApp();
+ const warmup=2,fixtures=10,measured=[[],[],[],[]] as number[][];
+ const scheduledBackoffs=[2,4,8],cpu=process.cpuUsage(),heap=process.memoryUsage().heapUsed;
+ const req=(url:string,data:object,key?:string)=>app.inject({method:"POST",url,payload:data,headers:{
+  authorization:"Bearer local-test-token-alpha",...(key?{"idempotency-key":key}:{})}});
+ const ok=(r:{statusCode:number;body:string;json:()=>Record<string,unknown>},status:number)=>{
+  assert.equal(r.statusCode,status,r.body);return r.json();
+ };
+ try{
+  for(let i=0;i<fixtures;i++){
+   const suffix=randomUUID().slice(0,8);
+   const tid=ok(await req("/v1/targets",{name:"E7 exhaust "+suffix,
+    environment:"SYNTHETIC",baseUrl:"https://exhaust-"+suffix+".fixture.invalid"}),201).id as string;
+   const spec=ok(await req("/v1/targets/"+tid+"/specifications",{
+    filename:"e7-exhaust.json",content:source}),201).id as string;
+   const id=ok(await req("/v1/targets/"+tid+"/assessments",{
+    mode:"SPEC_ONLY",specificationId:spec},"exhaust-"+randomUUID()),201).id as string;
+   let lease=await claimJob();assert.equal(lease?.assessment_id,id);
+   for(let n=0;n<4;n++){
+    const beginning=performance.now();
+    const classification=await scheduleConservativeRetry(lease!,{code:"08006"});
+    const elapsed=performance.now()-beginning;
+    assert.equal(classification,n===3?"RETRY_EXHAUSTED":"RETRY_SCHEDULED");
+    if(i>=warmup)measured[n]!.push(elapsed);
+    if(n===3)break;
+    const state=await withWorkerTenant(A,tx=>tx.query(
+     "SELECT retry_count,claim_token,next_eligible_at,last_error_code FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[id]));
+    assert.equal(state.rows[0].retry_count,n+1);
+    assert.equal(state.rows[0].claim_token,null);
+    assert.equal(state.rows[0].last_error_code,"TRANSIENT_08006");
+    const observed=(new Date(state.rows[0].next_eligible_at).getTime()-Date.now())/1000;
+    assert(observed>0&&observed<=scheduledBackoffs[n]!+0.2,
+     "real next_eligible_at must match observed bounded 2/4/8 second backoff");
+    assert.equal(await renewWorkerClaim(lease!),false);
+    await withWorkerTenant(A,tx=>tx.query(
+     "UPDATE api_queue.api_assessment_queue SET next_eligible_at=clock_timestamp()-interval '1 second' WHERE assessment_id=$1",[id]));
+    const successor=await claimJob();
+    assert.equal(successor?.assessment_id,id);assert.notEqual(successor?.claim_token,lease!.claim_token);
+    assert.equal(successor?.claim_generation,lease!.claim_generation+1);
+    lease=successor;
+   }
+   const committed=await withTenant(A,async tx=>{
+    const assessment=await tx.query("SELECT status,error_code FROM api_assessments WHERE id=$1",[id]);
+    const attempts=await tx.query("SELECT state,failure_code FROM api_worker_attempts WHERE assessment_id=$1 ORDER BY claim_generation",[id]);
+    const events=await tx.query("SELECT kind,code FROM api_worker_events WHERE assessment_id=$1 ORDER BY occurred_at",[id]);
+    const quarantine=await tx.query("SELECT reason_code,attempts FROM api_worker_quarantine WHERE assessment_id=$1",[id]);
+    const report=await tx.query("SELECT count(*)::int AS n FROM api_reports WHERE assessment_id=$1",[id]);
+    return {assessment:assessment.rows[0],attempts:attempts.rows,events:events.rows,
+     quarantine:quarantine.rows[0],reports:report.rows[0].n};
+   });
+   assert.deepEqual(committed.assessment,{status:"FAILED",error_code:"WORKER_RETRY_EXHAUSTED"});
+   assert.equal(committed.attempts.length,4);
+   assert.equal(committed.events.filter(x=>x.kind==="RETRY_SCHEDULED").length,3);
+   assert.equal(committed.events.filter(x=>x.kind==="RETRY_EXHAUSTED").length,1);
+   assert.deepEqual(committed.quarantine,{reason_code:"WORKER_RETRY_EXHAUSTED",attempts:4});
+   assert.equal(committed.reports,0);
+   assert.equal((await withWorkerTenant(A,tx=>tx.query(
+    "SELECT 1 FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[id]))).rowCount,0);
+  }
+  const stat=(s:number[])=>{
+   assert.equal(s.length,fixtures-warmup);
+   assert(s.every(v=>v>=0&&Number.isFinite(v)));
+   const sorted=[...s].sort((a,b)=>a-b);
+   return {samples:sorted.length,medianMs:Number(sorted[3]!.toFixed(3)),
+    p95Ms:Number(sorted[7]!.toFixed(3))};
+  };
+  const used=process.cpuUsage(cpu);
+  console.log("PHASE14_E7_FULL_RETRY_EXHAUSTION "+JSON.stringify({
+   stages:["2s","4s","8s","EXHAUSTED"].map((name,index)=>({name,...stat(measured[index]!)})),
+   warmup,fixtures,concurrency:1,errors:0,
+   cpuUserMicros:used.user,cpuSystemMicros:used.system,
+   heapDeltaBytes:process.memoryUsage().heapUsed-heap,
+   source:"scheduleConservativeRetry actual PostgreSQL retry_count/next_eligible_at and terminal quarantine",
+   reportCount:0,billable:false,customerNetworkRequests:0,productionSlo:false,
+   hardP95Budget:null,reason:"8 shared GitHub runner samples cannot justify production hard latency budget"}));
+ }finally{await app.close();}
+});
