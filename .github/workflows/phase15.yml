@@ -388,9 +388,17 @@ jobs:
         run: npm run phase15:verify
       - name: Clean archive installation, SDK/UI ESM imports and production fail-closed startup
         run: npm run phase15:install
+      - name: Phase15 CI only Host simulator security regressions
+        run: npm run phase15:contracts
+      - name: Phase15 private compiled release artifact build
+        run: npm run phase15:build
+      - name: Phase15 artifact SHA256 and inventory verification
+        run: npm run phase15:verify
+      - name: Phase15 private archive clean install and production startup denial
+        run: npm run phase15:install
       - name: Full unit, contract and security negative suite
         run: npm test
-      - name: Phase15 clean compiled migration package from archive: fresh, repeated and concurrent PostgreSQL16
+      - name: Phase15 clean compiled migration package from archive - fresh repeated concurrent PostgreSQL16
         shell: bash
         env:
           PGPASSWORD: local_admin_only
@@ -553,6 +561,14 @@ jobs:
           node --input-type=module -e "import {V13Client} from './packages/sdk/dist/v13.js'; if(typeof V13Client!=='function')process.exit(1)"
           (cd packages/sdk && npm pack --dry-run --ignore-scripts --json) > /tmp/phase13-sdk-contents.json
           node --input-type=module -e "import fs from 'node:fs'; const a=JSON.parse(fs.readFileSync('/tmp/phase13-sdk-contents.json','utf8'))[0].files.map(f=>f.path);if(!a.includes('dist/v13.js')||!a.includes('dist/v13.d.ts')||!a.includes('README.md'))throw Error('SDK_PACKAGE_MISSING_BUILD_ASSETS');if(a.some(f=>f.endsWith('.env')||f.includes('secret')))throw Error('SDK_PACKAGE_FORBIDDEN_ASSET')"
+      - name: Phase15 CI only Host simulator security regressions
+        run: npm run phase15:contracts
+      - name: Phase15 private compiled release artifact build
+        run: npm run phase15:build
+      - name: Phase15 artifact SHA256 and inventory verification
+        run: npm run phase15:verify
+      - name: Phase15 private archive clean install and production startup denial
+        run: npm run phase15:install
       - name: Full unit, contract and security negative suite
         run: npm test
       - name: Phase14 measured bounded synthetic parsing and isolated load
