@@ -15,6 +15,10 @@ test("Phase06 Chromium: React scope/denial/issuer/worker/receipts/report/revocat
  await page.getByPlaceholder("Payments API").fill("PT6 "+suffix);
  await page.getByPlaceholder("https://api.example.invalid").fill("https://pt6-"+suffix+".fixture.invalid");
  await page.getByRole("button",{name:"Register target"}).click();
+ // A clicked submit is not a completed persisted POST. Wait for the real React
+ // selected target to match this unique fixture before asserting PostgreSQL readback.
+ await expect(page.locator("#target")).toHaveValue(/^[a-f0-9-]{36}$/i);
+ await expect(page.locator("#target option:checked")).toContainText("PT6 "+suffix);
  const targets=await request.get(base+"/v1/targets",{headers:auth});
  const tid=(await targets.json() as {id:string;name:string}[]).find(x=>x.name==="PT6 "+suffix)?.id;
  if(!tid)throw new Error("PT_TARGET_NOT_CREATED");
