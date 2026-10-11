@@ -129,6 +129,7 @@ test("F5 late authentic queued browser response cannot roll back UI cancellation
  const panel=await setupPage(page,target,spec);
  await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
  await expect(panel.getByRole("button",{name:"Cancel assessment"})).toBeVisible();
+ await expect.poll(async()=>(await history(request,target)).length).toBe(1);
  const id=(await history(request,target))[0]!.id;
  const gate=barrier();let captured=false;
  await page.route("**/v11/api-vapt/assessments/"+id,async route=>{
@@ -198,6 +199,7 @@ test("F5 partial execution then cancel rejects false successful parent and immut
  const {target,spec}=await seed(request);
  const panel=await setupPage(page,target,spec);
  await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ await expect.poll(async()=>(await history(request,target)).length).toBe(1);
  const id=(await history(request,target))[0]!.id;
  // The shared real queue contains other previous synthetic fixtures. Do not
  // confuse an unrelated successful worker claim with this parent's child.
@@ -418,6 +420,7 @@ test("F5 stale authentic COMPLETED parent response cannot replace newly CANCELLE
  const {target,spec}=await seed(request),panel=await setupPage(page,target,spec);
  const start=panel.getByRole("button",{name:"Start one autonomous assessment"});
  await start.click();
+ await expect.poll(async()=>(await history(request,target)).length).toBe(1);
  const oldId=(await history(request,target))[0]!.id;
  let done=false;
  for(let i=0;i<25;i++){
