@@ -1,0 +1,25 @@
+import {test,expect} from "@playwright/test";
+test("Phase15 CI-only read-only mount handles tenant switch, session change and token revocation without elevating Host authority",async({page})=>{
+ const called:string[]=[];
+ page.on("request",request=>{if(!request.url().startsWith("http://127.0.0.1:")&&!request.url().startsWith("http://localhost:"))called.push(request.url());});
+ await page.setViewportSize({width:360,height:730});
+ await page.emulateMedia({reducedMotion:"reduce"});
+ await page.goto("/?phase15Mount=1");
+ const mount=page.locator("[data-phase15-mount='read-only']");
+ await expect(mount).toBeVisible();
+ await expect(mount.getByRole("heading",{name:"LumicSec API Security"})).toBeVisible();
+ await expect(mount.getByRole("alert")).toContainText("HOST_AUTHORITY_NOT_CONFIGURED");
+ await expect(mount).toContainText("No production Host login, permits, billing or VERIFIED_FIXED authority.");
+ await expect(mount.getByRole("button")).toHaveCount(0);
+ await page.getByRole("button",{name:"Switch synthetic tenant hint"}).click();
+ await expect(mount.getByRole("alert")).toContainText("HOST_AUTHORITY_NOT_CONFIGURED");
+ await page.getByRole("button",{name:"Switch synthetic tenant hint"}).click();
+ await expect(mount.getByRole("alert")).toContainText("HOST_AUTHORITY_NOT_CONFIGURED");
+ await page.getByRole("button",{name:"Rotate test session"}).click();
+ await expect(mount.getByRole("alert")).toContainText("HOST_AUTHORITY_NOT_CONFIGURED");
+ await page.getByRole("button",{name:"Invalidate synthetic token"}).click();
+ await expect(mount.getByRole("alert")).toContainText("HOST_AUTHORITY_NOT_CONFIGURED");
+ await page.evaluate(()=>{document.documentElement.style.fontSize="200%";document.documentElement.dir="rtl";});
+ await expect(mount.getByRole("heading",{name:"LumicSec API Security"})).toBeVisible();
+ expect(called).toEqual([]);
+});

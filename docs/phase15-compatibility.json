@@ -1,0 +1,24 @@
+{
+  "schema": "lumicsec-phase15-compatibility-v1",
+  "candidate": "0.15.0-rc.1",
+  "status": "provisional-not-host-approved",
+  "node": ">=22 <23",
+  "postgres": "16",
+  "sdk": "@lumicsec/api-family-v13-sdk@0.15.0-rc.1",
+  "ui": "@lumicsec/api-family-ui-rc@0.15.0-rc.1",
+  "historicalMigrations": {
+    "minimum": 1,
+    "maximum": 19
+  },
+  "hostAdapter": "api-family-host-adapter-v15-draft",
+  "upstreamContract": "v0.3.2 provisional, not frozen",
+  "productionHost": "HOST_AUTHORITY_NOT_CONFIGURED",
+  "productionCapabilities": {
+    "identity": false,
+    "permits": false,
+    "billing": false,
+    "canonicalRetest": false,
+    "scanning": false
+  },
+  "supportedIsolated": "SPEC_ONLY, synthetic-only permitted CI fixtures"
+}

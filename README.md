@@ -1,3 +1,9 @@
+# LumicSec API Family — Phase 15 release-candidate engineering (DRAFT / NOT QUALIFIED)
+
+Current working effort: stacked [Draft PR #16](https://github.com/mkalyankumar903-hash/API-security-family/pull/16), based on accepted Phase14 commit `418f07bd8efed24d6094b84ac71aacfac0097e54`. This **does not authorize production Host integration, live scans, customer billing, publishing, or canonical VERIFIED_FIXED**. Read `docs/phase15-release-qualification.md` and `docs/phase15-integration-handover.md` before using anything outside CI. Historical guidance follows unchanged.
+
+---
+
 # LumicSec — API Security Family
 
 **Phase 0 isolated assessment development. NOT production-ready.**
