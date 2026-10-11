@@ -4,6 +4,7 @@
 import {test,expect,type APIRequestContext,type Page} from "@playwright/test";
 import {randomUUID} from "node:crypto";
 import {readFileSync} from "node:fs";
+import {performance} from "node:perf_hooks";
 import {withTenant,closeDatabase} from "../../packages/database/src/index.js";
 import {processOneJob} from "../../packages/worker/src/index.js";
 const API="http://127.0.0.1:3001";
@@ -272,7 +273,11 @@ test("F5 HTTP 429 admission denial at 320px and 200% text with accessible alert 
  const panel=page.getByRole("region",{name:"Autonomous API VAPT workspace"});
  await panel.getByLabel("Assessment mode").selectOption("OFFLINE_ONLY");
  await panel.getByLabel("Immutable specification").selectOption(spec);
- await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});
+ await page.evaluate(()=>{
+  document.documentElement.style.fontSize="200%";
+  document.documentElement.dir="rtl"; // test-only direction stress; not a translation or locale claim
+ });
+ await expect(page.locator("html")).toHaveAttribute("dir","rtl");
  let denies=0;
  await page.route("**/v11/api-vapt/assessments",async route=>{
   if(route.request().method()==="POST"&&denies++===0){
@@ -316,4 +321,91 @@ test("F5 failed cancellation cannot create false terminal status; on retry retai
  expect((await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth})).status()).toBe(409);
  expect((await withTenant(A,tx=>tx.query(
   "SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]))).rows[0].n).toBe(0);
+});
+
+test("F5 governed scope revocation is visible, admission denied and no browser-triggered PT executes",async({page,request})=>{
+ test.setTimeout(90000);
+ const {target,spec}=await seed(request);
+ const operations=await request.get(API+"/v2/specifications/"+spec+"/operations?limit=100",{headers:auth});
+ expect(operations.status(),await operations.text()).toBe(200);
+ const ops=await operations.json() as {path:string;method:string;key:string}[];
+ const keys=["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"]
+  .map(path=>ops.find(x=>x.method==="GET"&&x.path===path)?.key);
+ expect(keys.every(Boolean)).toBe(true);
+ const scope=await request.post(API+"/v6/pt/targets/"+target+"/scopes",{
+  headers:{...auth,"idempotency-key":"f5-scope-"+randomUUID()},
+  data:{specificationId:spec,operationKeys:keys,fixtureId:"pt-security-v1",exclusions:[],
+   maxEvaluations:14,ratePerMinute:14,maxConcurrency:1,deadlineMs:30000,validityMinutes:15}});
+ expect(scope.status(),await scope.text()).toBe(201);
+ const sid=(await scope.json() as {id:string}).id;
+ const authRequest=await request.post(API+"/v6/pt/scopes/"+sid+"/request-authorization",{headers:auth,data:{}});
+ expect(authRequest.status(),await authRequest.text()).toBe(201);
+ const authority={...auth,"x-pt-authority-key":process.env.PT_TEST_AUTHORITY_KEY??""};
+ const issued=await request.post(API+"/v6/pt/test-authority/scopes/"+sid+"/issue",{headers:authority,data:{}});
+ expect(issued.status(),await issued.text()).toBe(201);
+ const permit=(await issued.json() as {id:string}).id;
+ await page.goto("/");
+ await page.getByLabel("Select target").selectOption(target);
+ const panel=page.getByRole("region",{name:"Autonomous API VAPT workspace"});
+ await expect(panel.getByText("Permit readiness:")).toContainText("VALID");
+ const start=panel.getByRole("button",{name:"Start one autonomous assessment"});
+ await expect(start).toBeEnabled();
+ const revoke=await request.post(API+"/v6/pt/test-authority/permits/"+permit+"/revoke",{
+  headers:authority,data:{}});
+ expect(revoke.status(),await revoke.text()).toBe(200);
+ // A stale browser preview never confers server execution authority.
+ await start.click();
+ await expect(panel.getByRole("alert")).toBeVisible();
+ expect(await history(request,target)).toHaveLength(0);
+ await panel.getByLabel("Trusted fixture profile").selectOption("MISSING_AUTH_ENFORCEMENT");
+ await expect(panel.getByText("Permit readiness:")).toContainText("BLOCKED");
+ await expect(start).toBeDisabled();
+ expect(await history(request,target)).toHaveLength(0);
+ const receipt=await withTenant(A,tx=>tx.query(
+  "SELECT count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id IN (SELECT id FROM api_assessments WHERE target_id=$1)",[target]));
+ expect(receipt.rows[0].n).toBe(0);
+});
+
+test("F5 E7 actual Chromium operation admission/cancellation transition distributions without fake server success",async({page,request})=>{
+ test.setTimeout(120000);
+ const {target,spec}=await seed(request);
+ const panel=await setupPage(page,target,spec);
+ const samples:{admit:number;cancel:number}[]=[],warmup=2,iterations=10;
+ const cpu=process.cpuUsage(),heap=process.memoryUsage().heapUsed;
+ const start=panel.getByRole("button",{name:"Start one autonomous assessment"});
+ for(let i=0;i<iterations;i++){
+  const t0=performance.now();
+  await start.click();
+  await expect.poll(async()=>(await history(request,target)).length).toBe(i+1);
+  await expect(panel.getByRole("button",{name:"Cancel assessment"})).toBeVisible();
+  await expect(panel.getByRole("status")).toContainText("QUEUED");
+  const admitted=performance.now()-t0;
+  const t1=performance.now();
+  await panel.getByRole("button",{name:"Cancel assessment"}).click();
+  await expect(panel.getByRole("status")).toContainText("CANCELLED");
+  const cancelled=performance.now()-t1;
+  const rows=await history(request,target);
+  expect(rows).toHaveLength(i+1);
+  expect(rows.every(x=>x.status==="CANCELLED")).toBe(true);
+  const latest=rows.find(x=>x.status==="CANCELLED"&&x.id!==undefined);
+  expect(latest).toBeDefined();
+  if(i>=warmup)samples.push({admit:admitted,cancel:cancelled});
+ }
+ function calc(key:"admit"|"cancel"){
+  const values=samples.map(x=>x[key]).sort((a,b)=>a-b);
+  expect(values).toHaveLength(8);expect(values.every(x=>Number.isFinite(x)&&x>=0)).toBe(true);
+  return {medianMs:Number(values[3]!.toFixed(3)),
+   p95Ms:Number(values[Math.ceil(values.length*.95)-1]!.toFixed(3)),samples:8};
+ }
+ const cpuUsed=process.cpuUsage(cpu);
+ console.log("PHASE14_E7_REAL_BROWSER_TRANSITIONS "+JSON.stringify({
+  admission:calc("admit"),cancellation:calc("cancel"),warmup,iterations,concurrency:1,
+  fixture:"10 committed offline synthetic parents with real cancellation and no reports",
+  cpuUserMicros:cpuUsed.user,cpuSystemMicros:cpuUsed.system,
+  heapDeltaBytes:process.memoryUsage().heapUsed-heap,
+  noProductionSlo:true,customerNetworkRequests:0,errors:0,
+  runner:"GitHub-hosted Chromium React Fastify PostgreSQL16"}));
+ const db=await withTenant(A,tx=>tx.query(
+  "SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id IN (SELECT parent_assessment_id FROM api_vapt11_assessments WHERE target_id=$1)",[target]));
+ expect(db.rows[0].n).toBe(0);
 });
