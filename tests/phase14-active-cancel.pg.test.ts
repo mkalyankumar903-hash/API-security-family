@@ -106,7 +106,13 @@ test("Phase14 real governed PT: user cancellation after committed evaluation and
   assert.equal(cross.rowCount,0);
   const permitBefore=await withTenant(A,tx=>tx.query("SELECT consumed FROM api_pt_permits WHERE id=$1",[user.permit]));
   assert.equal(permitBefore.rows[0].consumed,1);
+  const cancelledEventsBeforeRejectedReplay=recorded.filter(x=>x.includes('"kind":"ASSESSMENT_TRANSITION"')&&
+   x.includes('"state":"CANCELLED"')&&x.includes('"classification":"OK"')).length;
+  assert.equal(cancelledEventsBeforeRejectedReplay,1,"one committed customer cancellation emits one terminal event");
   assert.equal((await call("POST","/v9/pt/orchestrations/"+user.id+"/cancel",{})).statusCode,409);
+  assert.equal(recorded.filter(x=>x.includes('"kind":"ASSESSMENT_TRANSITION"')&&
+   x.includes('"state":"CANCELLED"')&&x.includes('"classification":"OK"')).length,
+   cancelledEventsBeforeRejectedReplay,"rejected replay/rolled-back cancellation must emit no false terminal success");
   const recovery=await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt9_reports WHERE assessment_id=$1",[user.id]));
   assert.equal(recovery.rows[0].n,0);
   assert(recorded.some(x=>x.includes('"kind":"ASSESSMENT_TRANSITION"')&&
