@@ -8,6 +8,7 @@ import {type OrchestrationPlan,ORCHESTRATOR_ENGINE,buildOrchestrationPlan,
  orchestrationFingerprint,validateOrchestrationPlan} from "../../pt/src/orchestrator.js";
 import {persistTerminalCoverage} from "../../pt/src/terminal-coverage.js";
 import {persistOrchestrationTerminal} from "../../pt/src/orchestration-terminal.js";
+import {emitDiagnostic} from "../../contracts/src/operational-diagnostics-v14.js";
 import {governedPtDetectionInteraction,settlePtDetectionReservations,
  withGovernedPtDetectionPublication} from "./pt.js";
 
@@ -156,11 +157,11 @@ async function publish(tenant:string,id:string,token:string,plan:OrchestrationPl
 }
 async function fail(tenant:string,id:string,token:string,code:string):Promise<void>{
  if(!await settlePtDetectionReservations(tenant,id,token))return;
- await withWorkerTenant(tenant,async tx=>{
+ const committed=await withWorkerTenant(tenant,async tx=>{
   const q=await tx.query("SELECT claim_token,locked_until FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[id]);
-  if(q.rows[0]?.claim_token!==token||new Date(q.rows[0].locked_until).getTime()<=Date.now())return;
+  if(q.rows[0]?.claim_token!==token||new Date(q.rows[0].locked_until).getTime()<=Date.now())return false;
   const a=await tx.query("SELECT status FROM api_assessments WHERE id=$1 FOR UPDATE",[id]);
-  if(a.rows[0]?.status!=="PROCESSING")return;
+  if(a.rows[0]?.status!=="PROCESSING")return false;
   await tx.query("UPDATE api_assessments SET status='FAILED',error_code=$2,completed_at=now() WHERE id=$1 AND status='PROCESSING'",[id,code]);
   await tx.query("UPDATE api_pt9_stages SET status=CASE WHEN status='RUNNING' THEN 'FAILED' ELSE 'BLOCKED' END,reason=$2,finished_at=now() WHERE assessment_id=$1 AND status IN('PENDING','RUNNING')",[id,code]);
   await persistTerminalCoverage(tx,tenant,id);
@@ -168,7 +169,10 @@ async function fail(tenant:string,id:string,token:string,code:string):Promise<vo
   await tx.query("INSERT INTO api_pt_events(id,tenant_id,subject_id,action,details) VALUES($1,$2,$3,'PT9_ORCHESTRATION_FAILED',$4::jsonb)",
    [uuid(),tenant,id,JSON.stringify({code})]);
   await tx.query("DELETE FROM api_queue.api_assessment_queue WHERE assessment_id=$1 AND claim_token=$2",[id,token]);
+  return true;
  });
+ if(committed)emitDiagnostic({kind:"ASSESSMENT_TRANSITION",classification:"VALIDATION",
+  statusCode:409,state:"FAILED"});
 }
 export type Pt9QualificationBarriers={
  afterEvaluation?:(completed:number)=>Promise<void>;
