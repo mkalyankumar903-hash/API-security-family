@@ -575,8 +575,34 @@ jobs:
         run: npm run phase15:build
       - name: Phase15 artifact SHA256 and inventory verification
         run: npm run phase15:verify
+      - name: Phase15 second independent clean compiled build and deterministic SHA256 equivalence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp build/phase15-release/SHA256SUMS /tmp/phase15-first-SHA256SUMS
+          npm run phase15:build
+          npm run phase15:verify
+          diff -u /tmp/phase15-first-SHA256SUMS build/phase15-release/SHA256SUMS
+      - name: Upload private Phase15 release candidate bundles and SHA256 manifests to GitHub Actions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase15-private-rc-${{ github.event.pull_request.head.sha }}
+          path: build/phase15-release/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
       - name: Phase15 private archive clean install and production startup denial
         run: npm run phase15:install
+      - name: Phase15 fresh repeat concurrent packaged SQL migrations on separate PostgreSQL16 database
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: bash scripts/phase15-packaged-pg.sh
+      - name: Phase15 real PostgreSQL16 compiled API worker offline spec immutable report SDK cross tenant and restart
+        run: node scripts/phase15-packaged-e2e.mjs
+      - name: Phase15 isolated unpushed OCI images nonroot read only and production fail closed
+        shell: bash
+        run: bash scripts/phase15-container-smoke.sh
       - name: Full unit, contract and security negative suite
         run: npm test
       - name: Phase14 measured bounded synthetic parsing and isolated load
