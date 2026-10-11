@@ -24,7 +24,7 @@ try{
    DEV_TOKENS_JSON:'{"not-a-real-token":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}'
   },20000);
   assert.notEqual(result.status,0,name+" production boot cannot authorize synthetic Host");
-  assert.match(result.stderr,"HOST_AUTHORITY_NOT_CONFIGURED_PRODUCTION_FAIL_CLOSED");
+  assert.match(result.stderr,/HOST_AUTHORITY_NOT_CONFIGURED_PRODUCTION_FAIL_CLOSED/);
   assert(!String(result.stdout).includes("listening"));
   assert(!String(result.stderr).includes("not-a-real-token"));
   console.log("PHASE15_CLEAN_RUNTIME_INSTALL_AND_PRODUCTION_DENIAL_PASS:"+name);
