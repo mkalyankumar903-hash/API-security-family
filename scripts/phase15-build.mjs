@@ -67,7 +67,7 @@ copy("docs/api.openapi.yaml",join(contracts,"api.openapi.yaml"));
 copy("packages/contracts/src/host-adapter-v15.ts",join(contracts,"host-adapter-v15.ts"));
 tar(contracts,"contract-schemas-draft");
 for(const [folder,name] of [["packages/sdk","sdk-private"],["packages/ui","ui-private"]]){
- const packed=JSON.parse(call("npm",["pack",folder,"--ignore-scripts","--json","--pack-destination",out]));
+ const packed=JSON.parse(call("npm",["pack","./"+folder,"--ignore-scripts","--json","--pack-destination",out]));
  if(packed.length!==1||typeof packed[0].filename!=="string")throw new Error("PRIVATE_NPM_PACK_FAILED");
  const from=join(out,packed[0].filename);
  renameSync(from,join(out,name+".tgz"));
