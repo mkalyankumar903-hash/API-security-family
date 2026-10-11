@@ -79,7 +79,7 @@ if(process.argv.includes("--verify")){
   assert(!p.includes("\\")&&!p.startsWith("/")&&!p.split("/").includes(".."));
   const st=lstatSync(p);assert(st.isFile()&&!st.isSymbolicLink(),"UNSAFE_SOURCE:"+p);
   const bytes=readFileSync(p),dst=join(stage,dir,p);
-  assert(!bytes.toString("utf8").includes("-----BEGIN PRIVATE KEY-----"),"PRIVATE_KEY_IN_SOURCE:"+p);
+  assert(!bytes.toString("utf8").includes(["-----BEGIN"," PRIVATE KEY-----"].join("")),"PRIVATE_KEY_IN_SOURCE:"+p);
   mkdirSync(dirname(dst),{recursive:true});copyFileSync(p,dst);
   files.push({source:p,destination:dir+"/"+p,kind:kind(p),bytes:bytes.length,sha256:sha(bytes)});
   const key=trackedVars.find(prefix=>p.startsWith(prefix));
