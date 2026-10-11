@@ -182,6 +182,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase14-c3.pg.test.ts
       - name: Phase14 F5 real PostgreSQL parent immutable finalizer cancellation lock race
         run: node --import tsx --test --test-concurrency=1 tests/phase14-parent-race.pg.test.ts
+      - name: Phase14 live governed PT user cancellation revocation and mid-execution TCP disconnect
+        run: node --import tsx --test --test-concurrency=1 tests/phase14-active-cancel.pg.test.ts
 
 
 
@@ -618,6 +620,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase14-c3.pg.test.ts
       - name: Phase14 F5 real PostgreSQL parent immutable finalizer cancellation lock race
         run: node --import tsx --test --test-concurrency=1 tests/phase14-parent-race.pg.test.ts
+      - name: Phase14 live governed PT user cancellation revocation and mid-execution TCP disconnect
+        run: node --import tsx --test --test-concurrency=1 tests/phase14-active-cancel.pg.test.ts
 
 
       # The preceding exhaustive PostgreSQL race/recovery suite deliberately
