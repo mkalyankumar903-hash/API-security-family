@@ -51,6 +51,10 @@ for(const [which,main] of [["service","service"],["worker","worker"]]){
  lock.packages[""].name=pkg.name;lock.packages[""].version=version;
  lock.packages[""].dependencies=rootPkg.dependencies;
  delete lock.packages[""].devDependencies;
+// Source lockfile records the production PDF renderer as a runtime dependency.
+for(const key of ["node_modules/@playwright/test","node_modules/playwright","node_modules/playwright-core"]){
+ if(lock.packages[key])delete lock.packages[key].dev;
+}
  writeFileSync(join(d,"package-lock.json"),JSON.stringify(lock,null,2)+"\n");
  // Exact package inventory excludes tests, TypeScript, production secrets and source maps.
  tar(d,"api-"+main);
