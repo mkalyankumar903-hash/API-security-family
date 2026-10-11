@@ -1,11 +1,11 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {randomBytes,randomUUID} from "node:crypto";
-import {CAPABILITIES,CI_AUDIENCE,CI_ISSUER,HOST_ADAPTER_SCHEMA,verifyCISimulatorOnly,signCISimulatorOnly,hostTransportFailure,requireProductionHost} from "../packages/contracts/src/host-adapter-v15.js";
+import {CAPABILITIES,CI_AUDIENCE,CI_ISSUER,HOST_ADAPTER_SCHEMA,verifyCISimulatorOnly,signCISimulatorOnly,hostTransportFailure,requireProductionHost,type HostAdapterEnvelope} from "../packages/contracts/src/host-adapter-v15.js";
 const tenant=randomUUID(),organization=randomUUID(),other=randomUUID(),eventId=randomUUID();
 const now=Math.floor(Date.now()/1000),root=randomBytes(48);
 const context={tenantId:tenant,organizationId:organization,clientId:null,capability:"identity" as const,requiredPermission:"plugin:read",now};
-const unsigned=()=>({schemaVersion:HOST_ADAPTER_SCHEMA,issuer:CI_ISSUER,audience:CI_AUDIENCE,tenantId:tenant,organizationId:organization,
+const unsigned=():Omit<HostAdapterEnvelope,"signature">=>({schemaVersion:HOST_ADAPTER_SCHEMA,issuer:CI_ISSUER,audience:CI_AUDIENCE,tenantId:tenant,organizationId:organization,
  clientId:null,capability:"identity" as const,eventId,sequence:1,issuedAt:now-1,expiresAt:now+120,permissions:["plugin:read"],payload:{scanningAuthority:false}});
 function trusted(){return {root,seen:new Set<string>(),lastSequence:new Map<string,number>()};}
 function denied(f:()=>unknown,code:string){assert.throws(f,(error:unknown)=>error instanceof Error&&error.message===code);}
