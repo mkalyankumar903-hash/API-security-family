@@ -48,15 +48,17 @@ try{
  await page.route(api+"/**",async route=>{
   simulatorRequests++;
   const endpoint=route.request().url();
+  const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,content-type","Access-Control-Allow-Methods":"GET,OPTIONS"};
+  if(route.request().method()==="OPTIONS")return route.fulfill({status:204,headers:cors});
   if(route.request().headers().authorization==="Bearer revoked")
-   return route.fulfill({status:403,contentType:"application/json",body:JSON.stringify({error:"PERMISSION_DENIED"})});
+   return route.fulfill({status:403,headers:cors,contentType:"application/json",body:JSON.stringify({error:"PERMISSION_DENIED"})});
   const response=endpoint.endsWith("/v13/capabilities")?
    {schemaVersion:"api-family-commercial-v13",hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",scanningAuthority:false,meterDefinitions:[]}:
    {schemaVersion:"api-family-commercial-v13",tenantContext:"ISOLATED_SYNTHETIC_ONLY",
     hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",feature:"OFFLINE_API_ASSESSMENT_COMPLETED",
     meterUnit:"offline synthetic",billable:false,monthStart:"2026-10-01",entitlement:null,
     quota:0,consumed:0,reserved:0,remaining:0,decision:"HOST_AUTHORITY_NOT_CONFIGURED"};
-  return route.fulfill({status:200,contentType:"application/json",body:JSON.stringify(response)});
+  return route.fulfill({status:200,headers:cors,contentType:"application/json",body:JSON.stringify(response)});
  });
  await page.goto(url);
  const mount=page.locator("[data-phase15-mount='read-only']");
