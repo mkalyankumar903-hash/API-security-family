@@ -409,3 +409,42 @@ test("F5 E7 actual Chromium operation admission/cancellation transition distribu
   "SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id IN (SELECT parent_assessment_id FROM api_vapt11_assessments WHERE target_id=$1)",[target]));
  expect(db.rows[0].n).toBe(0);
 });
+
+test("F5 stale authentic COMPLETED parent response cannot replace newly CANCELLED parent",async({page,request})=>{
+ test.setTimeout(100000);
+ const {target,spec}=await seed(request),panel=await setupPage(page,target,spec);
+ const start=panel.getByRole("button",{name:"Start one autonomous assessment"});
+ await start.click();
+ const oldId=(await history(request,target))[0]!.id;
+ let done=false;
+ for(let i=0;i<25;i++){
+  const state=await request.get(API+"/v11/api-vapt/assessments/"+oldId,{headers:auth});
+  expect(state.status()).toBe(200);
+  if((await state.json() as {status:string}).status==="COMPLETED"){done=true;break;}
+  expect(await processOneJob()).toBe(true);
+ }
+ expect(done).toBe(true);
+ await expect(panel.getByText("Immutable composite security report")).toBeVisible();
+ const gate=barrier();let captured=false;
+ await page.route("**/v11/api-vapt/assessments/"+oldId,async route=>{
+  if(captured){await route.continue();return;}
+  captured=true;
+  const earlier=await route.fetch();
+  expect((await earlier.json() as {status:string}).status).toBe("COMPLETED");
+  gate.notify();await gate.promise;await route.fulfill({response:earlier});
+ });
+ await gate.entered; // actual earlier completed response is withheld, never fabricated
+ await start.click();
+ await expect.poll(async()=>(await history(request,target)).length).toBe(2);
+ const newer=(await history(request,target)).find(x=>x.id!==oldId)!;
+ await panel.getByRole("button",{name:"Cancel assessment"}).click();
+ await expect(panel.getByRole("status")).toContainText("CANCELLED");
+ gate.unlock();
+ await expect(panel.getByRole("status")).toContainText("CANCELLED");
+ await expect(panel.getByText("Immutable composite security report")).toHaveCount(0);
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+newer.id+"/report",{headers:auth})).status()).toBe(409);
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+oldId+"/report",{headers:auth})).status()).toBe(200);
+ const sql=await withTenant(A,tx=>tx.query(
+  "SELECT parent_assessment_id FROM api_vapt11_reports WHERE parent_assessment_id=ANY($1::uuid[])",[[oldId,newer.id]]));
+ expect(sql.rows.map(x=>x.parent_assessment_id)).toEqual([oldId]);
+});
