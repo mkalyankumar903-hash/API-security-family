@@ -7,6 +7,7 @@ import {DETECTION_FIXTURE,PROFILES,isProfile} from "../../pt/src/security-fixtur
 import {RULES,planRules,planFingerprint} from "../../pt/src/detection.js";
 import {persistTerminalCoverage} from "../../pt/src/terminal-coverage.js";
 import {persistOrchestrationTerminal} from "../../pt/src/orchestration-terminal.js";
+import {emitDiagnostic} from "../../contracts/src/operational-diagnostics-v14.js";
 
 export class PtError extends Error {constructor(public statusCode:number,public code:string){super(code);}}
 const ID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -222,7 +223,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
  });
  app.post("/v6/pt/test-authority/permits/:id/revoke",async req=>{
   authority(req);const t=identity(req),pid=params(req);
-  return withTenant(t,async tx=>{
+  const result=await withTenant(t,async tx=>{
    if(await stop(tx,t))throw new PtError(409,"EMERGENCY_STOP_ACTIVE");
    const p=await tx.query("SELECT id,revoked_at FROM api_pt_permits WHERE id=$1 FOR UPDATE",[pid]);
    if(!p.rowCount)throw new PtError(404,"PERMIT_NOT_FOUND");
@@ -232,6 +233,9 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    }
    return {id:pid,state:"REVOKED"};
   });
+  // The authoritative SQL commit MUST complete before event classification.
+  emitDiagnostic({kind:"ASSESSMENT_TRANSITION",classification:"STALE",statusCode:200,state:"REVOKED"});
+  return result;
  });
  app.post("/v6/pt/scopes/:id/jobs",async(req,reply)=>{
   const t=identity(req),sid=params(req),b=obj(req.body);
@@ -345,7 +349,7 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
  });
  app.post("/v6/pt/test-authority/stop",async req=>{
   authority(req);const t=identity(req);
-  return withTenant(t,async tx=>{
+  const result=await withTenant(t,async tx=>{
    await stop(tx,t);
    await tx.query("UPDATE api_pt_stop SET enabled=true,updated_at=now(),generation=generation+1 WHERE tenant_id=$1",[t]);
    await tx.query("UPDATE api_pt_permits SET revoked_at=now() WHERE tenant_id=$1 AND revoked_at IS NULL",[t]);
@@ -359,6 +363,9 @@ export function registerPtRoutes(app:FastifyInstance,identity:(req:FastifyReques
    await record(tx,t,t,"PT_EMERGENCY_STOP",{cancelledJobs:jobs.rowCount});
    return {enabled:true,cancelledJobs:jobs.rowCount};
   });
+  emitDiagnostic({kind:"ASSESSMENT_TRANSITION",classification:"AUTH",
+   statusCode:200,state:"CANCELLED"});
+  return result;
  });
  app.post("/v6/pt/test-authority/resume",async req=>{
   authority(req);const t=identity(req);
