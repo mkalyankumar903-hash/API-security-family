@@ -37,7 +37,6 @@ for(const [which,main] of [["service","service"],["worker","worker"]]){
  copy("packages/database/migrations",join(d,"packages/database/migrations"));
  copy("packages/discovery/src/worker-entry-phase15.mjs",join(d,"packages/discovery/src/worker-entry.mjs"));
  copy("packages/contracts/upstream-v032/schemas",join(d,"packages/contracts/upstream-v032/schemas"));
- copy("infrastructure/postgres-init",join(d,"infrastructure/postgres-init"));
  const rootPkg=JSON.parse(readFileSync("package.json","utf8"));
  const pkg={name:"@lumicsec/api-family-"+main+"-rc",version,private:true,type:"module",
   engines:{node:">=22 <23"},main:"./packages/"+main+"/src/"+(main==="service"?"server.js":"main.js"),
@@ -61,7 +60,6 @@ for(const key of ["node_modules/@playwright/test","node_modules/playwright","nod
 }
 const migrations=join(stage,"migrations");
 copy("packages/database/migrations",join(migrations,"migrations"));
-copy("infrastructure/postgres-init",join(migrations,"postgres-init"));
 tar(migrations,"postgres16-migrations-001-019");
 const contracts=join(stage,"contracts");
 copy("packages/contracts/upstream-v032/schemas",join(contracts,"upstream-v032/schemas"));

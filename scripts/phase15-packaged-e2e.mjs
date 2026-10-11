@@ -3,7 +3,7 @@
  * real API and worker child processes. NEVER use customer targets.
  */
 import assert from "node:assert/strict";
-import {readFileSync,mkdirSync,mkdtempSync,rmSync} from "node:fs";
+import {readFileSync,mkdirSync,mkdtempSync,rmSync,existsSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -15,14 +15,21 @@ const artifactDir=resolve("build/phase15-release"),work=mkdtempSync(join(tmpdir(
 const host="http://127.0.0.1:33919",userToken="local-test-token-alpha",foreignToken="local-test-token-beta";
 const children=[];
 const output=new Map();
-const env={...process.env,NODE_ENV:"test",GITHUB_ACTIONS:"true",SYNTHETIC_AUTH_ENABLED:"true",
- DATABASE_URL:"postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase15_e2e",
- WORKER_DATABASE_URL:"postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase15_e2e",
- MIGRATION_DATABASE_URL:"postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase15_e2e",
- PORT:"33919"
-};
+const privilegedKey=/^(?:PG[A-Z0-9_]*|MIGRATION(?:_|$)|POSTGRES(?:_|$)|DB_ADMIN(?:_|$)|DATABASE_ADMIN(?:_|$)|SUPERUSER(?:_|$)|PHASE13_QA_DB_PASSWORD$)/i;
+const commonEnv={...process.env};
+for(const key of Object.keys(commonEnv))
+ if(privilegedKey.test(key)||key==="DATABASE_URL"||key==="WORKER_DATABASE_URL")delete commonEnv[key];
+const applicationUrl="postgres://api_family:api_family_dev@127.0.0.1:55432/api_family_phase15_e2e";
+const workerUrl="postgres://api_family_queue:api_family_worker_dev@127.0.0.1:55432/api_family_phase15_e2e";
+const migrationUrl="postgres://postgres:local_admin_only@127.0.0.1:55432/api_family_phase15_e2e";
+const baselineEnv={...commonEnv,NODE_ENV:"test",GITHUB_ACTIONS:"true",SYNTHETIC_AUTH_ENABLED:"true",
+ DATABASE_URL:applicationUrl,WORKER_DATABASE_URL:workerUrl,PORT:"33919"};
+const migrationEnv={...baselineEnv,MIGRATION_DATABASE_URL:migrationUrl};
+const guard=resolve("scripts/phase15-runtime-env-guard.mjs");
+const proofPath=which=>join(work,"phase15-"+which+"-env-proof");
+const runtimeEnv=which=>({...baselineEnv,PHASE15_ENV_ROLE:which,PHASE15_ENV_PROOF_FILE:proofPath(which)});
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-function checked(bin,args,cwd,withEnv=env){
+function checked(bin,args,cwd,withEnv=commonEnv){
  const p=spawnSync(bin,args,{cwd,env:withEnv,encoding:"utf8",timeout:180000,maxBuffer:1024*1024});
  assert.equal(p.status,0,bin+" "+args[0]+" failed: "+(p.stderr||"").slice(0,1200));return p.stdout;
 }
@@ -37,7 +44,8 @@ async function req(path,{token=userToken,method="GET",body}={}){
 }
 function start(which){
  const cwd=join(work,which),entry=which==="service"?"packages/service/src/server.js":"packages/worker/src/main.js";
- const child=spawn(process.execPath,[entry],{cwd,env,stdio:["ignore","pipe","pipe"]});
+ rmSync(proofPath(which),{force:true});
+ const child=spawn(process.execPath,["--import",guard,entry],{cwd,env:runtimeEnv(which),stdio:["ignore","pipe","pipe"]});
  children.push(child);output.set(child,"");
  for(const pipe of [child.stdout,child.stderr]){
   pipe.on("data",part=>output.set(child,(output.get(child)||"").slice(-1024)+part.toString().slice(-1024)));
@@ -50,6 +58,29 @@ async function stop(child){
  for(let i=0;i<80;i++){if(child.exitCode!==null||child.signalCode!==null)return;await wait(100);}
  child.kill("SIGKILL");
 }
+async function assertEnvProof(which){
+ for(let i=0;i<80&&!existsSync(proofPath(which));i++)await wait(100);
+ assert(existsSync(proofPath(which)),"PHASE15_RUNTIME_PROOF_MISSING:"+which);
+ assert.deepEqual(JSON.parse(readFileSync(proofPath(which),"utf8")),
+  {role:which,compiledRuntime:true,privilegedEnvAbsent:true});
+}
+function denyRoleManagement(role,password){
+ const r=spawnSync("psql",["-X","-h","127.0.0.1","-p","55432","-U",role,
+  "-d","api_family_phase15_e2e","-v","ON_ERROR_STOP=1","-c",
+  "CREATE ROLE phase15_forbidden_role_escalation NOLOGIN"],{
+  cwd:work,env:{...commonEnv,PGPASSWORD:password},encoding:"utf8",timeout:15000,maxBuffer:65536
+ });
+ assert.notEqual(r.status,0,"PHASE15_ROLE_ESCALATION_UNEXPECTEDLY_SUCCEEDED");
+ assert.match(r.stderr||"",/permission denied/i,"PHASE15_REAL_ROLE_DENIAL_MISSING");
+}
+function assertEnvGuardRejectsTaintedChild(){
+ const p=spawnSync(process.execPath,["--import",guard,"--input-type=module","-e","process.exit(0)"],{
+  cwd:work,env:{...runtimeEnv("service"),MIGRATION_DATABASE_URL:migrationUrl},
+  encoding:"utf8",timeout:10000,maxBuffer:65536
+ });
+ assert.notEqual(p.status,0,"PHASE15_RUNTIME_GUARD_ALLOWED_MIGRATION_SUPERUSER");
+ assert.match(p.stderr||"",/PHASE15_RUNTIME_PRIVILEGED_ENV_DENIED/);
+}
 async function ready(){
  for(let i=0;i<100;i++){
   try{const r=await fetch(host+"/health/live",{signal:AbortSignal.timeout(500)});
@@ -61,16 +92,19 @@ async function ready(){
 }
 try{
  checked("psql",["-h","127.0.0.1","-p","55432","-U","postgres","-d","postgres",
-  "-v","ON_ERROR_STOP=1","-c","CREATE DATABASE api_family_phase15_e2e;"],work,{...env,PGPASSWORD:"local_admin_only"});
+  "-v","ON_ERROR_STOP=1","-c","CREATE DATABASE api_family_phase15_e2e;"],work,{...commonEnv,PGPASSWORD:"local_admin_only"});
  checked("psql",["-h","127.0.0.1","-p","55432","-U","postgres","-d","api_family_phase15_e2e",
-  "-v","ON_ERROR_STOP=1","-c","GRANT CONNECT ON DATABASE api_family_phase15_e2e TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"],work,{...env,PGPASSWORD:"local_admin_only"});
+  "-v","ON_ERROR_STOP=1","-c","GRANT CONNECT ON DATABASE api_family_phase15_e2e TO api_family,api_family_queue,api_family_qa_ci; GRANT USAGE,CREATE ON SCHEMA public TO api_family;"],work,{...commonEnv,PGPASSWORD:"local_admin_only"});
  for(const which of ["service","worker"]){
   const cwd=join(work,which);mkdirSync(cwd,{recursive:true});
   checked("tar",["-xzf",join(artifactDir,"api-"+which+".tar.gz")],cwd);
   checked("npm",["ci","--omit=dev","--ignore-scripts","--no-audit","--no-fund"],cwd);
  }
- checked(process.execPath,["packages/database/src/migrate.js"],join(work,"service"));
- const svc=start("service");await ready();
+ checked(process.execPath,["packages/database/src/migrate.js"],join(work,"service"),migrationEnv);
+ denyRoleManagement("api_family","api_family_dev");
+ denyRoleManagement("api_family_queue","api_family_worker_dev");
+ assertEnvGuardRejectsTaintedChild();
+ const svc=start("service");await ready();await assertEnvProof("service");
  assert.equal((await req("/v1/targets",{token:"wrong-token"})).status,403);
  const created=await req("/v1/targets",{method:"POST",body:{name:"Phase15 offline fixture",environment:"SYNTHETIC",baseUrl:"https://phase15.fixture.invalid"}});
  assert.equal(created.status,201,"target "+JSON.stringify(created.data).slice(0,250));
@@ -80,7 +114,8 @@ try{
  assert.equal(uploaded.status,201,"spec "+JSON.stringify(uploaded.data).slice(0,250));
  const job=await req("/v1/targets/"+targetId+"/assessments",{method:"POST",body:{specificationId:uploaded.data.id,mode:"SPEC_ONLY"}});
  assert.equal(job.status,201,"assessment "+JSON.stringify(job.data).slice(0,250));
- const worker=start("worker");
+ const worker=start("worker");await assertEnvProof("worker");
+ console.log("PHASE15_RUNTIME_PROCESS_ENV_ISOLATION_AND_REAL_POSTGRES_ROLE_DENIAL_PASS");
  let state;
  for(let i=0;i<120;i++){
   state=await req("/v1/assessments/"+job.data.id);
@@ -107,7 +142,7 @@ try{
  assert.equal(summary.hostAuthority,"HOST_AUTHORITY_NOT_CONFIGURED");
  assert.equal(summary.billable,false);
  await stop(worker);await stop(svc);
- const restart=start("service");await ready();
+ const restart=start("service");await ready();await assertEnvProof("service");
  const afterReport=await req("/v1/assessments/"+job.data.id+"/report");
  assert.equal(afterReport.status,200);
  assert.equal(createHash("sha256").update(JSON.stringify(afterReport.data)).digest("hex"),before);
