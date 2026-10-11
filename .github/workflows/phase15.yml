@@ -403,6 +403,14 @@ jobs:
         env:
           PGPASSWORD: local_admin_only
         run: bash scripts/phase15-packaged-pg.sh
+      - name: Phase15 real clean-package PostgreSQL16 offline assessment worker report SDK and restart E2E
+        shell: bash
+        env:
+          PGPASSWORD: local_admin_only
+        run: node scripts/phase15-packaged-e2e.mjs
+      - name: Phase15 two unpushed minimal nonroot image builds and production authority-denial startup
+        shell: bash
+        run: bash scripts/phase15-container-smoke.sh
       - name: Real PostgreSQL 001-019 plus historical upgrade, worker and isolation
         run: npm run test:pg
       # The preceding exhaustive PostgreSQL race/recovery suite deliberately
@@ -791,6 +799,8 @@ jobs:
         run: npx playwright test tests/browser/phase14.spec.ts
       - name: Phase14 F5 independent real Chromium repeated submission cancellation and identity races
         run: npx playwright test tests/browser/phase14-f5.spec.ts
+      - name: Phase15 Chromium reusable mount tenant switching token revocation and accessible viewport
+        run: npx playwright test tests/browser/phase15.spec.ts
 
 
 

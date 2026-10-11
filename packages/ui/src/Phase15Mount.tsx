@@ -19,7 +19,7 @@ export function Phase15Mount({apiOrigin,tenantContext,sessionRevision,accessToke
   catch{setCode("HOST_AUTHORITY_NOT_CONFIGURED");setState("denied");return()=>abort.abort();}
   void Promise.all([sdk.capabilities(abort.signal),sdk.summary(abort.signal)]).then(([caps,data])=>{
    if(!active)return;
-   if(caps.scanningAuthority!==false||data.hostAuthority!=="HOST_AUTHORITY_NOT_CONFIGURED")
+   if(caps.scanningAuthority!==false||data.hostAuthority!=="HOST_AUTHORITY_NOT_CONFIGURED"||data.tenantContext!==tenantContext)
     throw new Error("HOST_AUTHORITY_NOT_CONFIGURED");
    setSummary(data);setState("ready");
   }).catch(()=>{
