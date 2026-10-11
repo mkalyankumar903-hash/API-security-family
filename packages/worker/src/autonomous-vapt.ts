@@ -10,7 +10,8 @@ import {orchestrationFingerprint,type OrchestrationPlan} from "../../pt/src/orch
 
 const VALID_HEX=/^[0-9a-f]{64}$/;
 type Child={id:string;status:string;engine_version:string;error_code:string|null};
-export async function processAutonomousVaptJob(tenant:string,id:string,token:string):Promise<void>{
+export async function processAutonomousVaptJob(tenant:string,id:string,token:string,
+ barriers?:{beforeImmutablePublication:()=>Promise<void>}):Promise<void>{
  await withWorkerTenant(tenant,async tx=>{
   // Canonical lock order matches Phase06: stop, target/permit, private queue,
   // assessment. The parent is an aggregation job, never a runtime permit.
@@ -174,6 +175,11 @@ export async function processAutonomousVaptJob(tenant:string,id:string,token:str
     "NO EVIDENCE != SAFE","UNKNOWN != SAFE","NO LONGER OBSERVED != VERIFIED_FIXED",
     ...(plan.mode==="OFFLINE_ONLY"?["SPEC_ONLY is not a completed governed runtime PT"]:[])]};
   const reportFingerprint=planFingerprint(report);
+  // Test-only deterministic barrier WITH actual stop/permit/queue/parent locks
+  // held. No external callback may be provided by the customer API or worker
+  // production call sites. Never invent completion or bypass the transaction.
+  if(process.env.NODE_ENV==="test"&&barriers?.beforeImmutablePublication)
+   await barriers.beforeImmutablePublication();
   await tx.query("INSERT INTO api_vapt11_reports(id,tenant_id,parent_assessment_id,projection,fingerprint) VALUES($1,$2,$3,$4::jsonb,$5)",
    [uuid(),tenant,id,JSON.stringify(report),reportFingerprint]);
   await tx.query("UPDATE api_assessments SET status='COMPLETED',completed_at=now() WHERE id=$1 AND status='PROCESSING'",[id]);
