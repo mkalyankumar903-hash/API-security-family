@@ -302,6 +302,9 @@ test("F5 HTTP 429 admission denial at 320px and 200% text with accessible alert 
 test("F5 failed cancellation cannot create false terminal status; on retry retains immutable authority",async({page,request})=>{
  const {target,spec}=await seed(request),panel=await setupPage(page,target,spec);
  await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ // The UI POST completion and history refresh are independent real requests:
+ // wait for authoritative PostgreSQL readback instead of assuming render timing.
+ await expect.poll(async()=>(await history(request,target)).length).toBe(1);
  const id=(await history(request,target))[0]!.id;
  const cancel=panel.getByRole("button",{name:"Cancel assessment"});
  await expect(cancel).toBeEnabled();
