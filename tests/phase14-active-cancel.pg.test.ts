@@ -73,8 +73,8 @@ test("Phase14 real governed PT: user cancellation after committed evaluation and
   const address=new URL(await app.listen({host:"127.0.0.1",port:0}));
   const socket=connect({host:"127.0.0.1",port:Number(address.port)});
   socket.on("error",()=>{});
-  await new Promise<void>((resolve,reject)=>{socket.once("connect",resolve);socket.once("error",reject)});
-  const aborted=new Promise<void>(resolve=>socket.once("close",resolve));
+  await new Promise<void>((resolve,reject)=>{socket.once("connect",()=>resolve());socket.once("error",reject)});
+  const aborted=new Promise<void>(resolve=>socket.once("close",()=>resolve()));
   socket.write("GET /v9/pt/orchestrations/"+user.id+" HTTP/1.1\r\nHost: 127.0.0.1:"+address.port+
    "\r\nAuthorization: Bearer local-test-token-alpha\r\nConnection: keep-alive\r\n\r\n");
   socket.destroy();await aborted;
