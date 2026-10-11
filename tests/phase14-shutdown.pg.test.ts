@@ -7,7 +7,7 @@ import {performance} from "node:perf_hooks";
 import {readFileSync} from "node:fs";
 import {processOneJob} from "../packages/worker/src/index.js";
 import {makeApp} from "../packages/service/src/app.js";
-import {migrate,withWorkerTenant,withTenant,renewWorkerClaim,releaseUnstartedWorkerClaim,
+import {migrate,withWorkerTenant,withTenant,renewWorkerClaim,releaseUnstartedWorkerClaim,finishWorkerAttempt,
  closeDatabase,type WorkerClaim} from "../packages/database/src/index.js";
 const TENANT="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SPEC=JSON.stringify({openapi:"3.1.0",info:{title:"Shutdown isolation",version:"1"},
