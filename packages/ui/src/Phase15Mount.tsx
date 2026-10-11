@@ -6,7 +6,7 @@ export type Phase15MountProps={
  accessToken:()=>string|Promise<string>;onError?:(code:string)=>void;
 };
 const ID=/^[a-f0-9-]{36}$/i;
-export function Phase15Mount({apiOrigin,tenantContext,sessionRevision,accessToken,onError}:Phase15MountProps){
+function Phase15MountInner({apiOrigin,tenantContext,sessionRevision,accessToken,onError}:Phase15MountProps){
  const [summary,setSummary]=useState<CommercialSummary|null>(null);
  const [state,setState]=useState<"loading"|"ready"|"denied">("loading");
  const [code,setCode]=useState("");
@@ -37,4 +37,20 @@ export function Phase15Mount({apiOrigin,tenantContext,sessionRevision,accessToke
    <p>Read-only usage: {summary.consumed} consumed, {summary.remaining} remaining (synthetic projection, not a bill).</p>
   </div>}
  </section>;
+}
+
+/** Renderer-error containment: never expose error messages or privilege-bearing fallback. */
+export class Phase15ErrorBoundary extends React.Component<
+ React.PropsWithChildren<{onError?:(code:string)=>void}>,{failed:boolean}
+>{
+ state={failed:false};
+ static getDerivedStateFromError(_error:unknown){return {failed:true};}
+ componentDidCatch(){this.props.onError?.("HOST_AUTHORITY_NOT_CONFIGURED");}
+ render(){
+  if(this.state.failed)return <section role="alert" data-phase15-boundary-error="true">HOST_AUTHORITY_NOT_CONFIGURED</section>;
+  return this.props.children;
+ }
+}
+export function Phase15Mount(props:Phase15MountProps){
+ return <Phase15ErrorBoundary onError={props.onError}><Phase15MountInner {...props}/></Phase15ErrorBoundary>;
 }

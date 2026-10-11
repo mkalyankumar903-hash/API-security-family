@@ -583,6 +583,12 @@ jobs:
           npm run phase15:build
           npm run phase15:verify
           diff -u /tmp/phase15-first-SHA256SUMS build/phase15-release/SHA256SUMS
+      - name: Phase15 authoritative artifact inventory and SHA256SUMS log readback
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat build/phase15-release/SHA256SUMS
+          node -e "const m=require('./build/phase15-release/manifest.json'); console.log('PHASE15_ARTIFACT_MANIFEST', JSON.stringify({version:m.version,sourceSha:m.sourceSha,artifactCount:m.artifacts.length,artifacts:m.artifacts.map(a=>({name:a.name,bytes:a.bytes,sha256:a.sha256}))}))"
       - name: Upload private Phase15 release candidate bundles and SHA256 manifests to GitHub Actions
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

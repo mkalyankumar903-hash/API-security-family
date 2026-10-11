@@ -23,14 +23,15 @@ try{
  writeFileSync(join(tmp,"main.js"),[
  'import React from "react";',
  'import {createRoot} from "react-dom/client";',
- 'import {Phase15Mount} from "@lumicsec/api-family-ui-rc";',
+ 'import {Phase15Mount,Phase15ErrorBoundary} from "@lumicsec/api-family-ui-rc";',
  'let root=createRoot(document.getElementById("root"));',
  'let tenant="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",rev=0,token="ci-synthetic-token";',
  'const tokenProvider=()=>token;',
  'const pane=document.createElement("div");document.body.prepend(pane);',
  'for(const [title,fn] of [["Switch tenant",()=>{tenant=tenant[0]==="a"?"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";rev++;}],["Rotate session",()=>rev++],["Revoke token",()=>{token="revoked";rev++;}],["Unmount remount",()=>{root.unmount();root=createRoot(document.getElementById("root"));rev++;}]]){const b=document.createElement("button");b.textContent=title;b.onclick=()=>{fn();render();};pane.append(b);}',
  'function render(){root.render(React.createElement(Phase15Mount,{apiOrigin:"https://phase15-host-simulator.invalid",tenantContext:tenant,sessionRevision:String(rev),accessToken:tokenProvider}));}',
- 'render();'
+ 'render();',
+ 'window.phase15CrashBoundary=()=>{const Broken=()=>{throw new Error("sensitive-internal-fixture");};root.render(React.createElement(Phase15ErrorBoundary,null,React.createElement(Broken)));};'
  ].join("\n"));
  writeFileSync(join(tmp,"vite.config.mjs"),"export default {root:"+JSON.stringify(tmp)+",server:{host:'127.0.0.1',port:5179,strictPort:true}};");
  server=spawn(resolve("node_modules/.bin/vite"),[tmp,"--config",join(tmp,"vite.config.mjs"),"--host","127.0.0.1","--port","5179","--strictPort"],{
@@ -70,6 +71,14 @@ try{
  }
  await page.evaluate(()=>{document.documentElement.dir="rtl";document.documentElement.style.fontSize="200%";});
  assert(await mount.getByRole("heading",{name:"LumicSec API Security"}).isVisible());
+
+ await page.keyboard.press("Tab");
+ const focus=await page.evaluate(()=>document.activeElement?.textContent||"");
+ assert(["Switch tenant","Rotate session","Revoke token","Unmount remount"].includes(focus.trim()),"keyboard focus must remain usable");
+ await page.evaluate(()=>window.phase15CrashBoundary());
+ await page.locator("[data-phase15-boundary-error='true']").waitFor({timeout:5000});
+ assert.match(await page.locator("[data-phase15-boundary-error='true']").textContent(),/HOST_AUTHORITY_NOT_CONFIGURED/);
+ assert(!(await page.locator("[data-phase15-boundary-error='true']").textContent()).includes("sensitive-internal-fixture"));
  assert.equal(external.length,0,"browser must not contact live external hosts");
  assert(simulatorRequests>=2,"real installed bundle should exercise simulator-only HTTP boundary");
  console.log("PHASE15_CHROMIUM_ACTUAL_PRIVATE_UI_ARCHIVE_IMPORT_MOUNT_SWITCH_RTL_REVOKE_FAIL_CLOSED_PASS");

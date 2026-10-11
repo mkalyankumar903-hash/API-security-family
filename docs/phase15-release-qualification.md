@@ -1,48 +1,47 @@
-# Phase 15 — evidence register (live engineering work)
+# LumicSec API Security Family Phase 15 — Level B engineering qualification ledger
 
-Current status: **TARGETED REWORK REQUIRED / NOT YET VERIFIED.** This file does not claim Phase 15 acceptance from the original prompt or CI runs on older SHAs.
+Candidate **0.15.0-rc.1**, accepted stacked predecessor `418f07bd8efed24d6094b84ac71aacfac0097e54`, existing Draft PR **#16**. This source document defines release acceptance conditions; **the exact-head Full CI and signed-off PR comment are the authoritative outcome**. The document itself does not prove an execution and never upgrades an unverified candidate.
 
-## Exact predecessor evidence
+## Immutable trust constraints
 
-- Accepted Phase14 anchor: `418f07bd8efed24d6094b84ac71aacfac0097e54`.
-- Predecessor Draft PR #15 remains unmerged. Authoritative independent Phase14 Full CI: run 38119972126, job 114412698270, 65/65 successful steps, 418 tests.
-- Migrations 001–019 remain source-preserved. There is no cosmetic migration 020.
-- Nonblocking **LOW** risk: repeated idempotent permit-revocation diagnostic can look like another transition; not silently claimed fixed.
+- All customer/prod Host authority remains `HOST_AUTHORITY_NOT_CONFIGURED`; CI simulator is **only** for GitHub Actions under `NODE_ENV=test` and deliberately unsupported elsewhere.
+- No production identity/JWKS, permissions, asset ownership, permitted scanning, billing, canonical findings, `VERIFIED_FIXED`, deploy, registry publication or public endpoint.
+- v0.3.2 source contract remains **NOT FROZEN**. Phase15 draft adapter cannot substitute approved Host contracts.
+- Historical migrations **001–019** are unchanged, no migration 020. The source must preserve all Phase00–14 isolation and safety gates.
+- Accepted Phase14 **LOW open risk**: repeated idempotent permit-revocation diagnostic can misleadingly resemble a fresh state transition. Not remediated and not waived.
 
-## Requirement-level implementation matrix (must be updated with exact final-HEAD CI)
+## Requirement → source → installed artifact → mandatory GitHub Full gate
 
-| ID | Scope and file | Artifact / contract | Test / CI | Status | Limitation / owner |
-|---|---|---|---|---|---|
-| P15-A | Exact-state Phase14 baseline | Source SHA above | GitHub PR/CI readback | IMPLEMENTED_AND_VERIFIED | Existing isolated baseline only |
-| P15-B | Private binary candidate builder `scripts/phase15-build.mjs` | api-service, api-worker, SDK, UI, migration, provisional contracts | `phase15:build` | NOT_YET_VERIFIED | Actual GitHub clean compile required / API Family |
-| P15-C | SHA-256 and archive paths `scripts/phase15-verify.mjs` | manifest + SHA256SUMS | `phase15:verify` | NOT_YET_VERIFIED | Independent artifact integrity pending / API Family |
-| P15-D | Clean production dependency install `scripts/phase15-clean-install.mjs` | Runtime, private SDK/UI archives | `phase15:install` | NOT_YET_VERIFIED | Need Node22 hosted proof / API Family |
-| P15-E | CI-only signed envelope `packages/contracts/src/host-adapter-v15.ts` | provisional draft adapter v15 | `tests/phase15-host-contract.test.ts` | PARTIALLY_IMPLEMENTED | Does not establish Host issuer/JWKS/entitlement/ownership / joint |
-| P15-F | React read-only mount `packages/ui/src/Phase15Mount.tsx` | private UI `0.15.0-rc.1` | package import | PARTIALLY_IMPLEMENTED | Chromium lifecycle, multi-tenant/session switches pending / API Family |
-| P15-G | Fresh/repeated/concurrent packaged migrations `scripts/phase15-packaged-pg.sh` | SQL 001–019 + compiled runner | Full CI PostgreSQL16 | NOT_YET_VERIFIED | Interrupted/restore and populated upgrades remain historical source tests / API Family |
-| P15-H | Worker service startup and Host denial | compiled JS archives | clean-install smoke | NOT_YET_VERIFIED | Actual integrated worker process with test PG needed / API Family |
-| P15-I | Container non-root unpushed build | pending | pending | NOT_YET_VERIFIED | API Family |
-| P15-J | Packaged offline import→worker→evidence→report→SDK/UI E2E | pending | pending | NOT_YET_VERIFIED | API Family |
-| P15-K | Historical Phase00–14 full regression | `.github/workflows/phase15.yml` | `[phase15-full]` | NOT_YET_VERIFIED | Must pass at exact final HEAD / API Family |
-| P15-L | Source-to-bundle traceability | machine-readable manifest | SHA256 sums | NOT_YET_VERIFIED | No public provenance signature / API Family |
-| P15-M | Production identity, RBAC, billing, ownership, permits, findings, RetestVerificationAuthority | NO synthetic substitution | real Host qualification required | HOST_BLOCKED | Main Platform Host owner |
-| P15-N | Actual hosted E2E and production operational approval | NONE | real Host qualification required | HOST_BLOCKED | Main Platform Host owner |
+| ID | Independent Level B requirement | Source file(s) | Artifact(s) | Mandatory gate / proof |
+|---|---|---|---|---|
+| A01 | Compiled API/worker code, runtime-only locked dependencies, no `tsx` | `scripts/phase15-build.mjs`, `tsconfig.phase15.runtime.json`, dedicated network-denied `worker-entry-phase15.mjs` | `api-service.tar.gz`, `api-worker.tar.gz` | Build, clean install and production startup denial |
+| A02 | SDK ESM & d.ts installed outside checkout | `packages/sdk` | `sdk-private.tgz` | SDK isolated ESM import, packaged E2E |
+| A03 | Mount entrypoint, React peer imports, denied Host authority | `packages/ui/src/Phase15Mount.tsx` | `ui-private.tgz` | Clean UI install, actual .tgz Chromium mount and read-only state |
+| A04 | Historical 001–019 SQL exact preservation | `packages/database/migrations` | `postgres16-migrations-001-019.tar.gz` | Packaged fresh, repeat and simultaneous invocations; historical populated preservation |
+| A05 | Provisional API & upstream contracts NOT FROZEN | `packages/contracts`, OpenAPI docs | `contract-schemas-draft.tar.gz` | Contract/archive verification; incompatible versions deny |
+| A06 | Source provenance, reproducible private bundles and forbidden-path scanning | `scripts/phase15-build.mjs`, `scripts/phase15-verify.mjs` | `manifest.json`, `SHA256SUMS`, `dependency-inventory.json` | Build twice, checksum diff, inventory readback and private Actions upload |
+| B01 | CI-only HMAC issuer/audience/tenant/org/client, expiry, signature, sequence/replay/revocation | `packages/contracts/src/host-adapter-v15.ts` | Compiled contract code in runtime archives | `tests/phase15-host-contract.test.ts` |
+| B02 | Unknown schema/capability, Host transport 401/403/408/409/429/5xx, production signer denial | Same | Same | CI-only contract negative tests |
+| B03 | Real PostgreSQL16 service+worker+offline OpenAPI SPEC_ONLY→immutable report, SDK, wrong-tenant denial and restart | `scripts/phase15-packaged-e2e.mjs` | Installed service, worker, SDK | `Phase15 real PostgreSQL16 compiled API worker…` |
+| B04 | Standalone UI read-only tenant/session/token switching, request fencing, renderer errors and accessible keyboard focus | `Phase15Mount.tsx`, `scripts/phase15-ui-archive-browser.mjs`, `tests/browser/phase15.spec.ts` | Installed UI package | Both Phase15 Chromium gates in Full |
+| B05 | Unpushed nonroot, read-only, no-network OCI containers | `Dockerfile.phase15`, `scripts/phase15-container-smoke.sh` | CI-only local images | `Phase15 isolated unpushed OCI images…` |
+| B06 | Full historical unit, PG16, Chromium, PDF, worker, supply-chain and RLS protection | Preserved Phase00–14 source/tests, `.github/workflows/phase15.yml` | Exact-HEAD CI evidence | All mandatory Full steps successful |
+| B07 | Compatibility/operations, private release and Host handover | `docs/phase15-compatibility.json`, `docs/phase15-install-upgrade-recovery.md`, `docs/phase15-integration-handover.md` | Compatibility and release notes in private bundle | Source-to-requirement audit; final PR evidence |
 
-No `VERIFIED_FIXED` promotion or live scanning is authorized by any simulator assertion.
+**Source existence is never test success.** An individually passed test at an older SHA does not establish Level B. Full mandatory gates must be completed/success with zero failed or skipped mandatory Full steps at the current PR HEAD. Parent-level separately skipped optional jobs do not replace Full.
 
-## Boundary and version policy
+## Exact-head final qualification review instructions
 
-The v0.3.2 source matrix explicitly says `NOT FROZEN`. The independent API Family adapter string `api-family-host-adapter-v15-draft` is a draft test interface, **not a production contract freeze**. Missing Host authority must be reported as `HOST_AUTHORITY_NOT_CONFIGURED`; no fallback to simulation.
+1. Verify branch commit = PR head SHA = authoritative `[phase15-full]` run head SHA; verify merge status remains open/draft.
+2. Read Full-job steps, use actual job logs for unit, PostgreSQL, Chromium and PDF counts, package E2E and OCI/container evidence.
+3. Read `SHA256SUMS` and JSON manifest from uploaded private Actions artifact. Verify files, exact SHA-256 values, sizes, source commit and no forbidden paths; log artifact hashes in Full.
+4. Verify immutable report, wrong-tenant deny and restart from **installed** archives, not the source-tree service.
+5. Confirm all earlier security hardening including Phase14 LOW finding and Host gate stay intact.
+6. Write the final actual evidence to PR description + one engineering comment and read both back independently.
+7. Only then declare **LEVEL B ENGINEERING QUALIFIED; INDEPENDENT SECURITY ACCEPTANCE PENDING**.
 
-## Final exact-head acceptance checklist — pending
+## Level C / Main Platform Host blockers (not Level B failures)
 
-- Branch HEAD = Draft PR HEAD = authoritative Full run HEAD
-- CI Full historical unit, actual PostgreSQL16, real Chromium and PDF, private SDK, releases and security negatives all successful
-- No failed or skipped mandatory Full job steps
-- Private release archive inventory and SHA-256 read back
-- Clean install and independent runtime startup, worker shutdown/restart and 19 forward-only migrations proven
-- Host simulator tests are isolated and production trust refuses test roots
-- Final evidence comment, documentation, and named pending Host owners read back from GitHub
-- Independent security reviewer accepts only *after* engineering qualification
+The Host owner must supply approved production signing JWKS/issuer/audience, identity/membership/RBAC, tenant/client/asset ownership, permit request/revocation, entitlement and paid authority, canonical findings and RetestVerificationAuthority, event/webhook deliverability, hosted network/scope approvals, full production E2E and operational signoff. API Family must validate exact contracts and integrations; independent security reviewer must approve. No Host mock can lift these blocks.
 
-**Do not advertise Level B engineering accepted until every independently executable requirement is verified.** 
+See `docs/phase15-install-upgrade-recovery.md` for safe installation/upgrade, failure recovery, role separation and rollback; see `docs/phase15-integration-handover.md` for interface owners and risk.

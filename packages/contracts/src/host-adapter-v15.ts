@@ -16,7 +16,7 @@ export type HostContext={tenantId:string;organizationId:string;clientId:string|n
 export class HostAdapterError extends Error{
  constructor(readonly code:string){super(code);}
 }
-export type CITrust={root:Uint8Array;seen:Set<string>;lastSequence:Map<string,number>};
+export type CITrust={root:Uint8Array;seen:Set<string>;lastSequence:Map<string,number>;revokedEvents?:Set<string>;revokedContexts?:Set<string>};
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const obj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==="object"&&!Array.isArray(v);
 const reject=(code:string):never=>{throw new HostAdapterError(code);};
@@ -69,6 +69,7 @@ export function verifyCISimulatorOnly(input:unknown,context:HostContext,trust?:C
  if(given.length!==expected.length||!timingSafeEqual(given,expected))return reject("HOST_INVALID_SIGNATURE");
  const key=e.issuer+":"+e.tenantId+":"+e.eventId;
  const sequenceKey=e.issuer+":"+e.tenantId+":"+e.capability;
+ if(trust.revokedEvents?.has(key)||trust.revokedContexts?.has(sequenceKey))return reject("HOST_REVOKED_AUTHORITY");
  if(trust.seen.has(key))return reject("HOST_REPLAYED_EVENT");
  if((trust.lastSequence.get(sequenceKey)??0)>=(e.sequence as number))return reject("HOST_OUT_OF_ORDER_EVENT");
  // Consume nonce only after authenticating ALL bindings; no cross-tenant poison.

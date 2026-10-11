@@ -1,9 +1,13 @@
-# Phase 15 private release candidate — 0.15.0-rc.1
+# LumicSec API Family — private release candidate 0.15.0-rc.1
 
-Status: **IN DEVELOPMENT / NOT YET VERIFIED**. Private artifacts only. No production deployment or Host-integrated trust. This candidate packages previously isolated security components, adds a provisional signed CI-only Host adapter simulator and a read-only React mount.
+This is a **private isolated Level B engineering candidate only**, not a publicly published, customer-ready, hosted or production-Host authorized product. Level B engineering status is determined only by exact-HEAD GitHub Full CI and the PR #16 evidence comment.
 
-Accepted Phase14 source anchor: `418f07bd8efed24d6094b84ac71aacfac0097e54`. Preserve migrations 001–019 and all existing least-privilege boundaries.
+Changes compared with accepted Phase14: compiled Node22 Fastify service and dedicated private worker packages; private SDK ESM + declarations; reusable read-only React mount with error containment; forward-only PostgreSQL16 migrations 001–019 archived unchanged; draft v15 CI-only Host contract and negative security tests; reproducible SHA-256 signed-by-hash inventory; clean install, actual packaged assessment and Chromium consumer, unpushed nonroot container smoke; operations/handover documents.
 
-Known nonblocking Phase14 LOW: repeated idempotent permit-revocation diagnostic may resemble a new state transition; not fixed.
+Included private artifacts: `api-service.tar.gz`, `api-worker.tar.gz`, `sdk-private.tgz`, `ui-private.tgz`, `postgres16-migrations-001-019.tar.gz`, `contract-schemas-draft.tar.gz`, `manifest.json`, `SHA256SUMS`, `dependency-inventory.json`, `compatibility.json`, `release-notes.md`. SHA256SUMS covers constituent files; manifest binds the Git source SHA. Integrity hashes are **not** cryptographic release signatures.
 
-Required independent Host integration: identity, membership, RBAC, real asset ownership, permits, entitlement snapshots, canonical findings, retest authority, events, hosted E2E, approval. No live scanning, billing, verification promotion or registry publishing.
+Breaking/limited compatibility: production Host integration remains disabled; v0.3.2 upstream definitions provisional; CI-only synthetic fixtures never authorize production. No customer scans, payment authority, Host permits, canonical findings authority, SDK/npm/OCI/public publication, or migration reset.
+
+Known Phase14 **LOW** outstanding: idempotent repeated permit-revocation diagnostic can be read as a new state transition. Not fixed.
+
+Safe setup, upgrade, backup/restore, incident, deploy restrictions and Host responsibilities: `docs/phase15-install-upgrade-recovery.md` and `docs/phase15-integration-handover.md`.

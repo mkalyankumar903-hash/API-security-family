@@ -48,10 +48,18 @@ test("Phase15 CI-only HMAC envelope verifies identity, replay, binding, permissi
   denied(()=>verifyCISimulatorOnly(signed({eventId:randomUUID(),sequence:1}),context,ordered),"HOST_OUT_OF_ORDER_EVENT");
   denied(()=>verifyCISimulatorOnly(signed({eventId:randomUUID(),sequence:3}),{...context,clientId:other},trusted()),"HOST_TENANT_OR_ORGANIZATION_MISMATCH");
   denied(()=>verifyCISimulatorOnly(signed({eventId:randomUUID(),sequence:3}),{...context,capability:"event"},trusted()),"HOST_CAPABILITY_MISMATCH");
+
+  denied(()=>verifyCISimulatorOnly(signed(),context,{
+   ...trusted(),revokedEvents:new Set([CI_ISSUER+":"+tenant+":"+eventId])
+  }),"HOST_REVOKED_AUTHORITY");
+  denied(()=>verifyCISimulatorOnly(signed(),context,{
+   ...trusted(),revokedContexts:new Set([CI_ISSUER+":"+tenant+":identity"])
+  }),"HOST_REVOKED_AUTHORITY");
+  denied(()=>verifyCISimulatorOnly(signed({eventId:randomUUID(),capability:"bad-capability" as "identity"}),context,trusted()),"HOST_CAPABILITY_MISMATCH");
   assert.equal(CAPABILITIES.length,11);
  }finally{for(const k of Object.keys(old) as (keyof typeof old)[]){const v=old[k];if(v===undefined)delete process.env[k];else process.env[k]=v;}}
 });
 test("Phase15 Host HTTP failures always deny and do not synthesize fallback",()=>{
- for(const [code,label] of [[401,"HOST_AUTHENTICATION_DENIED"],[403,"HOST_AUTHENTICATION_DENIED"],[409,"HOST_REVISION_CONFLICT"],[429,"HOST_RATE_LIMITED"],[500,"HOST_UNAVAILABLE"],[undefined,"HOST_UNAVAILABLE"]] as const)
+ for(const [code,label] of [[401,"HOST_AUTHENTICATION_DENIED"],[403,"HOST_AUTHENTICATION_DENIED"],[409,"HOST_REVISION_CONFLICT"],[429,"HOST_RATE_LIMITED"],[408,"HOST_UNAVAILABLE"],[500,"HOST_UNAVAILABLE"],[502,"HOST_UNAVAILABLE"],[503,"HOST_UNAVAILABLE"],[504,"HOST_UNAVAILABLE"],[undefined,"HOST_UNAVAILABLE"]] as const)
   denied(()=>hostTransportFailure(code),label);
 });

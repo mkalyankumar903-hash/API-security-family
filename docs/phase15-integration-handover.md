@@ -34,6 +34,10 @@ Production is intentionally **disabled**, even with correctly installed packages
 
 CI-only signed envelope tests use short-lived ephemeral random keys and explicit `NODE_ENV=test`, `GITHUB_ACTIONS=true`, `PHASE15_SIMULATOR_ENABLED=true`. Do not use CI proof as production authority.
 
+## Binding and revocation test semantics
+
+The CI-only provisional HMAC envelope enforces explicit issuer/audience, UUID tenant/org/client binding, permission and capability match, 5-minute maximum lifetime, replayed event/monotonic sequence rejection and in-memory revoked event/context sets. In-memory CI revocation is **not a substitute** for a durable Host revocation service. Production should use Host-issued JWKS/rotating key ID, an approved revocation transport, independent tenant lookups, and a durable anti-replay store with scope/revision fencing. No real Host endpoint, permission mint, canonical retest writer or billing bridge is configured.
+
 ## Recovery / security operations
 
 - Migrations are forward-only, privileged migration role separate from tenant-facing/queue roles, FORCE RLS mandatory; never reset a populated production DB to pass tests.
@@ -46,4 +50,4 @@ CI-only signed envelope tests use short-lived ephemeral random keys and explicit
 
 ## Remaining owners / approvals
 
-Main Platform owner must provide approved real schemas and signoff for every joint contract, secure JWKS/issuer, tenancy, billing and canonical retest. API Family owner must complete independent Level B release/upgrade/package/container/Chromium/E2E qualification. Security reviewer must independently inspect exact source/artefacts/CI after candidate freeze. Current status: **NOT YET QUALIFIED**.
+Main Platform owner must provide approved real schemas and signoff for every joint contract, secure JWKS/issuer, tenancy, billing and canonical retest. API Family owner must complete independent Level B release/upgrade/package/container/Chromium/E2E qualification. Security reviewer must independently inspect exact source/artefacts/CI after candidate freeze. Level B status is determined by exact-head Full GitHub Actions and PR #16 evidence; Level C remains HOST_BLOCKED.
