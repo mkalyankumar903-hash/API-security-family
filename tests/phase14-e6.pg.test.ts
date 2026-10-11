@@ -82,40 +82,33 @@ test("Phase14 E6 actual signed governed PT, planner, queue, parent composition, 
    const scopeId=scope.id as string;
    ok(await call("POST","/v6/pt/scopes/"+scopeId+"/request-authorization",{}),201);
    const issue=await timed("first-signed-synthetic-permit-issue",
-    "real /v6/pt/test-authority/scopes/:id/issue; exact HMAC persisted by test-only issuer")
-    (()=>call("POST","/v6/pt/test-authority/scopes/"+scopeId+"/issue",{},undefined,true),i);
+    "real /v6/pt/test-authority/scopes/:id/issue; exact HMAC persisted by test-only issuer")(()=>call("POST","/v6/pt/test-authority/scopes/"+scopeId+"/issue",{},undefined,true),i);
    ok(issue,201);
    const preview=await timed("governed-signed-permit-check-deterministic-plan",
-    "real /v11/api-vapt/scopes/:id/preview validates current scope/permit and deterministic Phase09 plan")
-    (()=>call("GET","/v11/api-vapt/scopes/"+scopeId+"/preview?policyId=SYNTHETIC_PT_COMPLETE_SUPPORTED&profile=SECURE_BASELINE"),i);
+    "real /v11/api-vapt/scopes/:id/preview validates current scope/permit and deterministic Phase09 plan")(()=>call("GET","/v11/api-vapt/scopes/"+scopeId+"/preview?policyId=SYNTHETIC_PT_COMPLETE_SUPPORTED&profile=SECURE_BASELINE"),i);
    assert.equal(ok(preview,200).authorizationReady,true);
    assert.equal((preview.json().plan as {plannedEvaluations:number}).plannedEvaluations,14);
    const body={mode:"GOVERNED_SYNTHETIC",scopeId,policyId:"SYNTHETIC_PT_COMPLETE_SUPPORTED",profile:"SECURE_BASELINE"};
    const admitted=await timed("first-autonomous-parent-child-postgres-admission",
-    "real /v11/api-vapt/assessments creates parent+2 children with fresh idempotency and PostgreSQL queue")
-    (()=>call("POST","/v11/api-vapt/assessments",body,"e6-parent-"+randomUUID()),i);
+    "real /v11/api-vapt/assessments creates parent+2 children with fresh idempotency and PostgreSQL queue")(()=>call("POST","/v11/api-vapt/assessments",body,"e6-parent-"+randomUUID()),i);
    const created=ok(admitted,201),id=created.id as string;
    assert(created.offlineAssessmentId&&created.ptAssessmentId);
    const replay=ok(await call("GET","/v11/api-vapt/assessments/"+id),200);
    assert.equal(replay.status,"QUEUED");assert.equal((replay.children as unknown[]).length,2);
    const offline=await timed("worker-claim-offline-child-real-execution",
-    "processOneJob claims fenced private queue and persists offline evidence/worker attempt")
-    (()=>processOneJob(),i);
+    "processOneJob claims fenced private queue and persists offline evidence/worker attempt")(()=>processOneJob(),i);
    assert.equal(offline,true);
    const partial=ok(await call("GET","/v11/api-vapt/assessments/"+id),200);
    assert.equal(partial.status,"QUEUED");
    assert((partial.children as {engine_version:string;status:string}[]).some(v=>v.status==="COMPLETED"));
    const governed=await timed("worker-signed-governed-PT-stage-and-evaluation",
-    "processOneJob executes Phase09 PT fixture, validates 14 signed evaluations, no external network")
-    (()=>processOneJob(),i);
+    "processOneJob executes Phase09 PT fixture, validates 14 signed evaluations, no external network")(()=>processOneJob(),i);
    assert.equal(governed,true);
    const compose=await timed("worker-immutable-parent-report-composition",
-    "processOneJob dispatches processAutonomousVaptJob, persisted child evidence correlation and immutable report")
-    (()=>processOneJob(),i);
+    "processOneJob dispatches processAutonomousVaptJob, persisted child evidence correlation and immutable report")(()=>processOneJob(),i);
    assert.equal(compose,true);
    const report=await timed("tenant-scoped-immutable-parent-report-retrieval",
-    "authenticated GET /v11/api-vapt/assessments/:id/report real PG FORCED RLS")
-    (()=>call("GET","/v11/api-vapt/assessments/"+id+"/report"),i);
+    "authenticated GET /v11/api-vapt/assessments/:id/report real PG FORCED RLS")(()=>call("GET","/v11/api-vapt/assessments/"+id+"/report"),i);
    const document=ok(report,200);
    assert.equal(document.verifiedFixed,false);
    assert.equal(document.customerRuntimeVerified,false);
@@ -123,14 +116,13 @@ test("Phase14 E6 actual signed governed PT, planner, queue, parent composition, 
    assert.equal((document.pt as {executedEvaluations:number}).executedEvaluations,14);
    assert.equal((document.components as {status:string}[]).filter(x=>x.status==="COMPLETED").length,2);
    const findings=await timed("tenant-scoped-parent-finding-pagination",
-    "authenticated GET /v11/api-vapt/assessments/:id/findings?limit=20 real PG")
-    (()=>call("GET","/v11/api-vapt/assessments/"+id+"/findings?limit=20"),i);
+    "authenticated GET /v11/api-vapt/assessments/:id/findings?limit=20 real PG")(()=>call("GET","/v11/api-vapt/assessments/"+id+"/findings?limit=20"),i);
    ok(findings,200);
    assert.equal((await call("GET","/v11/api-vapt/assessments/"+id+"/report",undefined,undefined,false,"local-test-token-beta")).statusCode,409);
    assert.equal((await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]))).rows[0].n,1);
    const src=await withTenant(A,tx=>tx.query("SELECT id FROM api_reports WHERE assessment_id=$1",[created.offlineAssessmentId]));
    assert.equal(src.rowCount,1,"source immutable offline report must exist before metering");
-   reports.push(src.rows[0].id as string);
+   reports.push(id);
   }
 
   // Separate fresh pending parent operations measure durable recovery at a lost lease boundary.
@@ -142,13 +134,11 @@ test("Phase14 E6 actual signed governed PT, planner, queue, parent composition, 
    await withWorkerTenant(A,tx=>tx.query(
     "UPDATE api_queue.api_assessment_queue SET locked_until=clock_timestamp()-interval '1 second' WHERE assessment_id=$1",[id]));
    const replacement=await timed("fenced-private-queue-lease-reclaim",
-    "claimJob takes expired PostgreSQL lease, increments generation, never reuses stale token")
-    (()=>claimJob(),i);
+    "claimJob takes expired PostgreSQL lease, increments generation, never reuses stale token")(()=>claimJob(),i);
    assert.equal(replacement?.assessment_id,id);assert.notEqual(old!.claim_token,replacement!.claim_token);
    await assert.rejects(()=>processAutonomousVaptJob(A,id,old!.claim_token),/VAPT11_PARENT_LEASE_LOST/);
    await timed("durable-parent-worker-recovery-after-stale-lease",
-    "processAutonomousVaptJob reads actual committed offline child, rejects former worker and persists one report")
-    (()=>processAutonomousVaptJob(A,id,replacement!.claim_token),i);
+    "processAutonomousVaptJob reads actual committed offline child, rejects former worker and persists one report")(()=>processAutonomousVaptJob(A,id,replacement!.claim_token),i);
    assert.equal(ok(await call("GET","/v11/api-vapt/assessments/"+id+"/report"),200).verifiedFixed,false);
    assert.equal((await withTenant(A,tx=>tx.query(
     "SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]))).rows[0].n,1);
@@ -158,8 +148,7 @@ test("Phase14 E6 actual signed governed PT, planner, queue, parent composition, 
    const id=ok(await call("POST","/v11/api-vapt/assessments",
     {mode:"OFFLINE_ONLY",targetId:tid,specificationId:sid},"e6-cancel-"+randomUUID()),201).id as string;
    const result=await timed("first-write-queued-parent-cancellation",
-    "real POST /v11/api-vapt/assessments/:id/cancel commits terminal PostgreSQL parent/child states")
-    (()=>call("POST","/v11/api-vapt/assessments/"+id+"/cancel",{}),i);
+    "real POST /v11/api-vapt/assessments/:id/cancel commits terminal PostgreSQL parent/child states")(()=>call("POST","/v11/api-vapt/assessments/"+id+"/cancel",{}),i);
    assert.equal(ok(result,200).status,"CANCELLED");
    assert.equal((await call("GET","/v11/api-vapt/assessments/"+id+"/report")).statusCode,409);
    assert.equal((await withTenant(A,tx=>tx.query(
@@ -175,16 +164,13 @@ test("Phase14 E6 actual signed governed PT, planner, queue, parent composition, 
    createHmac("sha256",key).update(raw).digest("hex"),key)).replay,false);
   for(let i=0;i<samples;i++){
    const reservation=await timed("first-write-commercial-evidence-reservation",
-    "reserveFeatureObservation creates committed unique non-billable offline source reservation under advisory lock")
-    (()=>reserveFeatureObservation(A,reports[i]!,"e6-meter-"+randomUUID(),feature),i);
+    "reserveFeatureObservation creates committed unique non-billable offline source reservation under advisory lock")(()=>reserveFeatureObservation(A,reports[i]!,"e6-meter-"+randomUUID(),feature),i);
    assert.equal(reservation.replay,false);
    const settled=await timed("first-write-commercial-settlement",
-    "settleFeatureObservation commits exact synthetic immutable usage ledger and disabled outbound outbox")
-    (()=>settleFeatureObservation(A,reservation.id),i);
+    "settleFeatureObservation commits exact synthetic immutable usage ledger and disabled outbound outbox")(()=>settleFeatureObservation(A,reservation.id),i);
    assert.equal(settled.state,"SETTLED");assert.equal(settled.replay,false);
    const reconciled=await timed("first-write-commercial-pending-reconciliation",
-    "reconcilePending detects actual latest ledger watermark and writes pending external authority evidence")
-    (()=>reconcilePending(A,feature),i);
+    "reconcilePending detects actual latest ledger watermark and writes pending external authority evidence")(()=>reconcilePending(A,feature),i);
    assert.equal(reconciled.state,"PENDING_EXTERNAL_AUTHORITY");
   }
   const summary=await projection(A,feature);
