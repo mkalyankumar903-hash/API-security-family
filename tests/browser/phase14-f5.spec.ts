@@ -198,11 +198,18 @@ test("F5 partial execution then cancel rejects false successful parent and immut
  const panel=await setupPage(page,target,spec);
  await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
  const id=(await history(request,target))[0]!.id;
- expect(await processOneJob()).toBe(true);
- const mid=await request.get(API+"/v11/api-vapt/assessments/"+id,{headers:auth});
- const partial=await mid.json() as {status:string;children:{status:string}[]};
- expect(partial.status).toBe("QUEUED");
- expect(partial.children.some(c=>c.status==="COMPLETED")).toBe(true);
+ // The shared real queue contains other previous synthetic fixtures. Do not
+ // confuse an unrelated successful worker claim with this parent's child.
+ let partial:{status:string;children:{status:string}[]}|null=null;
+ for(let i=0;i<30;i++){
+  const mid=await request.get(API+"/v11/api-vapt/assessments/"+id,{headers:auth});
+  expect(mid.status()).toBe(200);
+  partial=await mid.json() as {status:string;children:{status:string}[]};
+  if(partial.children.some(c=>c.status==="COMPLETED"))break;
+  expect(await processOneJob(),"real PostgreSQL queue must progress").toBe(true);
+ }
+ expect(partial?.status).toBe("QUEUED");
+ expect(partial?.children.some(c=>c.status==="COMPLETED")).toBe(true);
  await panel.getByRole("button",{name:"Cancel assessment"}).click();
  await expect(panel.getByRole("status")).toContainText("CANCELLED");
  expect((await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth})).status()).toBe(409);
