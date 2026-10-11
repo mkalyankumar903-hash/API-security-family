@@ -242,9 +242,9 @@ test("Phase14 A2 genuine SIGTERM during committed governed PT evaluation; fenced
    assert.equal(report.customerRuntimeVerified,false);
    assert.equal(report.fullAuthorizedVaptCompleted,true);
    assert.equal((await app.inject({method:"GET",url:"/v11/api-vapt/assessments/"+id+"/report",
-    headers:{authorization:"Bearer local-test-token-beta"}})).statusCode,404);
+    headers:{authorization:"Bearer local-test-token-beta"}})).statusCode,409); // report unavailability is deliberately a non-disclosing 409
    console.log("PHASE14_ACTIVE_GOVERNED_PT_SIGTERM_RECOVERY_PASS "+JSON.stringify({
-    firstConsumed:before.consumed,afterConsumed:final.states[0].n,ptReports:1,parentReports:1,
+    firstConsumed:before.consumed,afterConsumed:final.states[0]!.n,ptReports:1,parentReports:1,
     oldGenerationDenied:true,productionAuthorization:false,customerNetworkRequests:0}));
   }finally{if(original.exitCode===null)original.kill("SIGKILL");}
  }finally{await app.close();}
