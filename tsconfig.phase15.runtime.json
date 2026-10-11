@@ -1,6 +1,6 @@
 {
  "compilerOptions":{
-  "target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":true,
+  "target":"ES2022","module":"ESNext","moduleResolution":"Bundler","strict":true,
   "esModuleInterop":true,"skipLibCheck":true,"resolveJsonModule":true,
   "types":["node"],"noUncheckedIndexedAccess":true,"rootDir":".",
   "outDir":"build/phase15-runtime","noEmit":false,"declaration":false
