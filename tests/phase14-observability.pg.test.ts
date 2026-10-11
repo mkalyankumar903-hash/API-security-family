@@ -90,3 +90,63 @@ test("Phase14 adversarial diagnostics bound unknown enum, giant IDs, secrets, in
   }
  }
 });
+
+
+test("Phase14 C8 every allowed diagnostic kind redacts hostile secrets, untrusted input and production output",()=>{
+ const kinds=["HTTP_REJECTED","HTTP_COMPLETED","ASSESSMENT_ADMISSION","QUEUE_CLAIM",
+  "LEASE_RENEWAL","WORKER_RETRY","WORKER_TERMINAL","DB_CONTENTION","RESOURCE_REJECTED",
+  "REPORT_RENDER","REPORT_FINALIZED","METER_RESERVATION","METER_SETTLEMENT","METER_EXPIRY",
+  "METER_CORRECTION","METER_RECONCILIATION","METER_ENTITLEMENT","ASSESSMENT_TRANSITION",
+  "WORKER_SHUTDOWN","QA_DELIVERY"] as const;
+ const classifications=["AUTH","VALIDATION","CAPACITY","TIMEOUT","CONFLICT","INTERNAL",
+  "OK","STALE","RETRY","EXHAUSTED"] as const;
+ const forbidden=["s3cr3t","Authorization","https://customer.internal",
+  "BEARER_PAYLOAD","rawTenant","evidenceJson","sdkRefreshToken"];
+ const injected="Authorization: Bearer s3cr3t https://customer.internal BEARER_PAYLOAD";
+ const old={node:process.env.NODE_ENV,flag:process.env.SYNTHETIC_AUTH_ENABLED,
+  diag:process.env.API_FAMILY_DIAGNOSTICS};
+ const original=process.stderr.write,emitted:string[]=[];
+ process.stderr.write=((chunk:unknown)=>{emitted.push(String(chunk));return true;}) as typeof process.stderr.write;
+ try{
+  process.env.NODE_ENV="test";process.env.SYNTHETIC_AUTH_ENABLED="true";
+  process.env.API_FAMILY_DIAGNOSTICS="true";
+  for(const [i,kind] of kinds.entries()){
+   const input=Object.assign({kind,classification:classifications[i%classifications.length]!,
+    statusCode:409,requestId:injected,durationMs:i+0.5,queueWaitMs:i,
+    attempt:i,feature:injected,state:injected},
+    {authorization:injected,rawTenant:injected,evidenceJson:injected,
+     sdkRefreshToken:injected,targetUrl:injected,stack:injected});
+   const safe=makeDiagnostic(input);
+   assert.equal(safe.kind,kind);
+   assert.equal(safe.requestId,null);
+   assert.equal(safe.feature,null);
+   assert.equal(safe.state,null);
+   assert(Number.isFinite(safe.durationMs));
+   emitDiagnostic(input);
+  }
+  assert.equal(emitted.length,kinds.length);
+  const output=emitted.join("");
+  for(const secret of forbidden)assert(!output.includes(secret),"leak: "+secret);
+  for(const line of emitted){
+   assert(line.startsWith("API_FAMILY_DIAGNOSTIC "));
+   const item=JSON.parse(line.slice(22)) as {schemaVersion:string;requestId:null};
+   assert.equal(item.schemaVersion,"api-family-diagnostic-v1");
+   assert.equal(item.requestId,null);
+   assert.deepEqual(Object.keys(item).sort(),Object.keys(makeDiagnostic({
+    kind:"WORKER_SHUTDOWN",classification:"OK",statusCode:200})).sort());
+  }
+  process.env.NODE_ENV="production";emitDiagnostic({
+   kind:"WORKER_SHUTDOWN",classification:"INTERNAL",statusCode:500,requestId:injected});
+  process.env.NODE_ENV="test";process.env.SYNTHETIC_AUTH_ENABLED="false";
+  emitDiagnostic({kind:"WORKER_SHUTDOWN",classification:"INTERNAL",statusCode:500});
+  assert.equal(emitted.length,kinds.length,"production or unauthorized test process must not emit");
+  console.log("PHASE14_C8_ALL_KIND_REDACTION_PASS "+JSON.stringify({kinds:kinds.length,
+   attemptedSecretFields:7,untrustedValuesDropped:true,productionEmissions:0,externalTelemetry:false}));
+ }finally{
+  process.stderr.write=original;
+  for(const [k,v] of [["NODE_ENV",old.node],["SYNTHETIC_AUTH_ENABLED",old.flag],
+   ["API_FAMILY_DIAGNOSTICS",old.diag]] as const){
+   if(v===undefined)delete process.env[k];else process.env[k]=v;
+  }
+ }
+});
