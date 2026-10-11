@@ -448,3 +448,53 @@ test("F5 stale authentic COMPLETED parent response cannot replace newly CANCELLE
   "SELECT parent_assessment_id FROM api_vapt11_reports WHERE parent_assessment_id=ANY($1::uuid[])",[[oldId,newer.id]]));
  expect(sql.rows.map(x=>x.parent_assessment_id)).toEqual([oldId]);
 });
+
+
+test("F5 E7 repeated browser 429/503 fault responses preserve focus and real PG zero-admission authority",async({page,request})=>{
+ test.setTimeout(120000);
+ const {target,spec}=await seed(request),panel=await setupPage(page,target,spec);
+ const start=panel.getByRole("button",{name:"Start one autonomous assessment"});
+ const warmup=2,iterations=10,metrics:{status:number;duration:number}[]=[];
+ const cpu=process.cpuUsage(),heap=process.memoryUsage().heapUsed;
+ let returned=0;
+ // A deterministic negative-only transport boundary. This is not a real server
+ // 429/503 capacity benchmark and NEVER fabricates a Fastify success response.
+ await page.route("**/v11/api-vapt/assessments",async route=>{
+  if(route.request().method()!=="POST"){await route.continue();return;}
+  const status=returned++<iterations?429:503;
+  await route.fulfill({status,contentType:"application/json",
+   body:JSON.stringify({error:status===429?"F5_SYNTHETIC_CAPACITY":"F5_SYNTHETIC_SERVICE_UNAVAILABLE"})});
+ });
+ for(const status of [429,503]){
+  for(let i=0;i<iterations;i++){
+   const started=performance.now();
+   await start.click();
+   await expect(panel.getByRole("alert")).toContainText(status===429?
+    "F5_SYNTHETIC_CAPACITY":"F5_SYNTHETIC_SERVICE_UNAVAILABLE");
+   await expect(start).toBeEnabled();await expect(start).toBeFocused();
+   const elapsed=performance.now()-started;
+   if(i>=warmup)metrics.push({status,duration:elapsed});
+   expect(await history(request,target)).toHaveLength(0);
+  }
+ }
+ expect(returned).toBe(iterations*2);
+ const percentile=(status:number)=>{
+  const v=metrics.filter(x=>x.status===status).map(x=>x.duration).sort((a,b)=>a-b);
+  expect(v).toHaveLength(8);
+  expect(v.every(n=>n>=0&&Number.isFinite(n))).toBe(true);
+  return {samples:v.length,medianMs:Number(v[3]!.toFixed(3)),
+   p95Ms:Number(v[7]!.toFixed(3))};
+ };
+ const usage=process.cpuUsage(cpu);
+ const noParents=await withTenant(A,tx=>tx.query(
+  "SELECT count(*)::int AS n FROM api_vapt11_assessments WHERE target_id=$1",[target]));
+ expect(noParents.rows[0].n).toBe(0);
+ console.log("PHASE14_F5_E7_NEGATIVE_UI_TRANSITIONS "+JSON.stringify({
+  http429:percentile(429),http503:percentile(503),warmup,
+  iterationsPerStatus:iterations,errors:0,concurrency:1,
+  cpuUserMicros:usage.user,cpuSystemMicros:usage.system,
+  heapDeltaBytes:process.memoryUsage().heapUsed-heap,
+  actualSource:"Chromium React loading/error/focus + Playwright negative-only HTTP response boundary and real PostgreSQL zero-admission readback",
+  limitation:"429/503 explicitly fault injected in test transport, not backend capacity benchmark",
+  noProductionSlo:true,customerNetworkRequests:0}));
+});
