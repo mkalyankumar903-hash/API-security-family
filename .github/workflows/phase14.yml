@@ -178,6 +178,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase14-e6.pg.test.ts
       - name: Phase14 E7 actual PostgreSQL first-write retry backoff generation recovery benchmarks
         run: node --import tsx --test --test-concurrency=1 tests/phase14-e7.pg.test.ts
+      - name: Phase14 C3 committed governor stop and permit revocation diagnostics
+        run: node --import tsx --test --test-concurrency=1 tests/phase14-c3.pg.test.ts
 
 
 
@@ -610,6 +612,8 @@ jobs:
         run: node --import tsx --test --test-concurrency=1 tests/phase14-e6.pg.test.ts
       - name: Phase14 E7 actual PostgreSQL first-write retry backoff generation recovery benchmarks
         run: node --import tsx --test --test-concurrency=1 tests/phase14-e7.pg.test.ts
+      - name: Phase14 C3 committed governor stop and permit revocation diagnostics
+        run: node --import tsx --test --test-concurrency=1 tests/phase14-c3.pg.test.ts
 
 
       # The preceding exhaustive PostgreSQL race/recovery suite deliberately
