@@ -216,3 +216,104 @@ test("F5 partial execution then cancel rejects false successful parent and immut
  expect((await withTenant(A,tx=>tx.query(
   "SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]))).rows[0].n).toBe(0);
 });
+
+test("F5 cancellation before durable admission aborts browser transport without false PostgreSQL admission",async({page,request})=>{
+ test.setTimeout(90000);
+ const {target,spec}=await seed(request),panel=await setupPage(page,target,spec);
+ const gate=barrier();let intercepts=0;
+ await page.route("**/v11/api-vapt/assessments",async route=>{
+  if(route.request().method()!=="POST"){await route.continue();return;}
+  intercepts++;gate.notify();await gate.promise;
+  await route.abort("failed");
+ });
+ const button=panel.getByRole("button",{name:"Start one autonomous assessment"});
+ await button.click();await gate.entered;
+ await expect(button).toBeDisabled();
+ expect(await history(request,target)).toHaveLength(0);
+ gate.unlock();await expect(panel.getByRole("alert")).toBeVisible();
+ await expect(button).toBeFocused();await expect(button).toBeEnabled();
+ expect(intercepts).toBe(1);expect(await history(request,target)).toHaveLength(0);
+ expect((await withTenant(A,tx=>tx.query(
+  "SELECT count(*)::int AS n FROM api_vapt11_assessments WHERE target_id=$1",[target]))).rows[0].n).toBe(0);
+ await page.unroute("**/v11/api-vapt/assessments");
+ await button.press("Enter");
+ await expect.poll(async()=>(await history(request,target)).length).toBe(1);
+});
+
+test("F5 navigation away before admission forwarding leaves no parent or cross-tenant state",async({page,request})=>{
+ test.setTimeout(90000);
+ const {target,spec}=await seed(request),panel=await setupPage(page,target,spec);
+ const gate=barrier();
+ await page.route("**/v11/api-vapt/assessments",async route=>{
+  if(route.request().method()!=="POST"){await route.continue();return;}
+  gate.notify();await gate.promise;
+  // Browser navigation cancelled the original document; this is a transport
+  // abort only, never an invented committed HTTP response.
+  try{await route.abort("aborted");}catch{ /* original network was already disposed */ }
+ });
+ await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ await gate.entered;expect(await history(request,target)).toHaveLength(0);
+ await page.goto("about:blank");
+ gate.unlock();
+ expect(await history(request,target)).toHaveLength(0);
+ await page.goto("/");
+ await page.getByLabel("Synthetic development token (never a production login)").fill("local-test-token-beta");
+ expect(await page.getByRole("region",{name:"Autonomous API VAPT workspace"}).count()).toBe(0);
+ expect((await withTenant(A,tx=>tx.query(
+  "SELECT count(*)::int AS n FROM api_vapt11_assessments WHERE target_id=$1",[target]))).rows[0].n).toBe(0);
+});
+
+test("F5 HTTP 429 admission denial at 320px and 200% text with accessible alert and keyboard recovery",async({page,request})=>{
+ const {target,spec}=await seed(request);
+ await page.setViewportSize({width:320,height:760});
+ await page.emulateMedia({reducedMotion:"reduce"});
+ await page.goto("/");
+ await page.getByLabel("Select target").selectOption(target);
+ const panel=page.getByRole("region",{name:"Autonomous API VAPT workspace"});
+ await panel.getByLabel("Assessment mode").selectOption("OFFLINE_ONLY");
+ await panel.getByLabel("Immutable specification").selectOption(spec);
+ await page.evaluate(()=>{document.documentElement.style.fontSize="200%";});
+ let denies=0;
+ await page.route("**/v11/api-vapt/assessments",async route=>{
+  if(route.request().method()==="POST"&&denies++===0){
+   await route.fulfill({status:429,contentType:"application/json",
+    body:JSON.stringify({error:"QUEUE_TENANT_CAPACITY_EXCEEDED"})});return;
+  }
+  await route.continue();
+ });
+ const start=panel.getByRole("button",{name:"Start one autonomous assessment"});
+ await start.click();
+ await expect(panel.getByRole("alert")).toContainText("QUEUE_TENANT_CAPACITY_EXCEEDED");
+ await expect(start).toBeFocused();await expect(start).toBeEnabled();
+ expect(await history(request,target)).toHaveLength(0);
+ expect(await page.evaluate(()=>matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
+ await page.unroute("**/v11/api-vapt/assessments");
+ await start.press("Enter");
+ await expect.poll(async()=>(await history(request,target)).length).toBe(1);
+ await expect(panel.getByRole("alert")).toHaveCount(0);
+ expect((await history(request,target))[0]!.status).toBe("QUEUED");
+});
+
+test("F5 failed cancellation cannot create false terminal status; on retry retains immutable authority",async({page,request})=>{
+ const {target,spec}=await seed(request),panel=await setupPage(page,target,spec);
+ await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ const id=(await history(request,target))[0]!.id;
+ const cancel=panel.getByRole("button",{name:"Cancel assessment"});
+ await expect(cancel).toBeEnabled();
+ let denies=0;
+ await page.route("**/v11/api-vapt/assessments/"+id+"/cancel",async route=>{
+  if(denies++===0){await route.fulfill({status:503,contentType:"application/json",
+   body:JSON.stringify({error:"CANCEL_TEMPORARILY_UNAVAILABLE"})});return;}
+  await route.continue();
+ });
+ await cancel.click();await expect(panel.getByRole("alert")).toContainText("CANCEL_TEMPORARILY_UNAVAILABLE");
+ await expect(cancel).toBeFocused();await expect(cancel).toBeEnabled();
+ expect((await history(request,target))[0]!.status).toBe("QUEUED");
+ await page.unroute("**/v11/api-vapt/assessments/"+id+"/cancel");
+ await cancel.press("Enter");
+ await expect(panel.getByRole("status")).toContainText("CANCELLED");
+ expect((await history(request,target))[0]!.status).toBe("CANCELLED");
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth})).status()).toBe(409);
+ expect((await withTenant(A,tx=>tx.query(
+  "SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]))).rows[0].n).toBe(0);
+});
