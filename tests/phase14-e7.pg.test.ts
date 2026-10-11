@@ -91,6 +91,13 @@ test("Phase14 E7 actual 2-4-8 second committed retry distribution and terminal e
  await migrate();const app=await makeApp();
  const warmup=2,fixtures=10,measured=[[],[],[],[]] as number[][];
  const scheduledBackoffs=[2,4,8],cpu=process.cpuUsage(),heap=process.memoryUsage().heapUsed;
+ const beforeEnv=process.env.API_FAMILY_DIAGNOSTICS,stderr=process.stderr.write,events:string[]=[];
+ process.env.API_FAMILY_DIAGNOSTICS="true";
+ process.stderr.write=((chunk:unknown)=>{
+  const line=String(chunk);
+  if(line.startsWith("API_FAMILY_DIAGNOSTIC "))events.push(line);
+  return stderr.call(process.stderr,chunk as string);
+ }) as typeof process.stderr.write;
  const req=(url:string,data:object,key?:string)=>app.inject({method:"POST",url,payload:data,headers:{
   authorization:"Bearer local-test-token-alpha",...(key?{"idempotency-key":key}:{})}});
  const ok=(r:{statusCode:number;body:string;json:()=>Record<string,unknown>},status:number)=>{
@@ -154,6 +161,13 @@ test("Phase14 E7 actual 2-4-8 second committed retry distribution and terminal e
    return {samples:sorted.length,medianMs:Number(sorted[3]!.toFixed(3)),
     p95Ms:Number(sorted[7]!.toFixed(3))};
   };
+  const emitted=events.filter(x=>x.includes('"kind":"WORKER_RETRY"'));
+  assert.equal(emitted.filter(x=>x.includes('"classification":"RETRY"')).length,fixtures*3,
+   "one postcommit diagnostic for each actual scheduled retry");
+  assert.equal(emitted.filter(x=>x.includes('"classification":"EXHAUSTED"')).length,fixtures,
+   "one postcommit diagnostic for each durable terminal quarantine");
+  assert(emitted.every(x=>!x.includes("local-test-token-")&&!x.includes(A)&&
+   !x.includes("08006")&&!x.includes("fixture.invalid")));
   const used=process.cpuUsage(cpu);
   console.log("PHASE14_E7_FULL_RETRY_EXHAUSTION "+JSON.stringify({
    stages:["2s","4s","8s","EXHAUSTED"].map((name,index)=>({name,...stat(measured[index]!)})),
@@ -163,5 +177,10 @@ test("Phase14 E7 actual 2-4-8 second committed retry distribution and terminal e
    source:"scheduleConservativeRetry actual PostgreSQL retry_count/next_eligible_at and terminal quarantine",
    reportCount:0,billable:false,customerNetworkRequests:0,productionSlo:false,
    hardP95Budget:null,reason:"8 shared GitHub runner samples cannot justify production hard latency budget"}));
- }finally{await app.close();}
+ }finally{
+  process.stderr.write=stderr;
+  if(beforeEnv===undefined)delete process.env.API_FAMILY_DIAGNOSTICS;
+  else process.env.API_FAMILY_DIAGNOSTICS=beforeEnv;
+  await app.close();
+ }
 });
