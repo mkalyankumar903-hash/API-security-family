@@ -237,6 +237,20 @@ test("Phase14 A2 genuine SIGTERM during committed governed PT evaluation; fenced
    assert.deepEqual(final.states,[{state:"CONSUMED",n:14}]);
    assert.equal(final.proofs,1);assert.equal(final.reports,1);
    assert.deepEqual(final.attempts,["LOST","COMPLETED"]);
+   const decision=await withTenant(TENANT,async tx=>{
+    const codes=await tx.query("SELECT stage_id,code FROM api_pt9_decisions WHERE assessment_id=$1 ORDER BY created_at",[pt]);
+    const stages=await tx.query("SELECT stage_id,status,evidence_fingerprint FROM api_pt9_stages WHERE assessment_id=$1 ORDER BY ordinal",[pt]);
+    const attempts=await tx.query("SELECT kind,code FROM api_worker_events WHERE assessment_id=$1",[pt]);
+    return {codes:codes.rows,stages:stages.rows,attempts:attempts.rows};
+   });
+   for(const code of ["STAGE_ADMITTED","LEASED_RECOVERY","STAGE_EVIDENCE_COMPLETED",
+    "ORCHESTRATION_COMPLETED"]){
+    assert(decision.codes.some(x=>x.code===code),"missing authoritative transition: "+code);
+   }
+   assert(decision.stages.every(x=>x.status==="COMPLETED"&&
+    typeof x.evidence_fingerprint==="string"&&x.evidence_fingerprint.length===64));
+   assert(decision.attempts.some(x=>x.kind==="TAKEOVER"));
+   assert(decision.attempts.some(x=>x.kind==="LEASE_LOST"));
    const report=await call("GET","/v11/api-vapt/assessments/"+id+"/report");
    assert.equal(report.verifiedFixed,false);
    assert.equal(report.customerRuntimeVerified,false);
