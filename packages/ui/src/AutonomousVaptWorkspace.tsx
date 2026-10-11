@@ -57,7 +57,7 @@ export function AutonomousVaptWorkspace({token,targetId}:{token:string;targetId:
  const cancelButton=useRef<HTMLButtonElement|null>(null);
  useEffect(()=>{if(error&&!busy&&actionFocus.current&&!actionFocus.current.disabled)
   actionFocus.current.focus();},[error,busy]);
- useEffect(()=>()=>{readGeneration.current++;mutationActive.current=true;},[]);
+ useEffect(()=>{mutationActive.current=false;return()=>{readGeneration.current++;mutationActive.current=true;};},[]);
  const refresh=useCallback(async()=>{
   const [s,p,h,sp]=await Promise.all([
    api<Scope[]>(token,"/v6/pt/targets/"+targetId+"/scopes?limit=50"),
@@ -87,6 +87,7 @@ export function AutonomousVaptWorkspace({token,targetId}:{token:string;targetId:
  const refreshAssessment=useCallback(async(force=false)=>{
   if(!jobId||mutationActive.current&&!force)return;
   const generation=++readGeneration.current;
+  try{
   const current=await api<Job>(token,"/v11/api-vapt/assessments/"+jobId);
   if(generation!==readGeneration.current||mutationActive.current&&!force)return;
   setJob(current);
@@ -102,6 +103,10 @@ export function AutonomousVaptWorkspace({token,targetId}:{token:string;targetId:
    const t=await api<{status:string;code:string}>(token,"/v11/api-vapt/assessments/"+jobId+"/terminal");
    if(generation!==readGeneration.current||mutationActive.current&&!force)return;
    setTerminal(t);setReport(null);setFindings([]);
+  }
+  }catch(error){
+   if(generation!==readGeneration.current||mutationActive.current&&!force)return;
+   throw error;
   }
  },[token,jobId]);
  useEffect(()=>{if(!jobId)return;let live=true;
