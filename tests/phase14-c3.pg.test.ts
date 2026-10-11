@@ -63,8 +63,8 @@ test("Phase14 C3 revoked permit and stopped governor emit sanitized diagnostics 
    v.includes('"state":"REVOKED"')&&v.includes('"classification":"STALE"')));
   const second=(await scope()).id as string;
   const secondPermit=(await issue(second)).id as string;
-  const job=await call("POST","/v6/pt/scopes/"+second+"/jobs",
-   {operationKeys:keys},"c3-job-"+randomUUID());
+  const job=await call("POST","/v9/pt/scopes/"+second+"/orchestrations",
+   {policyId:"SYNTHETIC_PT_COMPLETE_SUPPORTED",profile:"SECURE_BASELINE"},"c3-job-"+randomUUID());
   const jid=job.id as string;
   const started=await withTenant(tenant,tx=>tx.query("SELECT status FROM api_assessments WHERE id=$1",[jid]));
   assert.equal(started.rows[0].status,"QUEUED");
