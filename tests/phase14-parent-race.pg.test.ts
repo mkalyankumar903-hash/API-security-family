@@ -22,7 +22,7 @@ test("Phase14 genuine committed parent finalizer wins cancellation under Postgre
  const created=async()=>{
   const t=await call("POST","/v1/targets",{
    name:"F5 parent race "+randomUUID().slice(0,9),environment:"SYNTHETIC",
-   baseUrl:"https://f5race-"+randomUUID().slice(0,9)+".fixture.invalid"});
+   baseUrl:"https://f5race-"+randomUUID().slice(0,8)+".fixture.invalid"});
   assert.equal(t.statusCode,201,t.body);const target=t.json().id as string;
   const imported=await call("POST","/v2/targets/"+target+"/specifications/imports",
    {filename:"phase07-security.openapi.json",content:SPEC},"race-import-"+randomUUID());
