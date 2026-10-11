@@ -250,7 +250,10 @@ test("Phase14 A2 genuine SIGTERM during committed governed PT evaluation; fenced
    assert(decision.stages.every(x=>x.status==="COMPLETED"&&
     typeof x.evidence_fingerprint==="string"&&x.evidence_fingerprint.length===64));
    assert(decision.attempts.some(x=>x.kind==="TAKEOVER"));
-   assert(decision.attempts.some(x=>x.kind==="LEASE_LOST"));
+   const replaced=await withTenant(TENANT,tx=>tx.query(
+    "SELECT state,failure_code FROM api_worker_attempts WHERE assessment_id=$1 ORDER BY claim_generation LIMIT 1",[pt]));
+   assert.equal(replaced.rows[0].state,"LOST");
+   assert.equal(replaced.rows[0].failure_code,"LEASE_REPLACED");
    const report=await call("GET","/v11/api-vapt/assessments/"+id+"/report");
    assert.equal(report.verifiedFixed,false);
    assert.equal(report.customerRuntimeVerified,false);
