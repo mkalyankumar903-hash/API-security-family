@@ -123,13 +123,17 @@ test("Phase14 real governed PT: user cancellation after committed evaluation and
   requireCode(await call("POST","/v6/pt/test-authority/permits/"+revoked.permit+"/revoke",{},undefined,true),200);
   revocationGate.release();await working;await finishWorkerAttempt(revoked.lease);
   const denied=await snapshot(revoked.id);
-  assert.notEqual(denied.status,"COMPLETED");assert.equal(denied.reports,0);
+  assert.equal(denied.status,"FAILED","revocation after committed evaluation must terminate actual governed worker");
+  assert.equal(denied.terminal,1,"failed governed stage must persist authoritative terminal");
+  assert(denied.stages.some(stage=>stage==="FAILED"),"in-flight stage must persist FAILED state");
+  assert.equal(denied.reports,0);
   assert.equal(denied.consumed,1,"a revoked permit never authorizes evaluation two");
   assert.equal((await call("GET","/v9/pt/orchestrations/"+revoked.id+"/report")).statusCode,409);
   assert.equal((await withTenant(A,tx=>tx.query(
    "SELECT revoked_at IS NOT NULL AS revoked FROM api_pt_permits WHERE id=$1",[revoked.permit]))).rows[0].revoked,true);
-  if(denied.status==="FAILED")assert(recorded.some(x=>x.includes('"kind":"ASSESSMENT_TRANSITION"')&&
-   x.includes('"state":"FAILED"')),"failed PT diagnostic must correspond to committed failure");
+  assert(recorded.some(x=>x.includes('"kind":"ASSESSMENT_TRANSITION"')&&
+   x.includes('"state":"FAILED"')&&x.includes('"classification":"VALIDATION"')),
+   "terminal denied governed worker must emit sanitized postcommit failure diagnostic");
   assert(recorded.every(x=>!x.includes(user.id)&&!x.includes(revoked.id)&&
    !x.includes(user.permit)&&!x.includes(revoked.permit)&&!x.includes(A)),
    "diagnostics must redact all customer/permit identifiers");
