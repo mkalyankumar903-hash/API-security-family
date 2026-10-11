@@ -10,6 +10,7 @@ import {POLICIES,ORCHESTRATOR_ENGINE,buildOrchestrationPlan,orchestrationFingerp
 import {persistTerminalCoverage} from "../../pt/src/terminal-coverage.js";
 import {PtError} from "./pt.js";
 import {persistOrchestrationTerminal} from "../../pt/src/orchestration-terminal.js";
+import {emitDiagnostic} from "../../contracts/src/operational-diagnostics-v14.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const id=(v:unknown)=>{if(typeof v!=="string"||!UUID.test(v))throw new PtError(400,"INVALID_ID");return v;};
@@ -222,7 +223,7 @@ export function registerOrchestratorRoutes(app:FastifyInstance,identity:(req:Fas
  });
  app.post("/v9/pt/orchestrations/:id/cancel",async req=>{
   const t=identity(req),jid=param(req);
-  return withTenant(t,async tx=>{
+  const committed=await withTenant(t,async tx=>{
    const found=await tx.query("SELECT 1 FROM api_pt9_plans WHERE assessment_id=$1",[jid]);
    if(!found.rowCount)throw new PtError(404,"ORCHESTRATION_NOT_FOUND");
    const result=await tx.query("SELECT public.api_cancel_assessment($1) AS cancelled",[jid]);
@@ -232,5 +233,8 @@ export function registerOrchestratorRoutes(app:FastifyInstance,identity:(req:Fas
    await persistOrchestrationTerminal(tx,t,jid,"CANCELLED","CUSTOMER_CANCELLED");
    return {id:jid,status:"CANCELLED",customerNetworkRequests:0};
   });
+  // Do not emit a cancellation diagnostic until its terminal SQL is committed.
+  emitDiagnostic({kind:"ASSESSMENT_TRANSITION",classification:"OK",statusCode:200,state:"CANCELLED"});
+  return committed;
  });
 }
