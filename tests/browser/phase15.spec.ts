@@ -9,7 +9,7 @@ test("Phase15 CI-only read-only mount handles tenant switch, session change and 
  await expect(mount).toBeVisible();
  await expect(mount.getByRole("heading",{name:"LumicSec API Security"})).toBeVisible();
  await expect(mount.getByRole("alert")).toContainText("HOST_AUTHORITY_NOT_CONFIGURED");
- await expect(mount).not.toContainText("VERIFIED_FIXED");
+ await expect(mount).toContainText("No production Host login, permits, billing or VERIFIED_FIXED authority.");
  await expect(mount.getByRole("button")).toHaveCount(0);
  await page.getByRole("button",{name:"Switch synthetic tenant hint"}).click();
  await expect(mount.getByRole("alert")).toContainText("HOST_AUTHORITY_NOT_CONFIGURED");
