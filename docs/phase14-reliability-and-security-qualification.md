@@ -274,3 +274,74 @@ This section supersedes stale earlier checkpoint assumptions in sections 3–9 w
 | Ultimate final SHA = branch/PR = comprehensive Full run with zero skipped mandatory steps | One new `[phase14-full]` run after all documentation/source commits | PENDING at this checkpoint |
 
 **Decision logic:** A successful focused run does not supersede a failed older Full at a newer SHA, nor certify unexecuted independent requirements. Until the ultimate Full passes, and while independently executable gaps remain, the disposition must be **PHASE 14 — TARGETED REWORK REQUIRED**. Real Host identity, customer entitlement, permitted scanning, billing, callbacks and `VERIFIED_FIXED` remain separately HOST_BLOCKED. No merge, deploy, publication, real target or Phase15.
+
+## 13. Phase14 E6/F5 source acceptance rework — October 11 2026
+
+**Preserved prior qualification:** Successful Full #38063806048 at `1b2bafdb0a40dbc1fbe38e0085a420d0e79836d7` (57/57 steps, 394/394 tests) remains authoritative solely for that historical SHA. It is not reused as proof for the new source. No migration 001–019 changed. The new forward-only E6/F5 work is on the existing PR #15, not a branch/restart.
+
+**Latest new source-level focused qualification:** GitHub-hosted [#38110490884](https://github.com/mkalyankumar903-hash/API-security-family/actions/runs/38110490884) at `71aa6bdaf3c56e3c08344512e1e2769850ddb537`: Fast SUCCESS (strict TS, lint, SDK package, app/unit, React build), PostgreSQL16 SUCCESS (historical security/regression and **E6 14 actual benchmark categories**), Chromium-targeted SUCCESS (Phase12/13/14 and **new F5 7/7 real browser journeys**). Earlier failing #38109908193 exposed test-fixture mistakes, not permission-bypass defects: E6 supplied `api_reports.id` instead of Phase13's required immutable **parent** ID; F5 assumed the first worker claim was its own despite unrelated real queued fixtures. Both corrected without weakening security checks. This document commit requires a new final-head comprehensive run.
+
+### E6 actual-source performance methods
+
+New `tests/phase14-e6.pg.test.ts` executes real Fastify, PostgreSQL16, signed CI-only permit issuer, actual Phase09 governed 14-evaluation PT worker, Phase11 parent composer and Phase13 committed reservation/settlement/reconciliation. Ten distinct synthetic fixtures per subsystem: **2 genuine warm-ups, 8 measured serial iterations, concurrency=1**; CPU-user/system microseconds and heap deltas reported per series, zero errors enforced, real tenant-RLS/revocation/no-output checks. Each write consumes a fresh source/idempotency key; no idempotent replay is mislabeled first-write. Scheduler recovery intentionally expires a disposable real PostgreSQL lease, independently reclaims its generation and proves stale token cannot publish. All measurements print `PHASE14_E6_REAL_SUBSYSTEM` with actual operation name, source, sample size, latency quantiles, CPU, heap and runner environment. We deliberately require zero errors, identical persisted invariants, finite positive/zero timing and end-to-end execution rather than a hard hosted-runner millisecond threshold; only 8 independent observations on shared GitHub infrastructure make hard p95 thresholds statistically unsound. Production SLO/RTO/RPO/customer capacity: **NOT ESTABLISHED**.
+
+| E6 source operation | Source paths | Real test / exact executed CI | Median ms / p95 ms | Correctness and remaining limitation | Classification |
+|---|---|---|---|---|---|
+| Signed synthetic permit issuance | `service/src/app.ts`, `pt/src/*`, `database/src/index.ts` | `phase14-e6.pg.test.ts` #38110490884 | 4.832 / 5.304 | Actual issuer, signed persistent scope, no Host authority | VERIFIED_ISOLATED |
+| Permit readiness, deterministic planning | `service/src/app.ts`, `pt/src/orchestrator.ts`, `pt/src/autonomous-vapt.ts` | same 10 scopes, preview | 5.454 / 6.751 | Signed scope active, 14 planned evaluations, zero network | VERIFIED_ISOLATED |
+| First parent/child admission | `service/src/app.ts`, `database/src/index.ts` | same fresh 10 parents | 13.548 / 15.462 | 2 child rows, fresh idempotency, no duplicated parent | VERIFIED_ISOLATED |
+| Actual offline child worker + queue claim | `worker/src/index.ts`, `database/src/index.ts` | same genuine PG worker | 22.146 / 25.753 | Fenced claim, immutable offline child evidence | VERIFIED_ISOLATED |
+| Authorized synthetic PT evaluation | `worker/src/pt-orchestrator.ts`, `pt/src/*` | same real 14 synthetic evals/fixture | 240.995 / 271.460 | Valid permit, complete PT child, no external target | VERIFIED_ISOLATED |
+| Parent immutable report composition | `worker/src/autonomous-vapt.ts`, `database/src/index.ts` | same parent completion | 19.454 / 24.863 | 2 completed children, immutable fingerprint, verifiedFixed=false | VERIFIED_ISOLATED |
+| Tenant report readback | `service/src/app.ts`, `database/src/index.ts` | same RLS authenticated GET | 1.949 / 2.118 | Wrong tenant denied, complete report only | VERIFIED_ISOLATED |
+| Tenant findings pagination | `service/src/app.ts`, `database/src/index.ts` | same RLS bounded GET | 1.463 / 2.652 | Limited readback, no cross-tenant disclosure | VERIFIED_ISOLATED |
+| Actual fenced lease reclaim | `database/src/index.ts` | independent 10 lease-loss fixtures | 4.131 / 4.334 | Expired actual lease, generation changed, stale denial | VERIFIED_ISOLATED |
+| Durable parent restart | `worker/src/autonomous-vapt.ts` | same regenerated fence tokens | 7.518 / 7.627 | Recovered one immutable parent, no duplicate | VERIFIED_ISOLATED |
+| Committed first queued cancellation | `service/src/app.ts`, `database/src/index.ts` | 10 independent cancelled parents | 3.967 / 5.207 | Terminal cancellation, report 409, no false success | VERIFIED_ISOLATED |
+| Commercial reserve first write | `service/src/phase13.ts` | 10 distinct immutable parent IDs | 8.914 / 10.012 | Advisory-locked nonbillable source/feature | VERIFIED_ISOLATED |
+| Commercial settle first write | `service/src/phase13.ts` | 10 new committed usage ledger rows | 7.646 / 7.855 | Disabled outbound outbox, no live billing | VERIFIED_ISOLATED |
+| Commercial pending reconciliation first write | `service/src/phase13.ts` | 10 source-updated pending watermarks | 3.416 / 3.974 | PENDING_EXTERNAL_AUTHORITY, not successful external reconciliation | VERIFIED_ISOLATED |
+| Retry-exhaustion/backoff p95 and non-CI production latency budgets | `worker/src/safety-retry.ts`; `phase10-retry.pg.test.ts`, `phase14-shutdown.pg.test.ts` | Historical real security correctness PASS; no repeatable 8+ latency samples of *each* bounded retry/backoff path | Not reported | Deliberately separate recovery/correctness proof from unmeasured retry-backoff distribution | PARTIAL, independently executable |
+| Browser transition responsiveness p95 | `ui/src/AutonomousVaptWorkspace.tsx`; Phase14 F5 Chromium | correctness verified; precise UX distribution absent | Not reported | No synthetic strict hosted-runner SLO | PARTIAL |
+
+### F5 scenario coverage — real customer UI and authoritative PostgreSQL
+
+New `packages/ui/src/AutonomousVaptWorkspace.tsx` fences every asynchronous parent read by incrementing request generation across newer polls and mutating operations, suppresses conflicting polling during mutations and denies late successful/failed responses. Error focus returns to the initiating enabled control. The component is still React-keyed per token/target and cannot mint Host authority. New `tests/browser/phase14-f5.spec.ts` uses genuine Playwright → React → Fastify → disposable PostgreSQL; request barriers may withhold forwarding or re-deliver **actual earlier HTTP response bytes** (never fake success). Exact focused [#38110490884](https://github.com/mkalyankumar903-hash/API-security-family/actions/runs/38110490884) executed all **7/7** tests.
+
+| F5 scenario | Source and actual test | Observed state and limitation | Classification |
+|---|---|---|---|
+| 1. Two rapid identical submissions | Phase14 F5 browser test 1 + Phase11 PG idempotency | First UI request gated; disabled second click; one durable parent, identical key replay 200 | VERIFIED |
+| 2. Concurrent different idempotency keys | F5 browser test 2 | Two distinct immutable parent identities, independently cancelled, zero reports | VERIFIED |
+| 3. Duplicate click while first pending | F5 browser test 1 | Disabled control and exactly one forwarded POST | VERIFIED |
+| 4. Cancel before durable admission | F5 browser test 1 verifies zero before barrier release, but does not terminate blocked browser request precommit | No explicit precommit client-abort cancellation guarantee | PARTIAL |
+| 5. Cancel after admission before claim | F5 browser tests 2–3 and Phase11 Chromium | Actual parent CANCELLED, report 409, no immutable success | VERIFIED |
+| 6. Cancel active eligible synthetic execution | F5 browser test 7 after genuine offline child completion, Phase06/10 PG races | Mid-child in-flight governor cancellation timing not separately demonstrated in Chromium | PARTIAL |
+| 7. Cancellation racing parent completion | Phase11 PG/Chromium existing terminal/report checks | No deterministic Chromium finalizer-boundary barrier | PARTIAL |
+| 8. Navigate away midrequest | Token/target component isolation and F5 test 6 | Explicit browser navigation-away abort/commit outcome test absent | PARTIAL |
+| 9. Tenant switch with unresolved old requests | F5 test 6 + Phase13 Chromium tenant switch | Old synthetic tenant request never displayed in new tenant UI, beta empty | VERIFIED |
+| 10. Token/identity change in-flight | F5 test 6 | Unmounted old React tree cannot render stale parent; own alpha admission persists | VERIFIED |
+| 11. 429/503 during submission | F5 test 5 genuine error/retry on injected 503; Phase14 existing 429/503 on commercial GET | Specific 429 on mutation admission not separately exercised | PARTIAL |
+| 12. Transport disconnect during execution | `phase14-tcp-abort.pg.test.ts` real loopback TCP abort | Proves incomplete request never admits; mid-active-runtime disconnect not browser-qualified | PARTIAL |
+| 13. Explicit retry after failed request | F5 browser test 5 | 503 did not persist; keyboard retry persists one real parent | VERIFIED |
+| 14. Stale completion after cancellation | F5 browser test 4 authentic delayed QUEUED response after cancellation | Late queued state suppressed; late *completed* response not separately constructed without fabricated server result | PARTIAL |
+| 15. Keyboard focus recovery | F5 browser test 5 | Initiating Start focused after explicit 503 alert; Enter retries real operation | VERIFIED |
+| 16. Accessible screen reader status/error | F5 tests 3–5 and existing Phase13/14 Chromium | Real `role=status` terminal and `role=alert` error; not WCAG certification | VERIFIED |
+| 17. Narrow viewport / 200% text / pseudo-RTL | Existing `tests/browser/phase13.spec.ts`, `phase14.spec.ts` | Genuine Chromium 320px/zoom/locale + Host-disabled; combined mutation failure UX pairing incomplete | PARTIAL |
+| 18. Revocation / governor deny operation | Existing Phase06/10 real PostgreSQL and Phase11 Chromium missing-permit disabled button | In-flight revoked scope + real Chromium visibility pairing not exhaustive | PARTIAL |
+
+### Other partial-row reconciliation and stop decision
+
+| Requirement | Source | Actual test / CI | Observed result | Limitation / classification |
+|---|---|---|---|---|
+| A2 active in-process shutdown | `worker/src/main.ts`, `worker/src/index.ts` | `phase14-shutdown.pg.test.ts` #38063806048 and current targeted PG | Genuine child SIGTERM, bounded deadline, recovery of *claimed but unstarted* work | Active PT after first governed fixture evaluation not yet explicitly killed / PARTIAL |
+| C1 complete lease-loss diagnostics | `database/src/index.ts`, `operational-diagnostics-v14.ts` | `phase14-observability.pg.test.ts`, `phase14-e6.pg.test.ts` | True lease takeover/fencing, observable claims | Exhaustive every loss-transition diagnostic enum not asserted / PARTIAL |
+| C3 governor revocation diagnostic paths | `service/src/app.ts`, `operational-diagnostics-v14.ts` | Phase06/10 real PG races + Phase14 observed event matrix | Real revocation blocks permission and recovery | Some edge transition-specific diagnostic emission unverified / PARTIAL |
+| C4 parent/child stage transitions | `worker/src/pt-orchestrator.ts`, `worker/src/autonomous-vapt.ts` | `phase11.pg.test.ts`, E6 genuine stage engine | Actual immutable stage/report correctness | Per-stage-transition metrics for every negative/rollback path not exhaustively asserted / PARTIAL |
+| C8 all-event safe redaction | `operational-diagnostics-v14.ts`, `phase14-observability.pg.test.ts` | redaction and production deny negatives targeted PASS | No credentials, target URL or raw tenant identifiers in checked events | Full comprehensive adversarial event-field campaign incomplete / PARTIAL |
+| Core SDK/HTTP negatives | `sdk/src/v13.ts`, `tests/phase14-sdk-negatives.test.ts`, `phase14-api-negatives.test.ts` | current Fast CI SUCCESS | Timeout/body/redaction/method/tenant denials and strict response validation | No new verified failure requiring weaker assertions / VERIFIED for tested baseline |
+| Migrations 001–019 / populated upgrades | historical migration files, `tests/phase13-upgrade.pg.test.ts` | previous exact Full #38063806048 and focused new PG | Past Full proves preserved migrations; new changes do not touch historical SQL | Needs final exact-head Full readback / PENDING |
+| Supply chain and SDK package | lockfile, `scripts/phase14-*.mjs`, SDK build | new focused Fast PASS, older Full PASS | Production vulnerabilities zero at historical Full | Re-run exact final HEAD / PENDING |
+| Real Host identity, payments, permits, webhook, VERIFIED_FIXED | external Main Platform Host only | not executable here | No production claims authorized | HOST_BLOCKED |
+| Authentic original comprehensive Phase14 Master Prompt | preceding development conversation only; authentic full original text not recovered | available record contains an A–G matrix and the explicit October 11 E6/F5 request | Full original-text equivalence cannot be independently asserted | ORIGINAL_TEXT_UNAVAILABLE (not Host-blocked) |
+
+**Stop rule:** Source-backed E6 benchmarks and seven F5 journeys have now been added and focused-qualified; however, this audit itself identifies genuine independently executable partial cases. Even if subsequent exact-final-head Full CI is completely green, the only truthful disposition is **PHASE 14 — TARGETED REWORK REQUIRED** until every such requirement is implemented and independently qualified. Keep PR #15 OPEN/DRAFT/UNMERGED, PR #14 untouched, no Main Platform authority, SDK publish, merge, deploy, live scanning, webhook, payment, VERIFIED_FIXED or Phase15.
