@@ -575,6 +575,17 @@ jobs:
         run: npm run phase15:build
       - name: Phase15 artifact SHA256 and inventory verification
         run: npm run phase15:verify
+      - name: Build complete private API source-preserving Main Platform transfer inventory
+        run: npm run phase15:integration-source
+      - name: Verify all source-transfer members and SHA256 versus exact checked-out Git source
+        run: npm run phase15:integration-verify
+      - name: Upload private complete API source-transfer package for Main Platform owner review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phase15-main-platform-source-${{ github.event.pull_request.head.sha }}
+          path: build/phase15-main-platform-transfer/
+          retention-days: 7
+
       - name: Phase15 second independent clean compiled build and deterministic SHA256 equivalence
         shell: bash
         run: |

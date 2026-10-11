@@ -20,7 +20,9 @@
     "phase15:build": "node scripts/phase15-build.mjs",
     "phase15:verify": "node scripts/phase15-verify.mjs",
     "phase15:install": "node scripts/phase15-clean-install.mjs",
-    "phase15:contracts": "node --import tsx --test tests/phase15-host-contract.test.ts"
+    "phase15:contracts": "node --import tsx --test tests/phase15-host-contract.test.ts",
+    "phase15:integration-source": "node scripts/phase15-main-platform-source-transfer.mjs",
+    "phase15:integration-verify": "node scripts/phase15-main-platform-source-transfer.mjs --verify"
   },
   "dependencies": {
     "@fastify/cors": "11.0.1",
