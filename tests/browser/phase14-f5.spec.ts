@@ -1,0 +1,211 @@
+/** Phase14 F5 real React → Fastify → PostgreSQL negative concurrency and cancellation.
+ * Route barriers delay genuine requests; no fabricated success response is used.
+ */
+import {test,expect,type APIRequestContext,type Page} from "@playwright/test";
+import {randomUUID} from "node:crypto";
+import {readFileSync} from "node:fs";
+import {withTenant,closeDatabase} from "../../packages/database/src/index.js";
+import {processOneJob} from "../../packages/worker/src/index.js";
+const API="http://127.0.0.1:3001";
+const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const auth={authorization:"Bearer local-test-token-alpha"};
+const other={authorization:"Bearer local-test-token-beta"};
+const fixture=readFileSync(new URL("../../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
+type RecordRow={id:string;status:string;mode:string};
+function barrier(){
+ let unlock!:()=>void,notify!:()=>void;
+ const promise=new Promise<void>(resolve=>{unlock=resolve;});
+ const entered=new Promise<void>(resolve=>{notify=resolve;});
+ return {promise,unlock,notify,entered};
+}
+async function seed(request:APIRequestContext){
+ const suffix=randomUUID().slice(0,10);
+ const t=await request.post(API+"/v1/targets",{headers:auth,
+  data:{name:"Phase14 F5 "+suffix,environment:"SYNTHETIC",
+   baseUrl:"https://f5-"+suffix+".fixture.invalid"}});
+ expect(t.status(),await t.text()).toBe(201);
+ const target=(await t.json() as {id:string}).id;
+ const spec=await request.post(API+"/v2/targets/"+target+"/specifications/imports",{
+  headers:{...auth,"idempotency-key":"f5-import-"+randomUUID()},
+  data:{filename:"phase07-security.openapi.json",content:fixture}});
+ expect(spec.status(),await spec.text()).toBe(201);
+ return {target,spec:(await spec.json() as {specificationId:string}).specificationId};
+}
+async function history(request:APIRequestContext,target:string,headers=auth):Promise<RecordRow[]>{
+ const r=await request.get(API+"/v11/api-vapt/targets/"+target+"/history?limit=30",{headers});
+ expect(r.status(),await r.text()).toBe(200);
+ return await r.json() as RecordRow[];
+}
+async function setupPage(page:Page,target:string,spec:string){
+ await page.goto("/");
+ await page.getByLabel("Select target").selectOption(target);
+ const panel=page.getByRole("region",{name:"Autonomous API VAPT workspace"});
+ await expect(panel).toBeVisible();
+ await panel.getByLabel("Assessment mode").selectOption("OFFLINE_ONLY");
+ await panel.getByLabel("Immutable specification").selectOption(spec);
+ await expect(panel.getByRole("button",{name:"Start one autonomous assessment"})).toBeEnabled();
+ return panel;
+}
+test.afterAll(async()=>{await closeDatabase();});
+
+test("F5 real browser: pending admission blocks repeated click, identical key commits once",async({page,request})=>{
+ test.setTimeout(90000);
+ const {target,spec}=await seed(request);
+ const panel=await setupPage(page,target,spec);
+ const gate=barrier();let submits=0,key="";
+ await page.route("**/v11/api-vapt/assessments",async route=>{
+  if(route.request().method()!=="POST"){await route.continue();return;}
+  submits++;key=route.request().headers()["idempotency-key"]??"";
+  gate.notify();await gate.promise;await route.continue();
+ });
+ const start=panel.getByRole("button",{name:"Start one autonomous assessment"});
+ await start.click();await gate.entered;
+ await expect(start).toBeDisabled();
+ await start.evaluate((el:HTMLButtonElement)=>el.click());
+ expect(submits).toBe(1);
+ expect(await history(request,target)).toHaveLength(0);
+ gate.unlock();
+ await expect.poll(async()=>(await history(request,target)).length).toBe(1);
+ await expect(start).toBeEnabled();
+ const first=(await history(request,target))[0]!;
+ expect(first.status).toBe("QUEUED");
+ const replay=await request.post(API+"/v11/api-vapt/assessments",{
+  headers:{...auth,"idempotency-key":key},
+  data:{mode:"OFFLINE_ONLY",targetId:target,specificationId:spec}});
+ expect(replay.status(),await replay.text()).toBe(200);
+ expect((await replay.json() as {id:string}).id).toBe(first.id);
+ const sql=await withTenant(A,tx=>tx.query(
+  "SELECT count(*)::int AS n FROM api_vapt11_assessments WHERE target_id=$1",[target]));
+ expect(sql.rows[0].n).toBe(1);
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+first.id+"/report",{headers:auth})).status()).toBe(409);
+ await expect(panel.getByRole("status")).toContainText("QUEUED");
+});
+
+test("F5 concurrent distinct-key submissions persist separately; cancellation before claim is terminal",async({request})=>{
+ const {target,spec}=await seed(request);
+ const payload={mode:"OFFLINE_ONLY",targetId:target,specificationId:spec};
+ const [a,b]=await Promise.all([request.post(API+"/v11/api-vapt/assessments",{
+  headers:{...auth,"idempotency-key":"f5-a-"+randomUUID()},data:payload}),
+  request.post(API+"/v11/api-vapt/assessments",{
+   headers:{...auth,"idempotency-key":"f5-b-"+randomUUID()},data:payload})]);
+ expect(a.status(),await a.text()).toBe(201);expect(b.status(),await b.text()).toBe(201);
+ const ids=[(await a.json() as {id:string}).id,(await b.json() as {id:string}).id];
+ expect(new Set(ids).size).toBe(2);
+ expect((await history(request,target)).map(v=>v.id).sort()).toEqual([...ids].sort());
+ for(const id of ids){
+  const cancel=await request.post(API+"/v11/api-vapt/assessments/"+id+"/cancel",{headers:auth,data:{}});
+  expect(cancel.status(),await cancel.text()).toBe(200);
+  const state=await request.get(API+"/v11/api-vapt/assessments/"+id,{headers:auth});
+  expect((await state.json() as {status:string}).status).toBe("CANCELLED");
+  expect((await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth})).status()).toBe(409);
+ }
+ const sql=await withTenant(A,tx=>tx.query(
+  "SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=ANY($1::uuid[])",[ids]));
+ expect(sql.rows[0].n).toBe(0);
+});
+
+test("F5 UI cancellation after admission remains durable; wrong tenant has no report",async({page,request})=>{
+ const {target,spec}=await seed(request);
+ const panel=await setupPage(page,target,spec);
+ await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ await expect(panel.getByRole("button",{name:"Cancel assessment"})).toBeVisible();
+ const rows=await history(request,target);expect(rows).toHaveLength(1);
+ const id=rows[0]!.id;
+ await panel.getByRole("button",{name:"Cancel assessment"}).click();
+ await expect(panel.getByText("Terminal diagnostics (not successful VAPT)")).toBeVisible();
+ await expect(panel.getByRole("status")).toContainText("CANCELLED");
+ const state=await request.get(API+"/v11/api-vapt/assessments/"+id,{headers:auth});
+ expect((await state.json() as {status:string}).status).toBe("CANCELLED");
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth})).status()).toBe(409);
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+id,{headers:other})).status()).toBe(404);
+ expect((await withTenant(A,tx=>tx.query(
+  "SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]))).rows[0].n).toBe(0);
+});
+
+test("F5 late authentic queued browser response cannot roll back UI cancellation",async({page,request})=>{
+ test.setTimeout(90000);
+ const {target,spec}=await seed(request);
+ const panel=await setupPage(page,target,spec);
+ await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ await expect(panel.getByRole("button",{name:"Cancel assessment"})).toBeVisible();
+ const id=(await history(request,target))[0]!.id;
+ const gate=barrier();let captured=false;
+ await page.route("**/v11/api-vapt/assessments/"+id,async route=>{
+  if(captured){await route.continue();return;}
+  captured=true;const response=await route.fetch();
+  expect((await response.json() as {status:string}).status).toBe("QUEUED");
+  gate.notify();await gate.promise;
+  await route.fulfill({response}); // actual pre-cancellation Fastify response, NOT mocked success
+ });
+ // Existing UI polls every 1500ms. The barrier synchronizes with a real response.
+ await gate.entered;
+ await panel.getByRole("button",{name:"Cancel assessment"}).click();
+ await expect(panel.getByRole("status")).toContainText("CANCELLED");
+ gate.unlock();
+ await expect(panel.getByRole("status")).toContainText("CANCELLED");
+ await expect(panel.getByText("Terminal diagnostics (not successful VAPT)")).toBeVisible();
+ const s=await request.get(API+"/v11/api-vapt/assessments/"+id,{headers:auth});
+ expect((await s.json() as {status:string}).status).toBe("CANCELLED");
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth})).status()).toBe(409);
+});
+
+test("F5 transport rejection restores focus and retry commits only genuine parent",async({page,request})=>{
+ const {target,spec}=await seed(request);
+ const panel=await setupPage(page,target,spec);
+ let denied=0;
+ await page.route("**/v11/api-vapt/assessments",async route=>{
+  if(route.request().method()==="POST"&&denied++===0){
+   await route.fulfill({status:503,contentType:"application/json",
+    body:JSON.stringify({error:"SYNTHETIC_UNAVAILABLE"})});return;
+  }
+  await route.continue();
+ });
+ const start=panel.getByRole("button",{name:"Start one autonomous assessment"});
+ await start.click();
+ await expect(panel.getByRole("alert")).toContainText("SYNTHETIC_UNAVAILABLE");
+ await expect(start).toBeFocused();await expect(start).toBeEnabled();
+ expect(await history(request,target)).toHaveLength(0);
+ await page.unroute("**/v11/api-vapt/assessments");
+ await start.press("Enter");
+ await expect.poll(async()=>(await history(request,target)).length).toBe(1);
+ await expect(panel.getByRole("alert")).toHaveCount(0);
+ expect((await history(request,target))[0]!.status).toBe("QUEUED");
+});
+
+test("F5 token change while admission withheld cannot display other tenant state",async({page,request})=>{
+ test.setTimeout(90000);
+ const {target,spec}=await seed(request);
+ const panel=await setupPage(page,target,spec);
+ const gate=barrier();
+ await page.route("**/v11/api-vapt/assessments",async route=>{
+  if(route.request().method()!=="POST"){await route.continue();return;}
+  gate.notify();await gate.promise;await route.continue();
+ });
+ await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ await gate.entered;
+ await page.getByLabel("Synthetic development token (never a production login)").fill("local-test-token-beta");
+ await expect(page.getByRole("region",{name:"Autonomous API VAPT workspace"})).toHaveCount(0);
+ gate.unlock();
+ await expect.poll(async()=>(await history(request,target)).length).toBe(1);
+ expect(await history(request,target,other)).toEqual([]);
+ expect(await page.getByRole("region",{name:"Autonomous API VAPT workspace"}).count()).toBe(0);
+ expect(await page.getByText("Immutable composite security report").count()).toBe(0);
+});
+
+test("F5 partial execution then cancel rejects false successful parent and immutable report",async({page,request})=>{
+ test.setTimeout(90000);
+ const {target,spec}=await seed(request);
+ const panel=await setupPage(page,target,spec);
+ await panel.getByRole("button",{name:"Start one autonomous assessment"}).click();
+ const id=(await history(request,target))[0]!.id;
+ expect(await processOneJob()).toBe(true);
+ const mid=await request.get(API+"/v11/api-vapt/assessments/"+id,{headers:auth});
+ const partial=await mid.json() as {status:string;children:{status:string}[]};
+ expect(partial.status).toBe("QUEUED");
+ expect(partial.children.some(c=>c.status==="COMPLETED")).toBe(true);
+ await panel.getByRole("button",{name:"Cancel assessment"}).click();
+ await expect(panel.getByRole("status")).toContainText("CANCELLED");
+ expect((await request.get(API+"/v11/api-vapt/assessments/"+id+"/report",{headers:auth})).status()).toBe(409);
+ expect((await withTenant(A,tx=>tx.query(
+  "SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]))).rows[0].n).toBe(0);
+});
