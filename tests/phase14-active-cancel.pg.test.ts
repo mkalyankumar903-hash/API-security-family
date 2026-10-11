@@ -61,6 +61,14 @@ test("Phase14 real governed PT: user cancellation after committed evaluation and
   return {status:a.rows[0]?.status,consumed:evals.rows.filter(v=>v.state==="CONSUMED").length,
    reports:p.rows[0].n,stages:st.rows.map(v=>v.status),terminal:tr.rows[0].n};
  });
+ const originalStderr=process.stderr.write,recorded:string[]=[];
+ const previousDiagnostic=process.env.API_FAMILY_DIAGNOSTICS;
+ process.env.API_FAMILY_DIAGNOSTICS="true";
+ process.stderr.write=((chunk:unknown)=>{
+  const line=String(chunk);
+  if(line.startsWith("API_FAMILY_DIAGNOSTIC "))recorded.push(line);
+  return originalStderr.call(process.stderr,chunk as string);
+ }) as typeof process.stderr.write;
  try{
   const user=await scopeAndParent(),gate=barrier();
   const inFlight=processPtOrchestrationJob(A,user.id,user.lease.claim_token,{
@@ -101,6 +109,9 @@ test("Phase14 real governed PT: user cancellation after committed evaluation and
   assert.equal((await call("POST","/v9/pt/orchestrations/"+user.id+"/cancel",{})).statusCode,409);
   const recovery=await withTenant(A,tx=>tx.query("SELECT count(*)::int AS n FROM api_pt9_reports WHERE assessment_id=$1",[user.id]));
   assert.equal(recovery.rows[0].n,0);
+  assert(recorded.some(x=>x.includes('"kind":"ASSESSMENT_TRANSITION"')&&
+   x.includes('"state":"CANCELLED"')&&x.includes('"classification":"OK"')),
+   "cancel transition log must follow a committed PostgreSQL terminal state");
 
   // Independent permitted-evaluation boundary: revocation after exactly one committed interaction.
   const revoked=await scopeAndParent(),revocationGate=barrier();
@@ -117,9 +128,19 @@ test("Phase14 real governed PT: user cancellation after committed evaluation and
   assert.equal((await call("GET","/v9/pt/orchestrations/"+revoked.id+"/report")).statusCode,409);
   assert.equal((await withTenant(A,tx=>tx.query(
    "SELECT revoked_at IS NOT NULL AS revoked FROM api_pt_permits WHERE id=$1",[revoked.permit]))).rows[0].revoked,true);
+  if(denied.status==="FAILED")assert(recorded.some(x=>x.includes('"kind":"ASSESSMENT_TRANSITION"')&&
+   x.includes('"state":"FAILED"')),"failed PT diagnostic must correspond to committed failure");
+  assert(recorded.every(x=>!x.includes(user.id)&&!x.includes(revoked.id)&&
+   !x.includes(user.permit)&&!x.includes(revoked.permit)&&!x.includes(A)),
+   "diagnostics must redact all customer/permit identifiers");
   console.log("PHASE14_ACTIVE_USER_CANCEL_REVOCATION_TRANSPORT_PASS "+JSON.stringify({
    customerCancelledAfterConsumed:1,cancelReports:0,revokedAfterConsumed:1,
    revokedReports:0,transportDisconnectedDuringActive:true,wrongTenantRows:0,
    customerNetworkRequests:0,verifiedFixed:false}));
- }finally{await app.close();}
+ }finally{
+  process.stderr.write=originalStderr;
+  if(previousDiagnostic===undefined)delete process.env.API_FAMILY_DIAGNOSTICS;
+  else process.env.API_FAMILY_DIAGNOSTICS=previousDiagnostic;
+  await app.close();
+ }
 });
