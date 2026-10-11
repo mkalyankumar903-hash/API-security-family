@@ -82,7 +82,20 @@ export async function processOneJob(options:{signal?:AbortSignal}={}): Promise<b
       return true;
     }
     if(job.engine_version==="pt-orchestrator-v1"){
-      await processPtOrchestrationJob(tenant,jobId,token);
+      // GitHub-hosted isolated OS-process fault injection AFTER a real governed
+      // fixture evaluation and its consumed receipt commit. Never enabled by
+      // production or ordinary synthetic jobs; test parent synchronizes by IPC.
+      const activeFault=process.env.NODE_ENV==="test"&&
+        process.env.SYNTHETIC_AUTH_ENABLED==="true"&&process.env.GITHUB_ACTIONS==="true"&&
+        process.env.PHASE14_TEST_ACTIVE_PT_BARRIER==="stalled"&&Boolean(process.send);
+      await processPtOrchestrationJob(tenant,jobId,token,activeFault?{
+        afterEvaluation:async count=>{
+          if(count!==1)return;
+          process.send?.({kind:"PHASE14_ACTIVE_PT_EVALUATION_COMMITTED",
+            assessmentId:jobId,claimGeneration:lease.claim_generation});
+          await new Promise<void>(()=>{/* actual OS SIGTERM deadline terminates this in-flight worker */});
+        }
+      }:undefined);
       return true;
     }
     if(job.engine_version==="pt-detection-v1"){
