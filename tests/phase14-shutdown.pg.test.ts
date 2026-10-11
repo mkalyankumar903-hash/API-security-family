@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {spawn,type ChildProcess} from "node:child_process";
 import {performance} from "node:perf_hooks";
+import {readFileSync} from "node:fs";
+import {processOneJob} from "../packages/worker/src/index.js";
 import {makeApp} from "../packages/service/src/app.js";
 import {migrate,withWorkerTenant,withTenant,renewWorkerClaim,releaseUnstartedWorkerClaim,
  closeDatabase,type WorkerClaim} from "../packages/database/src/index.js";
@@ -16,7 +18,7 @@ function spawnWorker(mode?:string){
  const child=spawn(process.execPath,["--import","tsx","packages/worker/src/main.ts"],{
   env:{...process.env,NODE_ENV:"test",SYNTHETIC_AUTH_ENABLED:"true",
    GITHUB_ACTIONS:"true",PHASE14_TEST_SHUTDOWN_MS:"450",
-   ...(mode?{PHASE14_TEST_CLAIM_BARRIER:mode}:{})},
+   ...(mode==="active-pt"?{PHASE14_TEST_ACTIVE_PT_BARRIER:"stalled"}:mode?{PHASE14_TEST_CLAIM_BARRIER:mode}:{})},
   stdio:["ignore","pipe","pipe","ipc"]
  });
  sleepers.add(child);child.once("exit",()=>sleepers.delete(child));
@@ -141,4 +143,109 @@ test("Phase14 real blocked worker exceeds bounded deadline then fresh worker rec
   assert.equal(finished.attempts.length,2);
   assert.deepEqual(finished.attempts.map(x=>x.state),["LOST","COMPLETED"]);
  }finally{if(original.exitCode===null)original.kill("SIGKILL");}
+});
+
+test("Phase14 A2 genuine SIGTERM during committed governed PT evaluation; fenced resume publishes exactly once",async()=>{
+ const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",import.meta.url),"utf8");
+ const app=await makeApp();
+ const call=async(method:"GET"|"POST",url:string,payload?:object,key?:string,authority=false)=>{
+  const reply=await app.inject({method,url,payload,headers:{
+   authorization:"Bearer local-test-token-alpha",...(key?{"idempotency-key":key}:{}),
+   ...(authority?{"x-pt-authority-key":process.env.PT_TEST_AUTHORITY_KEY??""}:{})
+  }});
+  assert(reply.statusCode>=200&&reply.statusCode<300,reply.body);
+  return reply.json() as Record<string,unknown>;
+ };
+ let id="",pt="";
+ try{
+  const t=await call("POST","/v1/targets",{name:"Active governed SIGTERM "+randomUUID().slice(0,8),
+   environment:"SYNTHETIC",baseUrl:"https://active-pt-"+randomUUID().slice(0,8)+".fixture.invalid"});
+  const tid=t.id as string;
+  const imp=await call("POST","/v2/targets/"+tid+"/specifications/imports",
+   {filename:"phase07-security.openapi.json",content:fixture},"active-spec-"+randomUUID());
+  const sid=imp.specificationId as string;
+  const ops=await call("GET","/v2/specifications/"+sid+"/operations?limit=100") as unknown as {key:string;method:string;path:string}[];
+  const keys=["/pt/account","/pt/resources/bob","/pt/admin","/pt/confidential"]
+   .map(path=>ops.find(op=>op.path===path&&op.method==="GET")?.key);
+  assert(keys.every(Boolean));
+  const scope=await call("POST","/v6/pt/targets/"+tid+"/scopes",{
+   specificationId:sid,operationKeys:keys,fixtureId:"pt-security-v1",exclusions:[],
+   maxEvaluations:14,ratePerMinute:14,maxConcurrency:1,deadlineMs:30000,validityMinutes:15
+  },"active-scope-"+randomUUID());
+  const scopeId=scope.id as string;
+  await call("POST","/v6/pt/scopes/"+scopeId+"/request-authorization",{});
+  await call("POST","/v6/pt/test-authority/scopes/"+scopeId+"/issue",{},undefined,true);
+  const preview=await call("GET","/v11/api-vapt/scopes/"+scopeId+"/preview?policyId=SYNTHETIC_PT_COMPLETE_SUPPORTED&profile=SECURE_BASELINE");
+  assert.equal(preview.authorizationReady,true);
+  const parent=await call("POST","/v11/api-vapt/assessments",{
+   mode:"GOVERNED_SYNTHETIC",scopeId,policyId:"SYNTHETIC_PT_COMPLETE_SUPPORTED",profile:"SECURE_BASELINE"
+  },"active-parent-"+randomUUID());
+  id=parent.id as string;pt=parent.ptAssessmentId as string;
+  assert.equal(await processOneJob(),true,"real offline child must finish before PT worker starts");
+  const original=spawnWorker("active-pt");
+  try{
+   const ready=stage(original,"READY");
+   const stageReached=stage(original,"PHASE14_ACTIVE_PT_EVALUATION_COMMITTED",12000);
+   await ready;
+   const committed=await stageReached;
+   assert.equal(committed.assessmentId,pt,"real worker executed the governed child");
+   const before=await withTenant(TENANT,async tx=>{
+    const e=await tx.query("SELECT count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1 AND state='CONSUMED'",[pt]);
+    const r=await tx.query("SELECT count(*)::int AS n FROM api_pt9_reports WHERE assessment_id=$1",[pt]);
+    const p=await tx.query("SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]);
+    return {consumed:e.rows[0].n,pt:r.rows[0].n,parent:p.rows[0].n};
+   });
+   assert.deepEqual(before,{consumed:1,pt:0,parent:0});
+   const stop=exitChild(original);original.kill("SIGTERM");
+   const end=await stop;
+   assert.equal(end.code,75,"actual governed PT worker must exceed real bounded drain");
+   assert.equal(end.signal,null);assert(end.elapsedMs<2400);
+   const old=await withWorkerTenant(TENANT,async tx=>{
+    const q=await tx.query("SELECT claim_token,claim_generation FROM api_queue.api_assessment_queue WHERE assessment_id=$1",[pt]);
+    const a=await tx.query("SELECT id FROM api_worker_attempts WHERE assessment_id=$1 AND state='ACTIVE'",[pt]);
+    assert.equal(q.rowCount,1);assert.equal(a.rowCount,1);
+    return {tenant_id:TENANT,assessment_id:pt,claim_token:q.rows[0].claim_token as string,
+     claim_generation:Number(q.rows[0].claim_generation),attempt_id:a.rows[0].id as string} satisfies WorkerClaim;
+   });
+   await withWorkerTenant(TENANT,tx=>tx.query(
+    "UPDATE api_queue.api_assessment_queue SET locked_until=clock_timestamp()-interval '1 second' WHERE assessment_id=$1 AND claim_generation=$2",
+    [pt,old.claim_generation]));
+   const successor=spawnWorker();
+   try{
+    await stage(successor,"READY");
+    let completed=false;
+    for(let i=0;i<100;i++){
+     const state=await withTenant(TENANT,tx=>tx.query(
+      "SELECT status FROM api_assessments WHERE id=$1",[id]));
+     if(state.rows[0]?.status==="COMPLETED"){completed=true;break;}
+     await new Promise(resolve=>setTimeout(resolve,100)); // bounded polling only; IPC controls fault boundary
+    }
+    assert(completed,"successor OS process must complete governed child and parent");
+    const ended=exitChild(successor);successor.kill("SIGTERM");
+    assert.equal((await ended).code,0);
+   }finally{if(successor.exitCode===null)successor.kill("SIGKILL");}
+   assert.equal(await renewWorkerClaim(old),false);
+   assert.equal(await releaseUnstartedWorkerClaim(old),false);
+   const final=await withTenant(TENANT,async tx=>{
+    const result=await tx.query("SELECT state,count(*)::int AS n FROM api_pt_detection_evaluations WHERE assessment_id=$1 GROUP BY state",[pt]);
+    const proofs=await tx.query("SELECT count(*)::int AS n FROM api_pt9_reports WHERE assessment_id=$1",[pt]);
+    const reports=await tx.query("SELECT count(*)::int AS n FROM api_vapt11_reports WHERE parent_assessment_id=$1",[id]);
+    const attempts=await tx.query("SELECT state FROM api_worker_attempts WHERE assessment_id=$1 ORDER BY claim_generation",[pt]);
+    return {states:result.rows,proofs:proofs.rows[0].n,reports:reports.rows[0].n,
+     attempts:attempts.rows.map(x=>x.state)};
+   });
+   assert.deepEqual(final.states,[{state:"CONSUMED",n:14}]);
+   assert.equal(final.proofs,1);assert.equal(final.reports,1);
+   assert.deepEqual(final.attempts,["LOST","COMPLETED"]);
+   const report=await call("GET","/v11/api-vapt/assessments/"+id+"/report");
+   assert.equal(report.verifiedFixed,false);
+   assert.equal(report.customerRuntimeVerified,false);
+   assert.equal(report.fullAuthorizedVaptCompleted,true);
+   assert.equal((await app.inject({method:"GET",url:"/v11/api-vapt/assessments/"+id+"/report",
+    headers:{authorization:"Bearer local-test-token-beta"}})).statusCode,404);
+   console.log("PHASE14_ACTIVE_GOVERNED_PT_SIGTERM_RECOVERY_PASS "+JSON.stringify({
+    firstConsumed:before.consumed,afterConsumed:final.states[0].n,ptReports:1,parentReports:1,
+    oldGenerationDenied:true,productionAuthorization:false,customerNetworkRequests:0}));
+  }finally{if(original.exitCode===null)original.kill("SIGKILL");}
+ }finally{await app.close();}
 });
