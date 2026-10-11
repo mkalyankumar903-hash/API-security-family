@@ -1,6 +1,6 @@
 {
   "name": "lumicsec-api-family",
-  "version": "0.0.1",
+  "version": "0.15.0-rc.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,7 +16,11 @@
     "dev": "vite --host 127.0.0.1",
     "migrate": "node --env-file-if-exists=.env --import tsx packages/database/src/migrate.ts",
     "lint": "eslint packages apps tests vite.config.ts playwright.config.ts",
-    "test:browser": "playwright test tests/browser/assessment.spec.ts && playwright test tests/browser/phase1.spec.ts && playwright test tests/browser/phase2.spec.ts && playwright test tests/browser/phase3.spec.ts && playwright test tests/browser/phase4.spec.ts && playwright test tests/browser/phase5.spec.ts && playwright test tests/browser/phase6.spec.ts && playwright test tests/browser/phase7.spec.ts && playwright test tests/browser/phase8.spec.ts && playwright test tests/browser/phase9.spec.ts && playwright test tests/browser/phase10.spec.ts && playwright test tests/browser/phase10-recovery.spec.ts && playwright test tests/browser/phase11.spec.ts"
+    "test:browser": "playwright test tests/browser/assessment.spec.ts && playwright test tests/browser/phase1.spec.ts && playwright test tests/browser/phase2.spec.ts && playwright test tests/browser/phase3.spec.ts && playwright test tests/browser/phase4.spec.ts && playwright test tests/browser/phase5.spec.ts && playwright test tests/browser/phase6.spec.ts && playwright test tests/browser/phase7.spec.ts && playwright test tests/browser/phase8.spec.ts && playwright test tests/browser/phase9.spec.ts && playwright test tests/browser/phase10.spec.ts && playwright test tests/browser/phase10-recovery.spec.ts && playwright test tests/browser/phase11.spec.ts",
+    "phase15:build": "node scripts/phase15-build.mjs",
+    "phase15:verify": "node scripts/phase15-verify.mjs",
+    "phase15:install": "node scripts/phase15-clean-install.mjs",
+    "phase15:contracts": "node --import tsx --test tests/phase15-host-contract.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "11.0.1",
