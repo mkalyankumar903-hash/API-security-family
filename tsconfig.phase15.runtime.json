@@ -1,0 +1,10 @@
+{
+ "compilerOptions":{
+  "target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":true,
+  "esModuleInterop":true,"skipLibCheck":true,"resolveJsonModule":true,
+  "types":["node"],"noUncheckedIndexedAccess":true,"rootDir":".",
+  "outDir":"build/phase15-runtime","noEmit":false,"declaration":false
+ },
+ "include":["packages/service/src/**/*.ts","packages/worker/src/**/*.ts","packages/database/src/**/*.ts","packages/contracts/src/**/*.ts","packages/assessment-engine/src/**/*.ts","packages/discovery/src/**/*.ts","packages/targets/src/**/*.ts","packages/pt/src/**/*.ts"],
+ "exclude":["node_modules","build","tests"]
+}
