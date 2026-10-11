@@ -15,6 +15,16 @@ const fixture=readFileSync(new URL("../fixtures/phase07-security.openapi.json",i
 test("Phase13 PostgreSQL 19 real tenant capability and quota decisions",async t=>{
  await Promise.all([migrate(),migrate(),migrate()]);
  const app=await makeApp(),key=randomBytes(48),entitlementId=randomUUID();
+ // Phase14: observe only real committed Phase13 operations, not formatting mocks.
+ const originalDiagnostics=process.env.API_FAMILY_DIAGNOSTICS;
+ const originalWrite=process.stderr.write;
+ const diagnosticLines:string[]=[];
+ process.env.API_FAMILY_DIAGNOSTICS="true";
+ process.stderr.write=((chunk:unknown)=>{
+  const value=String(chunk);
+  if(value.startsWith("API_FAMILY_DIAGNOSTIC "))diagnosticLines.push(value);
+  return true;
+ }) as typeof process.stderr.write;
  const call=(method:"GET"|"POST",url:string,payload?:unknown,beta=false,idem?:string)=>
   app.inject({method,url,payload:payload as object|undefined,headers:{
    authorization:"Bearer "+(beta?"local-test-token-beta":"local-test-token-alpha"),
@@ -410,5 +420,59 @@ test("Phase13 PostgreSQL 19 real tenant capability and quota decisions",async t=
    assert.deepEqual(after.rows,before.rows,"untrusted source fingerprint cannot create usage or outbox events");
    assert.equal((await withTenant(B,tx=>tx.query("SELECT count(*)::int AS n FROM public.api_v13_feature_sources WHERE reservation_id=$1",[rid]))).rows[0].n,0);
   });
- }finally{await app.close();await closeDatabase();}
+  // Measure real committed PostgreSQL idempotent reservation/settlement and
+  // reconciliation read/write-gate paths without creating extra billable units.
+  const benchmarkSource=await withTenant(A,tx=>tx.query(
+   "SELECT id,source_report_id,idempotency_key FROM api_v13_reservations WHERE feature='IMMUTABLE_REPORT_OBSERVED' AND state='SETTLED' ORDER BY settled_at DESC LIMIT 1"));
+  assert.equal(benchmarkSource.rowCount,1,"historical fixture must contain immutable settled source");
+  const bm=benchmarkSource.rows[0] as {id:string;source_report_id:string;idempotency_key:string};
+  const timings:{name:string;samples:number[];warmup:number}[]=[
+   {name:"actual-postgres-reservation-idempotent-replay",samples:[],warmup:4},
+   {name:"actual-postgres-settlement-idempotent-replay",samples:[],warmup:4},
+   {name:"actual-postgres-reconciliation-pending",samples:[],warmup:4}];
+  const operations=[
+   async()=>{const v=await reserveObservedReport(A,bm.source_report_id,bm.idempotency_key);assert(v.replay);},
+   async()=>{const v=await settleObservedReport(A,bm.id);assert(v.replay);},
+   async()=>{const v=await reconcilePending(A);assert(v.state==="PENDING_EXTERNAL_AUTHORITY");}
+  ];
+  for(let k=0;k<operations.length;k++){
+   const op=operations[k]!,target=timings[k]!;
+   for(let i=0;i<target.warmup;i++)await op();
+   const heap=process.memoryUsage().heapUsed;
+   for(let i=0;i<30;i++){
+    const start=performance.now();await op();target.samples.push(performance.now()-start);
+   }
+   const sorted=[...target.samples].sort((a,b)=>a-b);
+   console.log("PHASE14_METER_IDEMPOTENT_BENCHMARK "+JSON.stringify({
+    workload:target.name,warmup:target.warmup,samples:sorted.length,concurrency:1,
+    medianMs:Number(sorted[14]!.toFixed(3)),p95Ms:Number(sorted[28]!.toFixed(3)),
+    errors:0,heapDeltaBytes:process.memoryUsage().heapUsed-heap,
+    acceptance:"only successful durable SQL and unchanged usage ledger; not initial-write cost",
+    runtime:"GitHub-hosted PostgreSQL16; synthetic no billing"}));
+  }
+ }finally{
+  process.stderr.write=originalWrite;
+  if(originalDiagnostics===undefined)delete process.env.API_FAMILY_DIAGNOSTICS;
+  else process.env.API_FAMILY_DIAGNOSTICS=originalDiagnostics;
+  await app.close();await closeDatabase();
+ }
+ const observed=diagnosticLines.map(line=>JSON.parse(line.slice("API_FAMILY_DIAGNOSTIC ".length)) as {
+  kind:string;classification:string;feature:string|null;state:string|null});
+ for(const kind of ["METER_ENTITLEMENT","METER_RESERVATION","METER_SETTLEMENT",
+  "METER_EXPIRY","METER_CORRECTION","METER_RECONCILIATION","QA_DELIVERY"]){
+  assert(observed.some(x=>x.kind===kind),"real PostgreSQL Phase13 must emit "+kind+" after commit");
+ }
+ for(const state of ["RESERVED","SETTLED","MISMATCH","MATCHED","PENDING_EXTERNAL_AUTHORITY"]){
+  assert(observed.some(x=>x.state===state),"committed meter state diagnostic: "+state);
+ }
+ for(const state of ["CLAIMED","ACKED","RETRY","DEAD_LETTER"]){
+  assert(observed.some(x=>x.kind==="QA_DELIVERY"&&x.state===state),"real QA transition event "+state);
+ }
+ const safe=diagnosticLines.join("");
+ for(const secret of [A,B,"local-test-token-alpha","local-test-token-beta","lumicsec-ci-synthetic-v13"]){
+  assert(!safe.includes(secret),"diagnostic output must not contain tenant or secret");
+ }
+ console.log("PHASE14_COMMITTED_METER_QA_DIAGNOSTICS_PASS "+JSON.stringify({
+  actualEventCount:observed.length,eventKinds:[...new Set(observed.map(x=>x.kind))].sort(),
+  qaTerminal:observed.some(x=>x.kind==="QA_DELIVERY"&&x.state==="DEAD_LETTER")}));
 });

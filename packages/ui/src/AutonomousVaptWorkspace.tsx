@@ -1,4 +1,4 @@
-import React,{useCallback,useEffect,useState} from "react";
+import React,{useCallback,useEffect,useRef,useState} from "react";
 const BASE=(typeof import.meta.env==="object"&&import.meta.env.VITE_API_BASE)||"http://127.0.0.1:3001";
 type Scope={id:string;specification_id:string;fixture_id:string;max_evaluations:number};
 type Spec={id:string;filename:string;fingerprint:string};
@@ -49,6 +49,15 @@ export function AutonomousVaptWorkspace({token,targetId}:{token:string;targetId:
  const [submitKey,setSubmitKey]=useState(()=>crypto.randomUUID());
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState("");
+ // A response started before a mutation or a newer poll is not authoritative.
+ const readGeneration=useRef(0);
+ const mutationActive=useRef(false);
+ const actionFocus=useRef<HTMLButtonElement|null>(null);
+ const startButton=useRef<HTMLButtonElement|null>(null);
+ const cancelButton=useRef<HTMLButtonElement|null>(null);
+ useEffect(()=>{if(error&&!busy&&actionFocus.current&&!actionFocus.current.disabled)
+  actionFocus.current.focus();},[error,busy]);
+ useEffect(()=>{mutationActive.current=false;return()=>{readGeneration.current++;mutationActive.current=true;};},[]);
  const refresh=useCallback(async()=>{
   const [s,p,h,sp]=await Promise.all([
    api<Scope[]>(token,"/v6/pt/targets/"+targetId+"/scopes?limit=50"),
@@ -75,30 +84,43 @@ export function AutonomousVaptWorkspace({token,targetId}:{token:string;targetId:
    .catch(e=>{if(active)setError(failMessage(e));});
   return()=>{active=false;};
  },[token,mode,scopeId,policyId,profile]);
- const refreshAssessment=useCallback(async()=>{
-  if(!jobId)return;
+ const refreshAssessment=useCallback(async(force=false)=>{
+  if(!jobId||mutationActive.current&&!force)return;
+  const generation=++readGeneration.current;
+  try{
   const current=await api<Job>(token,"/v11/api-vapt/assessments/"+jobId);
+  if(generation!==readGeneration.current||mutationActive.current&&!force)return;
   setJob(current);
   if(current.status==="COMPLETED"){
    const [r,f]=await Promise.all([
     api<Report>(token,"/v11/api-vapt/assessments/"+jobId+"/report"),
     api<{projection:Finding}[]>(token,"/v11/api-vapt/assessments/"+jobId+"/findings?limit=50")
    ]);
+   if(generation!==readGeneration.current||mutationActive.current&&!force)return;
    setReport(r);setFindings(f.filter(x=>x.projection.source).map(x=>x.projection));
    setTerminal(null);
   }else if(["FAILED","CANCELLED"].includes(current.status)){
    const t=await api<{status:string;code:string}>(token,"/v11/api-vapt/assessments/"+jobId+"/terminal");
-   setTerminal(t);setReport(null);
+   if(generation!==readGeneration.current||mutationActive.current&&!force)return;
+   setTerminal(t);setReport(null);setFindings([]);
+  }
+  }catch(error){
+   if(generation!==readGeneration.current||mutationActive.current&&!force)return;
+   throw error;
   }
  },[token,jobId]);
  useEffect(()=>{if(!jobId)return;let live=true;
   const check=()=>{if(live)void refreshAssessment().catch(e=>{if(live)setError(failMessage(e));});};
   check();const timer=setInterval(check,1500);return()=>{live=false;clearInterval(timer);};
  },[jobId,refreshAssessment]);
- async function execute(task:()=>Promise<void>){
+ async function execute(task:()=>Promise<void>,focus?:React.RefObject<HTMLButtonElement|null>){
+  // Strictly one in-flight mutation per workspace even before React re-renders.
+  if(mutationActive.current)return;
+  mutationActive.current=true;readGeneration.current++;
+  actionFocus.current=focus?.current??null;
   setBusy(true);setError("");
   try{await task();}catch(e){setError(failMessage(e));}
-  finally{setBusy(false);}
+  finally{mutationActive.current=false;setBusy(false);}
  }
  async function start(){
   await execute(async()=>{
@@ -108,10 +130,13 @@ export function AutonomousVaptWorkspace({token,targetId}:{token:string;targetId:
     method:"POST",headers:{"idempotency-key":submitKey},body:JSON.stringify(request)});
    setJobId(result.id);setReport(null);setTerminal(null);setComparison(null);
    setSubmitKey(crypto.randomUUID());await refresh();
-  });
+  },startButton);
  }
  async function cancel(){if(!jobId)return;
-  await execute(async()=>{await api(token,"/v11/api-vapt/assessments/"+jobId+"/cancel",{method:"POST",body:"{}"});await refreshAssessment();});
+  await execute(async()=>{
+   await api(token,"/v11/api-vapt/assessments/"+jobId+"/cancel",{method:"POST",body:"{}"});
+   await refreshAssessment(true);
+  },cancelButton);
  }
  async function reassess(){if(!jobId)return;
   await execute(async()=>{
@@ -179,14 +204,14 @@ export function AutonomousVaptWorkspace({token,targetId}:{token:string;targetId:
     <ul>{preview.plan.stages.map(s=><li key={s.id}>{s.id} — {s.engine} (after {s.dependencies.join(", ")||"start"})</li>)}</ul>
    </div>:<p>Choose an existing signed-permit scope to see actual eligibility.</p>}
   <p>Authorization must be issued separately by the existing Phase 06 test-only permit authority.</p>
-  <button disabled={busy||!ready||!token} onClick={()=>void start()}>Start one autonomous assessment</button>
+  <button ref={startButton} disabled={busy||!ready||!token} onClick={()=>void start()}>Start one autonomous assessment</button>
   <h3>Persisted execution progress</h3>
   {!job&&<p>No combined assessment selected.</p>}
   {job&&<div>
    <p role="status">Parent: <strong>{job.status}</strong> · {job.id}</p>
    {job.error_code&&<p role="alert">Failure: {job.error_code}</p>}
    <ul>{job.children.map(x=><li key={x.id}>{x.engine_version}: {x.status}{x.error_code?" · "+x.error_code:""}</li>)}</ul>
-   {["QUEUED","PROCESSING"].includes(job.status)&&<button disabled={busy} onClick={()=>void cancel()}>Cancel assessment</button>}
+   {["QUEUED","PROCESSING"].includes(job.status)&&<button ref={cancelButton} disabled={busy} onClick={()=>void cancel()}>Cancel assessment</button>}
   </div>}
   {terminal&&<div><h3>Terminal diagnostics (not successful VAPT)</h3><p>{terminal.status}: {terminal.code}</p></div>}
   {report&&<div>

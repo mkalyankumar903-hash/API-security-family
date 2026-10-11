@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
+import {emitDiagnostic,classifyHttp} from "./diagnostics-v14.js";
 import { parseAndValidateSpec } from "../../assessment-engine/src/index.js";
 import { withTenant, uuid } from "../../database/src/index.js";
 import { validatePlan } from "../../contracts/src/policy.js";
@@ -52,8 +53,28 @@ function setupSyntheticAuthority(): Map<string,string> {
 export async function makeApp(): Promise<FastifyInstance> {
   const identities = setupSyntheticAuthority();
   const app = Fastify({ logger: false, bodyLimit: 1100000, genReqId: () => uuid() });
+  const requestStart = new WeakMap<FastifyRequest,bigint>();
+  // Local admission is deliberately NOT scanning authorization or an entitlement.
+  const MAX_HTTP_INFLIGHT=128;
+  let inflight=0;
+  const counted=new WeakSet<FastifyRequest>();
+  const release=(req:FastifyRequest)=>{if(counted.delete(req))inflight--;};
+  app.addHook("onRequest",async(req)=>{
+    requestStart.set(req,process.hrtime.bigint());
+    if(inflight>=MAX_HTTP_INFLIGHT)throw new ApiError(429,"HTTP_INFLIGHT_CAPACITY_EXCEEDED");
+    inflight++;counted.add(req);
+  });
+  app.addHook("onRequestAbort",async(req)=>{release(req);});
+  app.addHook("onResponse",async(req,reply)=>{
+    release(req);
+    const start=requestStart.get(req);
+    const elapsed=start===undefined?undefined:Number(process.hrtime.bigint()-start)/1e6;
+    emitDiagnostic({kind:reply.statusCode>=400?"HTTP_REJECTED":"HTTP_COMPLETED",
+      classification:classifyHttp(reply.statusCode),statusCode:reply.statusCode,
+      durationMs:elapsed,requestId:req.id});
+  });
   await app.register(cors, { origin:["http://127.0.0.1:5173","http://localhost:5173"], allowedHeaders: ["authorization","content-type","idempotency-key"], methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"] });
-  app.addHook("onSend",async (req,reply,payload)=>{if(req.method==="GET")reply.header("Cache-Control","no-store").header("Pragma","no-cache");return payload;});
+  app.addHook("onSend",async (_req,reply,payload)=>{reply.header("Cache-Control","no-store").header("Pragma","no-cache").header("X-Content-Type-Options","nosniff").header("Referrer-Policy","no-referrer").header("X-Frame-Options","DENY");return payload;});
   app.addHook("preHandler", async (req) => {
     if (req.url === "/health/live") return;
     const authorization = req.headers.authorization;
@@ -65,9 +86,9 @@ export async function makeApp(): Promise<FastifyInstance> {
   app.setErrorHandler((error,req,reply) => {
     const e = error as Error & { statusCode?:number; code?:string };
     const known=e instanceof ApiError||e instanceof OnboardingError||e instanceof TargetInputError||e instanceof ImportError||e instanceof DetectionError||e instanceof AuthFixtureError||e instanceof UnifiedError||e instanceof PtError;
-    const status = known ? (e instanceof TargetInputError?400:(e as ApiError|OnboardingError|ImportError).statusCode) : e.statusCode === 413 ? 413 : e.code === "23505" ? 409 : e.code === "PT001" ? 429 : 500;
+    const status = known ? (e instanceof TargetInputError?400:(e as ApiError|OnboardingError|ImportError).statusCode) : e.statusCode === 413 ? 413 : e.statusCode === 415 ? 415 : e.statusCode === 400 ? 400 : e.code === "23505" ? 409 : e.code === "PT001" ? 429 : 500;
     req.log.error({requestId:req.id,code:status},"request failed");
-    reply.code(status).send({ error: known ? (e instanceof TargetInputError?e.reason:(e as ApiError|OnboardingError|ImportError).code) : status === 413 ? "BODY_TOO_LARGE" : status === 409 ? "CONFLICT" : status === 429 ? "QUEUE_TENANT_CAPACITY_EXCEEDED" : "INTERNAL_ERROR", requestId:req.id });
+    reply.code(status).send({ error: known ? (e instanceof TargetInputError?e.reason:(e as ApiError|OnboardingError|ImportError).code) : status === 413 ? "BODY_TOO_LARGE" : status === 415 ? "UNSUPPORTED_CONTENT_TYPE" : status === 400 ? "INVALID_REQUEST_BODY" : status === 409 ? "CONFLICT" : status === 429 ? "QUEUE_TENANT_CAPACITY_EXCEEDED" : "INTERNAL_ERROR", requestId:req.id });
   });
   app.get("/health/live",async()=> ({ok:true,service:"api-family",scope:"SPEC_ONLY"}));
   app.post("/v1/targets", async (req,reply) => {
@@ -106,7 +127,8 @@ export async function makeApp(): Promise<FastifyInstance> {
     return withTenant(tenant(req),async tx=>(await tx.query("SELECT id,name,base_url,environment,revision,verification_version,scope_revision,lifecycle,ownership_status,created_at,updated_at,archived_at FROM api_targets WHERE ($1='' OR strpos(lower(name),lower($1))>0 OR strpos(lower(base_url),lower($1))>0) AND ($2::text IS NULL OR lifecycle=$2) AND ($3::text IS NULL OR environment=$3) AND ($4::text IS NULL OR ownership_status=$4) ORDER BY created_at DESC,id LIMIT $5 OFFSET $6",[search,lifecycle??null,environment??null,status??null,pagination.limit,pagination.offset])).rows);
   });
   app.get("/v1/targets/:id",async req => {
-    const r=await withTenant(tenant(req),async tx=>tx.query("SELECT id,name,base_url,environment,revision,verification_version,scope_revision,lifecycle,ownership_status,created_at,updated_at,archived_at FROM api_targets WHERE id=$1",[paramsId(req)]));
+    const targetId=paramsId(req);
+    const r=await withTenant(tenant(req),async tx=>tx.query("SELECT id,name,base_url,environment,revision,verification_version,scope_revision,lifecycle,ownership_status,created_at,updated_at,archived_at FROM api_targets WHERE id=$1",[targetId]));
     if(!r.rowCount)throw new ApiError(404,"NOT_FOUND");
     return r.rows[0];
   });
@@ -177,13 +199,17 @@ export async function makeApp(): Promise<FastifyInstance> {
   });
   app.post("/v1/assessments/:id/cancel",async req=>{
     const id=paramsId(req);
-    return withTenant(tenant(req),async tx=>{
+    const committed=await withTenant(tenant(req),async tx=>{
       const authorized = await tx.query("SELECT public.api_cancel_assessment($1) AS cancelled",[id]);
       if (!authorized.rows[0]?.cancelled) throw new ApiError(409,"NOT_CANCELLABLE_OR_NOT_FOUND");
       const r=await tx.query("SELECT id,status FROM api_assessments WHERE id=$1",[id]);
       await tx.query("INSERT INTO api_audit(id,tenant_id,action,subject_id) VALUES($1,$2,'ASSESSMENT_CANCELLED',$3)",[uuid(),tenant(req),id]);
       return r.rows[0];
     });
+    // The SQL SECURITY DEFINER cancellation has COMMITTED before this event.
+    if(committed.status==="CANCELLED")emitDiagnostic({
+      kind:"ASSESSMENT_TRANSITION",classification:"OK",statusCode:200,state:"CANCELLED"});
+    return committed;
   });
   await registerOnboardingRoutes(app,tenant);
   await registerDiscoveryRoutes(app,tenant);

@@ -22,6 +22,26 @@ export async function processOneJob(options:{signal?:AbortSignal}={}): Promise<b
     await releaseUnstartedWorkerClaim(lease);
     return true;
   }
+  // GitHub CI ONLY: synchronize a real DB lease acquisition with a separate
+  // OS process. "stalled" intentionally refuses cancellation so the main
+  // process' forced-drain deadline must terminate it. No production path.
+  if(process.env.NODE_ENV==="test"&&process.env.SYNTHETIC_AUTH_ENABLED==="true"&&
+    process.env.GITHUB_ACTIONS==="true"&&process.send&&
+    ["cooperative","stalled"].includes(process.env.PHASE14_TEST_CLAIM_BARRIER??"")){
+    const mode=process.env.PHASE14_TEST_CLAIM_BARRIER;
+    process.send({kind:"PHASE14_CLAIM_HELD",assessmentId:jobId,claimGeneration:lease.claim_generation});
+    await new Promise<void>(resolve=>{
+      if(mode==="cooperative"){
+        if(options.signal?.aborted)resolve();
+        else options.signal?.addEventListener("abort",()=>resolve(),{once:true});
+      }
+      // Intentionally unresolved in "stalled", until the real OS child exits.
+    });
+    if(options.signal?.aborted){
+      await releaseUnstartedWorkerClaim(lease);
+      return true;
+    }
+  }
   // DB-authoritative heartbeats only maintain an existing lease. If renewal fails,
   // every governed evaluation/publication boundary still rechecks the private claim.
   let heartbeatInFlight:Promise<void>|null=null;
@@ -62,7 +82,20 @@ export async function processOneJob(options:{signal?:AbortSignal}={}): Promise<b
       return true;
     }
     if(job.engine_version==="pt-orchestrator-v1"){
-      await processPtOrchestrationJob(tenant,jobId,token);
+      // GitHub-hosted isolated OS-process fault injection AFTER a real governed
+      // fixture evaluation and its consumed receipt commit. Never enabled by
+      // production or ordinary synthetic jobs; test parent synchronizes by IPC.
+      const activeFault=process.env.NODE_ENV==="test"&&
+        process.env.SYNTHETIC_AUTH_ENABLED==="true"&&process.env.GITHUB_ACTIONS==="true"&&
+        process.env.PHASE14_TEST_ACTIVE_PT_BARRIER==="stalled"&&Boolean(process.send);
+      await processPtOrchestrationJob(tenant,jobId,token,activeFault?{
+        afterEvaluation:async count=>{
+          if(count!==1)return;
+          process.send?.({kind:"PHASE14_ACTIVE_PT_EVALUATION_COMMITTED",
+            assessmentId:jobId,claimGeneration:lease.claim_generation});
+          await new Promise<void>(()=>{/* actual OS SIGTERM deadline terminates this in-flight worker */});
+        }
+      }:undefined);
       return true;
     }
     if(job.engine_version==="pt-detection-v1"){
@@ -158,6 +191,7 @@ export async function processOneJob(options:{signal?:AbortSignal}={}): Promise<b
       reason:null;
     const disposition=await scheduleConservativeRetry(lease,error).catch(()=>"NOT_RETRYABLE" as const);
     if(disposition==="RETRY_SCHEDULED"||disposition==="RETRY_EXHAUSTED")return true;
+    // Terminal diagnostics are emitted only by finishWorkerAttempt after SQL commit.
     // Failed work is auditable; never mark a failed assessment as successful.
     await withWorkerTenant(tenant, async tx => {
       const leaseCheck = await tx.query("SELECT claim_token,claim_generation,locked_until>clock_timestamp() AS lease_valid FROM api_queue.api_assessment_queue WHERE assessment_id=$1 FOR UPDATE",[jobId]);
