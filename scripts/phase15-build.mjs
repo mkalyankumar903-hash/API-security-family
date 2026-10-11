@@ -10,7 +10,7 @@ const version="0.15.0-rc.1",root=process.cwd();
 const out=resolve("build/phase15-release"),stage=resolve("build/phase15-stage");
 const call=(bin,args,opts={})=>{
  const result=spawnSync(bin,args,{cwd:root,encoding:"utf8",maxBuffer:8388608,...opts});
- if(result.status!==0)throw new Error("PHASE15_BUILD_FAILED:"+bin+":"+(result.stderr||"").slice(0,2500));
+ if(result.status!==0)throw new Error("PHASE15_BUILD_FAILED:"+bin+":"+((result.stdout||"")+"\n"+(result.stderr||"")).slice(0,12000));
  return result.stdout.trim();
 };
 function copy(src,dest){mkdirSync(resolve(dest,".."),{recursive:true});cpSync(src,dest,{recursive:true});}
