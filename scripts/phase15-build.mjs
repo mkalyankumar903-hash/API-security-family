@@ -35,7 +35,7 @@ for(const [which,main] of [["service","service"],["worker","worker"]]){
  mkdirSync(d,{recursive:true});
  copy("build/phase15-runtime/packages",join(d,"packages"));
  copy("packages/database/migrations",join(d,"packages/database/migrations"));
- copy("packages/discovery/src/worker-entry.mjs",join(d,"packages/discovery/src/worker-entry.mjs"));
+ copy("packages/discovery/src/worker-entry-phase15.mjs",join(d,"packages/discovery/src/worker-entry.mjs"));
  copy("packages/contracts/upstream-v032/schemas",join(d,"packages/contracts/upstream-v032/schemas"));
  copy("infrastructure/postgres-init",join(d,"infrastructure/postgres-init"));
  const rootPkg=JSON.parse(readFileSync("package.json","utf8"));

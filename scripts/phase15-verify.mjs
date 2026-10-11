@@ -24,7 +24,7 @@ for(const entry of manifest.artifacts){
    assert(!f.includes("../"),entry.name+": traversal");
    assert(!/(^|\/)\.env($|\/|\.)|(^|\/)\.npmrc$|(^|\/)id_rsa$|\.pem$|\.key$|\/node_modules\/|\/tests?\//i.test(f),entry.name+": unsafe path "+f);
   }
-  if(entry.name==="api-service.tar.gz")assert(paths.some(x=>x.endsWith("/packages/service/src/server.js")));
+  if(entry.name==="api-service.tar.gz"){assert(paths.some(x=>x.endsWith("/packages/service/src/server.js")));assert(paths.some(x=>x.endsWith("/packages/discovery/src/worker-entry.mjs")));}
   if(entry.name==="api-worker.tar.gz")assert(paths.some(x=>x.endsWith("/packages/worker/src/main.js")));
   if(entry.name==="postgres16-migrations-001-019.tar.gz")assert.equal(paths.filter(x=>/^\.\/migrations\/\d{3}.*\.sql$/.test(x)).length,19);
   if(entry.name==="sdk-private.tgz"){assert(paths.some(x=>x.endsWith("/dist/v13.js")));assert(paths.some(x=>x.endsWith("/dist/v13.d.ts")));}

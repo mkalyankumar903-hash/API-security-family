@@ -17,7 +17,7 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
     && chown -R node:node /tmp/api-family
 COPY --from=builder --chown=node:node /src/build/phase15-runtime/packages ./packages
 COPY --from=builder --chown=node:node /src/packages/database/migrations ./packages/database/migrations
-COPY --from=builder --chown=node:node /src/packages/discovery/src/worker-entry.mjs ./packages/discovery/src/worker-entry.mjs
+COPY --from=builder --chown=node:node /src/packages/discovery/src/worker-entry-phase15.mjs ./packages/discovery/src/worker-entry.mjs
 COPY --from=builder --chown=node:node /src/packages/contracts/upstream-v032/schemas ./packages/contracts/upstream-v032/schemas
 USER node
 
