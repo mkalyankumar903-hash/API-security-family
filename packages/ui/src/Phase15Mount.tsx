@@ -52,5 +52,8 @@ export class Phase15ErrorBoundary extends React.Component<
  }
 }
 export function Phase15Mount(props:Phase15MountProps){
- return <Phase15ErrorBoundary onError={props.onError}><Phase15MountInner {...props}/></Phase15ErrorBoundary>;
+ // React passive effects run after commit: remount synchronously on an authority-context change.
+ // This prevents one-frame stale read-only tenant data and resets a previously failed boundary.
+ const authorityKey=[props.apiOrigin,props.tenantContext,props.sessionRevision].join("\u0000");
+ return <Phase15ErrorBoundary key={authorityKey} onError={props.onError}><Phase15MountInner {...props}/></Phase15ErrorBoundary>;
 }

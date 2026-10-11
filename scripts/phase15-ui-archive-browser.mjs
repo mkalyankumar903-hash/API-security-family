@@ -25,11 +25,15 @@ try{
  'import {createRoot} from "react-dom/client";',
  'import {Phase15Mount,Phase15ErrorBoundary} from "@lumicsec/api-family-ui-rc";',
  'let root=createRoot(document.getElementById("root"));',
- 'let tenant="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",rev=0,token="ci-synthetic-token";',
- 'const tokenProvider=()=>token;',
+ 'let tenant="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",rev=0,token="ci-synthetic-token",projectionMode=false;',
+ 'const tokenProvider=()=>projectionMode?(tenant.startsWith("a")?"ci-alpha":"ci-beta"):token;',
  'const pane=document.createElement("div");document.body.prepend(pane);',
- 'for(const [title,fn] of [["Switch tenant",()=>{tenant=tenant[0]==="a"?"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";rev++;}],["Rotate session",()=>rev++],["Revoke token",()=>{token="revoked";rev++;}],["Unmount remount",()=>{root.unmount();root=createRoot(document.getElementById("root"));rev++;}]]){const b=document.createElement("button");b.textContent=title;b.onclick=()=>{fn();render();};pane.append(b);}',
- 'function render(){root.render(React.createElement(Phase15Mount,{apiOrigin:"https://phase15-host-simulator.invalid",tenantContext:tenant,sessionRevision:String(rev),accessToken:tokenProvider}));}',
+ 'for(const [title,fn] of [["Switch tenant",()=>{tenant=tenant[0]==="a"?"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";rev++;}],["Rotate session",()=>rev++],["Revoke token",()=>{token="revoked";projectionMode=false;rev++;}],["Unmount remount",()=>{root.unmount();root=createRoot(document.getElementById("root"));rev++;}]]){const b=document.createElement("button");b.textContent=title;b.onclick=()=>{fn();render();};pane.append(b);}',
+ 'let staleTenantProjection=false;',
+ 'new MutationObserver(()=>{const el=document.querySelector("[data-visible-tenant]");if(el?.getAttribute("data-visible-tenant")?.startsWith("b")&&el.textContent?.includes("111 consumed"))staleTenantProjection=true;}).observe(document.getElementById("root"),{subtree:true,childList:true,attributes:true,characterData:true});',
+ 'function render(){root.render(React.createElement("div",{"data-visible-tenant":tenant},React.createElement(Phase15Mount,{apiOrigin:"https://phase15-host-simulator.invalid",tenantContext:tenant,sessionRevision:String(rev),accessToken:tokenProvider})));}',
+ 'window.phase15EnterProjection=()=>{tenant="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";projectionMode=true;rev++;render();};',
+ 'window.phase15HasStaleProjection=()=>staleTenantProjection;',
  'render();',
  'window.phase15CrashBoundary=()=>{const Broken=()=>{throw new Error("sensitive-internal-fixture");};root.render(React.createElement(Phase15ErrorBoundary,null,React.createElement(Broken)));};'
  ].join("\n"));
@@ -53,12 +57,15 @@ try{
   if(route.request().method()==="OPTIONS")return route.fulfill({status:204,headers:cors});
   if(route.request().headers().authorization==="Bearer revoked")
    return route.fulfill({status:403,headers:cors,contentType:"application/json",body:JSON.stringify({error:"PERMISSION_DENIED"})});
+  const simulatedToken=route.request().headers().authorization;
+  const projectedTenant=simulatedToken==="Bearer ci-alpha"?"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa":
+    simulatedToken==="Bearer ci-beta"?"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb":null;
   const response=endpoint.endsWith("/v13/capabilities")?
    {schemaVersion:"api-family-commercial-v13",hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",scanningAuthority:false,meterDefinitions:[]}:
-   {schemaVersion:"api-family-commercial-v13",tenantContext:"ISOLATED_SYNTHETIC_ONLY",
+   {schemaVersion:"api-family-commercial-v13",tenantContext:projectedTenant??"ISOLATED_SYNTHETIC_ONLY",
     hostAuthority:"HOST_AUTHORITY_NOT_CONFIGURED",feature:"OFFLINE_API_ASSESSMENT_COMPLETED",
     meterUnit:"offline synthetic",billable:false,monthStart:"2026-10-01",entitlement:null,
-    quota:0,consumed:0,reserved:0,remaining:0,decision:"HOST_AUTHORITY_NOT_CONFIGURED"};
+    quota:0,consumed:projectedTenant?(projectedTenant.startsWith("a")?111:222):0,reserved:0,remaining:0,decision:"HOST_AUTHORITY_NOT_CONFIGURED"};
   return route.fulfill({status:200,headers:cors,contentType:"application/json",body:JSON.stringify(response)});
  });
  await page.goto(url);
@@ -69,6 +76,17 @@ try{
   await page.getByRole("button",{name}).click();
   await mount.getByRole("alert").waitFor({timeout:15000});
  }
+ // A successful synthetic read-only response must NEVER survive a tenant authority change.
+ await page.evaluate(()=>window.phase15EnterProjection());
+ await mount.getByText(/111 consumed/).waitFor({timeout:15000});
+ await page.getByRole("button",{name:"Switch tenant"}).click();
+ await mount.getByText(/222 consumed/).waitFor({timeout:15000});
+ assert.equal(await page.evaluate(()=>window.phase15HasStaleProjection()),false,
+  "PHASE15_STALE_CROSS_TENANT_READ_ONLY_PROJECTION");
+ await page.getByRole("button",{name:"Revoke token"}).click();
+ await mount.getByRole("alert").waitFor({timeout:15000});
+ assert.equal(await page.evaluate(()=>window.phase15HasStaleProjection()),false);
+ console.log("PHASE15_ARCHIVED_UI_SUCCESSFUL_PROJECTION_TENANT_SWITCH_NO_STALE_LEAK_PASS");
  await page.evaluate(()=>{document.documentElement.dir="rtl";document.documentElement.style.fontSize="200%";});
  assert(await mount.getByRole("heading",{name:"LumicSec API Security"}).isVisible());
 
